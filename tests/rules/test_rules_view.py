@@ -49,8 +49,7 @@ class RulesViewTest(unittest.TestCase):
             "staffing.UNCONFIRMED_RELEASE_DAYS_BEFORE": "5 days before the project",
             "credentials.CREDENTIAL_EXPIRY_ALERT_DAYS": "60, 30 and 7 days before expiration",
             "attendance.LATE_GRACE_PERIOD": "15 minutes",
-            "attendance.LEADER_PHONE_VISIBLE_FROM_DAYS_BEFORE":
-                "1 calendar day before the project (church time zone)",
+            "attendance.LEADER_PHONE_VISIBLE_FROM_DAYS_BEFORE": "1 calendar day before the project (church time zone)",
             "requester_access.REGENERATED_REQUESTER_LINK_LIFETIME": "14 days",
             "requester_access.SURVEY_REMINDER_COUNT": "1 reminder",
             "media.PHOTO_RETENTION_AFTER_CLOSE": "90 days",
@@ -63,8 +62,7 @@ class RulesViewTest(unittest.TestCase):
             "auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES": "7 days",
             "outbox.OUTBOX_BACKOFF_INITIAL": "1 minute",
             "reliability.PENALTY_EXCUSED": "0 points",
-            "reliability.PENALTY_NO_SHOW": "Not decided yet: waiting for the product owner "
-            "(Q-001)",
+            "reliability.PENALTY_NO_SHOW": "Not decided yet: waiting for the product owner (Q-001)",
         }
         for key, expected in cases.items():
             with self.subTest(rule=key):

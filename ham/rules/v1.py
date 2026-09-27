@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from .types import CalendarYears, Pending, contains_pending
 
@@ -148,50 +148,71 @@ class ReliabilityRules:
         note="How 'days before' is measured is open: PRD-GAP Q-073.",
     )
     PENALTY_CANCEL_7_PLUS_DAYS: int = rule(
-        0, label="Penalty: cancelled 7 or more days before", unit="points",
+        0,
+        label="Penalty: cancelled 7 or more days before",
+        unit="points",
         sources=("PRD §33", "PRD §34.1"),
     )
     PENALTY_CANCEL_4_TO_6_DAYS: int | Pending = rule(
         Pending("Q-001", "3 points (small)"),
-        label="Penalty: cancelled 4–6 days before (small)", unit="points",
-        sources=("PRD §34.1", "Q-001"), note=_Q001,
+        label="Penalty: cancelled 4–6 days before (small)",
+        unit="points",
+        sources=("PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     PENALTY_CANCEL_2_TO_3_DAYS: int | Pending = rule(
         Pending("Q-001", "6 points (moderate)"),
-        label="Penalty: cancelled 2–3 days before (moderate)", unit="points",
-        sources=("PRD §34.1", "Q-001"), note=_Q001,
+        label="Penalty: cancelled 2–3 days before (moderate)",
+        unit="points",
+        sources=("PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     PENALTY_CANCEL_1_DAY: int | Pending = rule(
         Pending("Q-001", "10 points (larger)"),
-        label="Penalty: cancelled 1 day before (larger)", unit="points",
-        sources=("PRD §34.1", "Q-001"), note=_Q001,
+        label="Penalty: cancelled 1 day before (larger)",
+        unit="points",
+        sources=("PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     PENALTY_CANCEL_SAME_DAY: int | Pending = rule(
         Pending("Q-001", "16 points (major; slightly less than a no-show)"),
-        label="Penalty: same-day cancellation (major)", unit="points",
-        sources=("PRD §33", "PRD §34.1", "Q-001"), note=_Q001,
+        label="Penalty: same-day cancellation (major)",
+        unit="points",
+        sources=("PRD §33", "PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     PENALTY_NO_SHOW: int | Pending = rule(
         Pending("Q-001", "20 points (largest)"),
-        label="Penalty: no-show (largest)", unit="points",
-        sources=("PRD §33", "PRD §34.1", "Q-001"), note=_Q001,
+        label="Penalty: no-show (largest)",
+        unit="points",
+        sources=("PRD §33", "PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     RECOVERY_PER_FULFILLED_COMMITMENT: int | Pending = rule(
         Pending("Q-001", "+2 points per commitment fulfilled as committed, capped at 100"),
-        label="Gradual recovery for each commitment fulfilled as committed", unit="points",
-        sources=("PRD §34.1", "Q-001"), note=_Q001,
+        label="Gradual recovery for each commitment fulfilled as committed",
+        unit="points",
+        sources=("PRD §34.1", "Q-001"),
+        note=_Q001,
     )
     PENALTY_EXCUSED: int = rule(
-        0, label="Penalty: cancellation or no-show marked excused (reason required)",
-        unit="points", sources=("PRD §33", "PRD §34.1", "Q-022"),
+        0,
+        label="Penalty: cancellation or no-show marked excused (reason required)",
+        unit="points",
+        sources=("PRD §33", "PRD §34.1", "Q-022"),
     )
     PENALTY_DEACTIVATION_AUTO_CANCEL: int = rule(
-        0, label="Penalty: assignment cancelled because the volunteer deactivated or the "
-        "account was turned off", unit="points", sources=("PRD §21", "Q-052"),
+        0,
+        label="Penalty: assignment cancelled because the volunteer deactivated or the "
+        "account was turned off",
+        unit="points",
+        sources=("PRD §21", "Q-052"),
     )
     PENALTY_DECLINE_LAST_MINUTE_ASSIGNMENT: int = rule(
-        0, label="Penalty: declining an unsolicited assignment made inside the last 48 hours",
-        unit="points", sources=("PRD §30",),
+        0,
+        label="Penalty: declining an unsolicited assignment made inside the last 48 hours",
+        unit="points",
+        sources=("PRD §30",),
     )
 
 
@@ -254,7 +275,10 @@ class RequesterAccessRules:
         sources=("PRD §54", "PRD §76"),
     )
     SURVEY_REMINDER_COUNT: int = rule(
-        1, label="Number of survey reminders", unit="reminders", unit_one="reminder",
+        1,
+        label="Number of survey reminders",
+        unit="reminders",
+        unit_one="reminder",
         sources=("PRD §54",),
     )
     SURVEY_RATING_MIN: int = rule(1, label="Lowest satisfaction rating", sources=("PRD §54",))
@@ -267,15 +291,20 @@ class RequesterAccessRules:
 @dataclass(frozen=True, slots=True)
 class MediaRules:
     REQUESTER_MEDIA_BATCH_MAX_PHOTOS: int = rule(
-        10, label="Photos per requester upload batch (initial and each reopened batch)",
-        unit="photos", sources=("PRD §45", "PRD §46"),
+        10,
+        label="Photos per requester upload batch (initial and each reopened batch)",
+        unit="photos",
+        sources=("PRD §45", "PRD §46"),
     )
     REQUESTER_MEDIA_BATCH_MAX_VIDEOS: int = rule(
-        3, label="Videos per requester upload batch (initial and each reopened batch)",
-        unit="videos", sources=("PRD §45", "PRD §46"),
+        3,
+        label="Videos per requester upload batch (initial and each reopened batch)",
+        unit="videos",
+        sources=("PRD §45", "PRD §46"),
     )
     REQUESTER_MEDIA_MAX_VIDEO_DURATION: timedelta = rule(
-        timedelta(minutes=2), label="Longest video a requester may upload",
+        timedelta(minutes=2),
+        label="Longest video a requester may upload",
         sources=("PRD §45", "PRD §46"),
     )
     VIDEO_RETENTION_AFTER_CLOSE: timedelta = rule(
@@ -316,8 +345,7 @@ class RetentionRules:
     )
     VOLUNTEER_AGREEMENT_RETENTION_AFTER_INACTIVE: CalendarYears = rule(
         CalendarYears(7),
-        label="Volunteer agreement records are kept this long after the volunteer becomes "
-        "inactive",
+        label="Volunteer agreement records are kept this long after the volunteer becomes inactive",
         sources=("PRD §42",),
     )
 
@@ -339,7 +367,9 @@ class AuthRules:
         sources=("PRD §60.1", "Q-010"),
     )
     MFA_RECOVERY_CODE_COUNT: int = rule(
-        10, label="Recovery codes issued at enrollment or regeneration", unit="codes",
+        10,
+        label="Recovery codes issued at enrollment or regeneration",
+        unit="codes",
         sources=("PRD §60.1", "Q-035", "Q-044"),
     )
     STEP_UP_ACTIONS: tuple[tuple[str, str], ...] = rule(
@@ -364,7 +394,9 @@ class AuthRules:
         sources=("Q-010", "Q-031", "Q-046"),
     )
     SIGN_IN_CODE_LENGTH: int = rule(
-        6, label="Digits in the emailed sign-in code", unit="digits",
+        6,
+        label="Digits in the emailed sign-in code",
+        unit="digits",
         sources=("PRD §60.2", "foundation.md §2"),
     )
     SIGN_IN_CODE_LIFETIME: timedelta = rule(
@@ -373,12 +405,15 @@ class AuthRules:
         sources=("PRD §60.2", "Q-032"),
     )
     SIGN_IN_CODE_MAX_ATTEMPTS: int = rule(
-        5, label="Wrong code entries before the emailed code stops working", unit="tries",
+        5,
+        label="Wrong code entries before the emailed code stops working",
+        unit="tries",
         sources=("PRD §60.2", "Q-032"),
     )
     SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR: int | Pending = rule(
         Pending("Q-070", "5 sign-in emails per address per hour"),
-        label="Sign-in emails per email address per hour", unit="emails",
+        label="Sign-in emails per email address per hour",
+        unit="emails",
         sources=("PRD §60.2", "Q-070"),
         note="Proposed in Q-042 (merged into Q-032) but not in the Q-032 decision.",
     )
@@ -395,7 +430,8 @@ class AuthRules:
     )
     MFA_CODE_MAX_ATTEMPTS: int | Pending = rule(
         Pending("Q-072", "5 wrong authenticator codes, then a new email sign-in is needed"),
-        label="Wrong authenticator or recovery codes before the attempt is locked", unit="tries",
+        label="Wrong authenticator or recovery codes before the attempt is locked",
+        unit="tries",
         sources=("PRD §60.1", "Q-072"),
     )
     SESSION_IDLE_LIFETIME_STANDARD: timedelta = rule(
@@ -428,7 +464,8 @@ class AuthRules:
 class ReportingRules:
     PUBLIC_EMBED_MIN_GROUP_SIZE: int | Pending = rule(
         Pending("Q-027", "5; below it show 'Fewer than 5' and hide cost and satisfaction"),
-        label="Public scoreboard hides any breakdown smaller than", unit="projects",
+        label="Public scoreboard hides any breakdown smaller than",
+        unit="projects",
         sources=("PRD §63", "PRD §68", "Q-005", "Q-027"),
     )
 
@@ -439,15 +476,19 @@ class ReportingRules:
 @dataclass(frozen=True, slots=True)
 class OutboxRules:
     OUTBOX_MAX_ATTEMPTS: int = rule(
-        8, label="Delivery attempts before an integration message is dead-lettered",
-        unit="attempts", sources=("PRD §70.3", "foundation.md §5"),
+        8,
+        label="Delivery attempts before an integration message is dead-lettered",
+        unit="attempts",
+        sources=("PRD §70.3", "foundation.md §5"),
     )
     OUTBOX_BACKOFF_INITIAL: timedelta = rule(
-        timedelta(minutes=1), label="First retry delay (doubles each attempt)",
+        timedelta(minutes=1),
+        label="First retry delay (doubles each attempt)",
         sources=("PRD §70.3", "foundation.md §5"),
     )
     OUTBOX_BACKOFF_MAX: timedelta = rule(
-        timedelta(hours=6), label="Longest retry delay",
+        timedelta(hours=6),
+        label="Longest retry delay",
         sources=("PRD §70.3", "foundation.md §5"),
     )
 
@@ -528,7 +569,7 @@ def check_reliability_penalties(
             problems.append(f"{name}: penalty must be between 1 and {score_max}")
     if problems:
         return tuple(problems)
-    for (lo_name, lo), (hi_name, hi) in zip(ladder, ladder[1:]):
+    for (lo_name, lo), (hi_name, hi) in zip(ladder, ladder[1:], strict=False):
         if not lo < hi:
             problems.append(f"{lo_name} ({lo}) must be less than {hi_name} ({hi})")
     if isinstance(recovery, bool) or not isinstance(recovery, int) or not 0 < recovery:
@@ -558,9 +599,11 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
         p.append("reconfirmation reminders must fall between reconfirmation and release")
     if not s.UNDERSTAFFED_ALERT_BEFORE_START > s.AUTO_STAFFING_CUTOFF_BEFORE_START:
         p.append("understaffed alert must come before the 48-hour cutoff")
-    if not s.UNCONFIRMED_RELEASE_DAYS_BEFORE * timedelta(days=1) - (
-        s.WAITLIST_PROMOTION_CONFIRM_WINDOW
-    ) > s.AUTO_STAFFING_CUTOFF_BEFORE_START:
+    if (
+        not s.UNCONFIRMED_RELEASE_DAYS_BEFORE * timedelta(days=1)
+        - (s.WAITLIST_PROMOTION_CONFIRM_WINDOW)
+        > s.AUTO_STAFFING_CUTOFF_BEFORE_START
+    ):
         p.append("a slot released at day 5 must be confirmable before the 48-hour cutoff")
 
     if not r.SCORE_MIN <= r.INITIAL_SCORE <= r.SCORE_MAX:
@@ -589,14 +632,15 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
         r.RECOVERY_PER_FULFILLED_COMMITMENT,
     )
     if not any(contains_pending(v) for v in q001):
+        # No value is Pending here, so each is a decided int.
         p.extend(
             check_reliability_penalties(
-                days_4_to_6=r.PENALTY_CANCEL_4_TO_6_DAYS,
-                days_2_to_3=r.PENALTY_CANCEL_2_TO_3_DAYS,
-                day_1=r.PENALTY_CANCEL_1_DAY,
-                same_day=r.PENALTY_CANCEL_SAME_DAY,
-                no_show=r.PENALTY_NO_SHOW,
-                recovery=r.RECOVERY_PER_FULFILLED_COMMITMENT,
+                days_4_to_6=cast(int, r.PENALTY_CANCEL_4_TO_6_DAYS),
+                days_2_to_3=cast(int, r.PENALTY_CANCEL_2_TO_3_DAYS),
+                day_1=cast(int, r.PENALTY_CANCEL_1_DAY),
+                same_day=cast(int, r.PENALTY_CANCEL_SAME_DAY),
+                no_show=cast(int, r.PENALTY_NO_SHOW),
+                recovery=cast(int, r.RECOVERY_PER_FULFILLED_COMMITMENT),
                 score_max=r.SCORE_MAX,
             )
         )

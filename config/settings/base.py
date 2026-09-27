@@ -84,7 +84,7 @@ DATABASES = {
 DATABASES["default"]["ATOMIC_REQUESTS"] = False
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DJANGO_CONN_MAX_AGE", default=60)
 
-AUTH_PASSWORD_VALIDATORS = [
+AUTH_PASSWORD_VALIDATORS: list[dict[str, str]] = [
     # HAM has no usable password (foundation.md §3, User model): sign-in is by emailed code
     # (django-allauth, S3b). This list stays empty on purpose rather than validating a
     # password field nothing ever sets.

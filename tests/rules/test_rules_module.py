@@ -7,6 +7,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 from ham.rules import RULES, Pending, check_invariants
 from ham.rules.types import contains_pending, pending_questions
@@ -14,6 +15,8 @@ from ham.rules.v1 import iter_rules
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RULES_DIR = REPO_ROOT / "ham" / "rules"
+
+
 def _imported_modules(path: Path) -> list[str]:
     """Modules imported by a file (relative imports start with '.')."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -84,7 +87,7 @@ class SourcesAndLabelsTest(unittest.TestCase):
 class ImmutabilityTest(unittest.TestCase):
     def test_groups_are_frozen(self) -> None:
         with self.assertRaises(dataclasses.FrozenInstanceError):
-            RULES.staffing = None  # type: ignore[misc]
+            RULES.staffing = None  # type: ignore[misc, assignment]
 
     def test_values_are_frozen(self) -> None:
         for gf in dataclasses.fields(RULES):
@@ -118,9 +121,7 @@ class PurityTest(unittest.TestCase):
     def test_no_django_import_in_source(self) -> None:
         for path in RULES_DIR.glob("*.py"):
             with self.subTest(file=path.name):
-                self.assertFalse(
-                    any(m.split(".")[0] == "django" for m in _imported_modules(path))
-                )
+                self.assertFalse(any(m.split(".")[0] == "django" for m in _imported_modules(path)))
 
     def test_importing_rules_does_not_load_django_or_io_modules(self) -> None:
         code = (
@@ -155,12 +156,17 @@ class InvariantsTest(unittest.TestCase):
         return dataclasses.replace(RULES, **{group: g})
 
     def test_inconsistent_values_are_caught(self) -> None:
-        cases = [
+        cases: list[tuple[str, dict[str, Any], str]] = [
             ("staffing", {"UNCONFIRMED_RELEASE_DAYS_BEFORE": 7}, "release"),
             ("staffing", {"RECONFIRMATION_REMINDER_DAYS_BEFORE": (5, 6, 7)}, "descending"),
             ("staffing", {"RECONFIRMATION_REMINDER_DAYS_BEFORE": (8, 6, 5)}, "between"),
-            ("staffing", {"UNDERSTAFFED_ALERT_BEFORE_START": RULES.staffing.
-                          AUTO_STAFFING_CUTOFF_BEFORE_START}, "understaffed"),
+            (
+                "staffing",
+                {
+                    "UNDERSTAFFED_ALERT_BEFORE_START": RULES.staffing.AUTO_STAFFING_CUTOFF_BEFORE_START
+                },
+                "understaffed",
+            ),
             ("reliability", {"CANCELLATION_BAND_LOWER_BOUNDS_DAYS": (7, 4, 2, 1)}, "end at 0"),
             ("reliability", {"CANCELLATION_BAND_LOWER_BOUNDS_DAYS": (6, 4, 2, 1, 0)}, "free"),
             ("reliability", {"PENALTY_EXCUSED": 1}, "PENALTY_EXCUSED"),
@@ -168,10 +174,16 @@ class InvariantsTest(unittest.TestCase):
             ("reliability", {"PENALTY_DECLINE_LAST_MINUTE_ASSIGNMENT": 5}, "DECLINE"),
             ("reliability", {"INITIAL_SCORE": 101}, "initial score"),
             ("credentials", {"CREDENTIAL_EXPIRY_ALERT_DAYS": (7, 30, 60)}, "credential"),
-            ("requester_access", {"SURVEY_REMINDER_AFTER_COMPLETION":
-                                  RULES.requester_access.SURVEY_LINK_LIFETIME}, "survey"),
-            ("auth", {"SESSION_IDLE_LIFETIME_MFA_ROLES":
-                      RULES.auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES}, "MFA idle"),
+            (
+                "requester_access",
+                {"SURVEY_REMINDER_AFTER_COMPLETION": RULES.requester_access.SURVEY_LINK_LIFETIME},
+                "survey",
+            ),
+            (
+                "auth",
+                {"SESSION_IDLE_LIFETIME_MFA_ROLES": RULES.auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES},
+                "MFA idle",
+            ),
         ]
         for group, changes, expected_fragment in cases:
             with self.subTest(group=group, changes=changes):

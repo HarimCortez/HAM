@@ -27,8 +27,9 @@ def encode_value(value: object) -> Any:
     if isinstance(value, str):
         return {"str": value}
     if isinstance(value, timedelta):
-        return {"timedelta_us": (value.days * 86_400 + value.seconds) * 1_000_000
-                + value.microseconds}
+        return {
+            "timedelta_us": (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
+        }
     if isinstance(value, CalendarYears):
         return {"calendar_years": value.years}
     if isinstance(value, tuple):

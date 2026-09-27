@@ -21,4 +21,4 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 # Speed only; no real passwords exist (HAM has no usable password, see base.py).
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-LOGGING["root"]["level"] = "WARNING"  # noqa: F405
+LOGGING["root"]["level"] = "WARNING"  # type: ignore[index]  # noqa: F405

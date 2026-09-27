@@ -29,6 +29,13 @@ dev = [
   "import-linter>=2.1",
 ]
 
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ham*", "config*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -37,6 +44,10 @@ extend-exclude = ["design-system", "frontend", "docs"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "DJ"]
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# Expected-value tables in tests hold long plain-language strings the formatter cannot wrap.
+"tests/**" = ["E501"]
 
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]

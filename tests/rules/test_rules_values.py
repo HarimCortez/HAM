@@ -121,7 +121,7 @@ class PinnedValuesTest(unittest.TestCase):
                 value = actual[key]
                 self.assertIs(type(value), type(expected), key)
                 if isinstance(expected, Pending):
-                    self.assertEqual(value.question, expected.question)
+                    self.assertEqual(value.question, expected.question)  # type: ignore[attr-defined]
                 else:
                     self.assertEqual(value, expected)
 

@@ -17,7 +17,7 @@ from django.db import models
 try:  # pragma: no cover - exercised via uuid7() either way
     from uuid6 import uuid7 as _library_uuid7
 except ImportError:  # pragma: no cover
-    _library_uuid7 = None
+    _library_uuid7 = None  # type: ignore[assignment]
 
 
 def uuid7() -> uuid.UUID:

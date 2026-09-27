@@ -4,16 +4,29 @@
 set -euo pipefail
 
 PG_BIN="${PG_BIN:-/usr/lib/postgresql/16/bin}"
-PGDATA_DIR="${PGDATA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pgdata}"
-SOCKET_DIR="$PGDATA_DIR/sockets"
+PGROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pgdata"
+PGDATA_DIR="${PGDATA_DIR:-$PGROOT/data}"
+SOCKET_DIR="${SOCKET_DIR:-$PGROOT/sockets}"
+
+# Postgres refuses to run as root (e.g. in containers). In that case run the
+# server-side commands as the unprivileged `postgres` OS user.
+if [ "$(id -u)" = "0" ]; then
+  AS_PG=(runuser -u postgres --)
+else
+  AS_PG=()
+fi
 
 start() {
-  mkdir -p "$SOCKET_DIR"
+  mkdir -p "$SOCKET_DIR" "$PGDATA_DIR"
+  if [ "$(id -u)" = "0" ]; then
+    chown postgres "$SOCKET_DIR" "$PGDATA_DIR"
+    chmod 700 "$PGDATA_DIR"
+  fi
   if [ ! -f "$PGDATA_DIR/PG_VERSION" ]; then
     echo "Initializing Postgres cluster at $PGDATA_DIR ..."
-    "$PG_BIN/initdb" -D "$PGDATA_DIR" -U postgres --auth=trust --no-locale --encoding=UTF8 >/dev/null
+    "${AS_PG[@]}" "$PG_BIN/initdb" -D "$PGDATA_DIR" -U postgres --auth=trust --no-locale --encoding=UTF8 >/dev/null
   fi
-  "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" -l "$PGDATA_DIR/postgres.log" \
+  "${AS_PG[@]}" "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" -l "$PGDATA_DIR/postgres.log" \
     -o "-k $SOCKET_DIR -c listen_addresses='127.0.0.1' -p 5432" start
   export PGHOST="$SOCKET_DIR"
   "$PG_BIN/createdb" -h "$SOCKET_DIR" -U postgres ham_dev 2>/dev/null || true
@@ -25,11 +38,11 @@ start() {
 }
 
 stop() {
-  "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" stop -m fast || true
+  "${AS_PG[@]}" "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" stop -m fast || true
 }
 
 status() {
-  "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" status
+  "${AS_PG[@]}" "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" status
 }
 
 case "${1:-start}" in

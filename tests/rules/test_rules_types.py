@@ -1,7 +1,9 @@
 """Pending placeholders refuse use; CalendarYears never under-retains; cancellation bands."""
 
 import unittest
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from ham.rules import (
     RULES,
@@ -18,7 +20,7 @@ class PendingRefusesUseTest(unittest.TestCase):
 
     def test_every_kind_of_use_raises(self) -> None:
         p = self.P
-        uses = {
+        uses: dict[str, Callable[[], object]] = {
             "bool": lambda: bool(p),
             "if": lambda: 1 if p else 0,
             "int": lambda: int(p),
@@ -91,9 +93,7 @@ class CalendarYearsTest(unittest.TestCase):
 
     def test_after_keeps_time_and_utc(self) -> None:
         start = datetime(2024, 2, 29, 23, 30, tzinfo=UTC)
-        self.assertEqual(
-            CalendarYears(1).after(start), datetime(2025, 3, 1, 23, 30, tzinfo=UTC)
-        )
+        self.assertEqual(CalendarYears(1).after(start), datetime(2025, 3, 1, 23, 30, tzinfo=UTC))
 
     def test_seven_calendar_years_is_never_shorter_than_elapsed_days_it_spans(self) -> None:
         start = date(2020, 2, 29)
@@ -136,13 +136,15 @@ class CancellationBandTest(unittest.TestCase):
 
 
 class ReliabilityProposalCheckTest(unittest.TestCase):
-    BASE = dict(days_4_to_6=3, days_2_to_3=6, day_1=10, same_day=16, no_show=20, recovery=2)
+    BASE: dict[str, Any] = dict(
+        days_4_to_6=3, days_2_to_3=6, day_1=10, same_day=16, no_show=20, recovery=2
+    )
 
     def test_proposal_for_q001_satisfies_prd_ordering(self) -> None:
         self.assertEqual(check_reliability_penalties(**self.BASE), ())
 
     def test_violations(self) -> None:
-        cases = [
+        cases: list[tuple[dict[str, Any], str]] = [
             ({"same_day": 20}, "same day (20) must be less than no-show"),
             ({"same_day": 25}, "same day (25) must be less than no-show"),
             ({"days_2_to_3": 3}, "4-6 days (3) must be less than 2-3 days"),
