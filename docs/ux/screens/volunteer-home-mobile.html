@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Volunteer Home · HAM mockup</title>
+<!-- Hi-fi mockup. Spec: docs/ux/navigation.md §7 (Volunteer home, phone). Design system: design-system/components.md, patterns.md. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Oswald:wght@500..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../../design-system/tokens.css">
+<script>
+  // Theme: ?theme=dark|light, else OS. Set on <html> only (design-system/README.md).
+  (function () {
+    var t = new URLSearchParams(location.search).get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ham-bg-sunken);
+    color: var(--ham-text-primary);
+    font-family: var(--ham-font-ui);
+    font-size: var(--ham-type-body-size);
+    line-height: var(--ham-type-body-line-height);
+    font-feature-settings: "cv11";
+  }
+  .i { width: var(--ham-size-icon-md); height: var(--ham-size-icon-md); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .i-sm { width: var(--ham-size-icon-sm); height: var(--ham-size-icon-sm); }
+  .i-lg { width: var(--ham-size-icon-lg); height: var(--ham-size-icon-lg); }
+  :focus-visible { outline: var(--ham-size-focus-ring-width) solid var(--ham-focus-ring); outline-offset: var(--ham-size-focus-ring-offset); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  /* ---------- Showcase chrome (outside the device; not part of the app) ---------- */
+  .showcase { min-height: 100vh; display: flex; gap: var(--ham-space-10); align-items: flex-start; justify-content: center; padding: var(--ham-space-10) var(--ham-space-6); }
+  .showcase__notes { width: 280px; padding-top: var(--ham-space-8); color: var(--ham-text-secondary); font-size: var(--ham-type-small-size); line-height: var(--ham-type-small-line-height); }
+  .showcase__notes h1 { font-family: var(--ham-font-display); font-weight: 600; font-size: var(--ham-type-h3-size); line-height: var(--ham-type-h3-line-height); color: var(--ham-text-primary); margin: 0 0 var(--ham-space-2); }
+  .showcase__notes p { margin: 0 0 var(--ham-space-3); }
+  .theme-toggle { display: inline-flex; align-items: center; gap: var(--ham-space-2); min-height: var(--ham-size-target-min); padding: 0 var(--ham-space-4); border-radius: var(--ham-radius-pill); border: 1.5px solid var(--ham-border-strong); background: var(--ham-bg-surface); color: var(--ham-text-primary); font: inherit; font-weight: 600; cursor: pointer; margin-bottom: var(--ham-space-4); }
+  .theme-toggle:hover { background: var(--ham-bg-hover); }
+
+  .phone { width: 410px; height: 864px; padding: 10px; border-radius: 54px; background: var(--ham-bg-appbar); box-shadow: var(--ham-shadow-lg); flex: none; }
+  .screen { position: relative; width: 390px; height: 844px; border-radius: 44px; overflow: hidden auto; background: var(--ham-bg-canvas); scrollbar-width: none; }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* At phone width the page IS the phone: no bezel, no notes, body scrolls. */
+  @media (max-width: 460px) {
+    .showcase { display: block; padding: 0; }
+    .showcase__notes { display: none; }
+    .phone { width: 100%; height: auto; padding: 0; border-radius: 0; box-shadow: none; background: none; }
+    .screen { width: 100%; height: auto; min-height: 100vh; border-radius: 0; overflow: visible; display: flex; flex-direction: column; }
+    .screen main { flex: 1; }
+  }
+
+  /* ---------- App bar ---------- */
+  .appbar { position: sticky; top: 0; z-index: var(--ham-z-appbar); background: var(--ham-bg-appbar); color: var(--ham-text-on-appbar); }
+  .appbar__row { height: var(--ham-size-appbar-height); display: flex; align-items: center; gap: var(--ham-space-3); padding: 0 var(--ham-space-2) 0 var(--ham-space-4); }
+  .appbar__logo { display: block; height: var(--ham-size-logo-min-height); width: auto; margin: 0; }
+  .appbar__name { font-family: var(--ham-font-display); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: 0.04em; color: var(--ham-appbar-text-muted); padding-left: var(--ham-space-3); border-left: 1px solid var(--ham-appbar-field-border); }
+  .appbar__spacer { flex: 1; }
+  .icon-btn { position: relative; display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: var(--ham-radius-pill); border: 0; background: transparent; color: inherit; cursor: pointer; }
+  .icon-btn:hover { background: var(--ham-appbar-hover); }
+  .badge { position: absolute; top: 6px; right: 4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: var(--ham-radius-pill); background: var(--ham-badge-bg); color: var(--ham-badge-fg); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; box-shadow: 0 0 0 2px var(--ham-bg-appbar); }
+  .leaf-stripe { height: 3px; background: linear-gradient(90deg, var(--ham-accent-leaf-light) 0 33.3%, var(--ham-accent-leaf-mid) 33.3% 66.6%, var(--ham-accent-leaf-dark) 66.6%); }
+
+  /* ---------- Content ---------- */
+  main { padding: var(--ham-space-6) var(--ham-space-4) var(--ham-space-8); }
+  .greeting { margin-bottom: var(--ham-space-6); }
+  .greeting__date { font-size: var(--ham-type-small-size); line-height: var(--ham-type-small-line-height); color: var(--ham-text-tertiary); font-weight: 500; margin: 0 0 var(--ham-space-1); }
+  .greeting h1 { font-family: var(--ham-type-h1-family); font-weight: var(--ham-type-h1-weight); font-size: var(--ham-type-h1-size); line-height: var(--ham-type-h1-line-height); letter-spacing: var(--ham-type-h1-tracking); margin: 0; }
+  .greeting p { margin: var(--ham-space-1) 0 0; font-size: var(--ham-type-body-lg-size); line-height: var(--ham-type-body-lg-line-height); color: var(--ham-text-secondary); }
+  .greeting strong { color: var(--ham-text-primary); }
+
+  .stack { display: grid; gap: var(--ham-space-4); }
+  .card > :last-child { margin-bottom: 0; }
+  .card { background: var(--ham-bg-surface); border: 1px solid var(--ham-border-default); border-radius: var(--ham-radius-lg); padding: var(--ham-space-4); }
+  .card--blocking { background: var(--ham-tone-attention-bg); border-color: var(--ham-tone-attention-border); }
+  .card__kicker { display: flex; align-items: center; gap: var(--ham-space-2); margin: 0 0 var(--ham-space-2); font-size: var(--ham-type-small-size); line-height: var(--ham-type-small-line-height); font-weight: 600; color: var(--ham-text-secondary); }
+  .card__kicker .i { color: var(--ham-text-tertiary); }
+  .card--blocking .card__kicker { color: var(--ham-tone-attention-fg); }
+  .card--blocking .card__kicker .i { color: var(--ham-tone-attention-icon); }
+  .card__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ham-space-2); margin-bottom: var(--ham-space-2); }
+  .card__head .card__kicker { margin: 0; }
+  .card h3 { font-size: var(--ham-type-h3-size); line-height: var(--ham-type-h3-line-height); font-weight: var(--ham-type-h3-weight); letter-spacing: var(--ham-type-h3-tracking); margin: 0 0 var(--ham-space-2); }
+  .card p { margin: 0 0 var(--ham-space-3); }
+  .muted { color: var(--ham-text-secondary); }
+  .small { font-size: var(--ham-type-small-size); line-height: var(--ham-type-small-line-height); }
+
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--ham-space-3) 0 10px; border-radius: var(--ham-radius-pill); border: 1px solid; font-size: var(--ham-type-chip-size); line-height: 1; font-weight: var(--ham-type-chip-weight); letter-spacing: var(--ham-type-chip-tracking); white-space: nowrap; }
+  .chip .i { width: 16px; height: 16px; }
+  .chip--invited { background: var(--ham-status-invitation-invited-bg); color: var(--ham-status-invitation-invited-fg); border-color: var(--ham-status-invitation-invited-border); }
+  .chip--invited .i { color: var(--ham-status-invitation-invited-icon); }
+  .chip--reconfirm { background: var(--ham-status-commitment-reconfirmation-needed-bg); color: var(--ham-status-commitment-reconfirmation-needed-fg); border-color: var(--ham-status-commitment-reconfirmation-needed-border); }
+  .chip--reconfirm .i { color: var(--ham-status-commitment-reconfirmation-needed-icon); }
+  .chip--assigned { background: var(--ham-status-task-assigned-bg); color: var(--ham-status-task-assigned-fg); border-color: var(--ham-status-task-assigned-border); }
+  .chip--assigned .i { color: var(--ham-status-task-assigned-icon); }
+  .chip--expiring { background: var(--ham-status-credential-expiry-expiring-soon-bg); color: var(--ham-status-credential-expiry-expiring-soon-fg); border-color: var(--ham-status-credential-expiry-expiring-soon-border); }
+  .chip--expiring .i { color: var(--ham-status-credential-expiry-expiring-soon-icon); }
+  .chip--waitlisted { background: var(--ham-status-commitment-waitlisted-bg); color: var(--ham-status-commitment-waitlisted-fg); border-color: var(--ham-status-commitment-waitlisted-border); }
+  .chip--waitlisted .i { color: var(--ham-status-commitment-waitlisted-icon); }
+
+  .countdown { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ham-space-1) var(--ham-space-2); margin: 0 0 var(--ham-space-3); font-weight: 600; color: var(--ham-tone-attention-fg); }
+  .countdown .i { color: var(--ham-tone-attention-icon); }
+  .countdown .sep { color: var(--ham-text-tertiary); font-weight: 400; }
+  .countdown .spots { color: var(--ham-text-secondary); font-weight: 500; }
+
+  .facts { list-style: none; margin: 0 0 var(--ham-space-3); padding: 0; display: grid; gap: var(--ham-space-2); }
+  .facts li { display: flex; gap: var(--ham-space-3); align-items: flex-start; }
+  .facts .i { color: var(--ham-text-tertiary); margin-top: 2px; }
+  .facts b { font-weight: 600; }
+
+  details.why { border-top: 1px solid var(--ham-border-subtle); margin: 0 0 var(--ham-space-4); }
+  details.why summary { list-style: none; display: flex; align-items: center; gap: var(--ham-space-2); min-height: 48px; cursor: pointer; font-weight: 600; color: var(--ham-text-link); }
+  details.why summary::-webkit-details-marker { display: none; }
+  details.why summary .i { transition: transform var(--ham-duration-base) var(--ham-easing-standard); }
+  details.why[open] summary .i { transform: rotate(90deg); }
+  .why__list { list-style: none; margin: 0 0 var(--ham-space-1); padding: 0 0 0 var(--ham-space-1); display: grid; gap: var(--ham-space-2); }
+  .why__list li { display: flex; gap: var(--ham-space-2); align-items: flex-start; }
+  .why__list .i { color: var(--ham-tone-success-icon); margin-top: 2px; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--ham-space-2); min-height: 48px; padding: var(--ham-space-2) var(--ham-space-4); border-radius: var(--ham-radius-md); border: 1.5px solid transparent; font: inherit; font-weight: var(--ham-type-label-weight); line-height: 1.25; text-align: center; text-decoration: none; cursor: pointer; transition: background-color var(--ham-duration-fast) var(--ham-easing-standard); }
+  .btn--lg { min-height: var(--ham-size-control-lg); width: 100%; font-size: var(--ham-type-body-lg-size); }
+  .btn--primary { background: var(--ham-action-primary-bg); color: var(--ham-text-on-primary); }
+  .btn--primary:hover { background: var(--ham-action-primary-bg-hover); }
+  .btn--primary:active { background: var(--ham-action-primary-bg-pressed); }
+  .btn--secondary { background: var(--ham-action-secondary-bg); color: var(--ham-action-secondary-fg); border-color: var(--ham-action-secondary-border); }
+  .btn--secondary:hover { background: var(--ham-action-secondary-bg-hover); }
+  .btn--quiet { background: transparent; color: var(--ham-text-link); padding-inline: var(--ham-space-2); margin-inline: calc(var(--ham-space-2) * -1); }
+  .btn--quiet:hover { background: var(--ham-action-ghost-bg-hover); }
+  .btn .hint { font-weight: 400; opacity: .9; }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ham-space-3); }
+  .note { display: flex; gap: var(--ham-space-2); align-items: flex-start; margin: var(--ham-space-3) 0 0; font-size: var(--ham-type-small-size); line-height: var(--ham-type-small-line-height); color: var(--ham-text-secondary); }
+  .note .i { color: var(--ham-text-tertiary); margin-top: 2px; }
+
+  .later { list-style: none; margin: 0 0 var(--ham-space-2); padding: 0; }
+  .later li { display: grid; gap: var(--ham-space-2); padding: var(--ham-space-1) 0 var(--ham-space-3); }
+  .later__title { font-weight: 600; }
+  .later__status { display: flex; flex-wrap: wrap; gap: var(--ham-space-2); align-items: center; }
+
+  .impact { display: flex; gap: var(--ham-space-3); align-items: flex-start; padding: var(--ham-space-5) var(--ham-space-4); border-radius: var(--ham-radius-lg); background: var(--ham-bg-surface); border: 1px solid var(--ham-border-default); position: relative; overflow: hidden; }
+  .impact::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--ham-accent-leaf-light), var(--ham-accent-leaf-mid), var(--ham-accent-leaf-dark)); }
+  .impact .i { color: var(--ham-text-brand); margin-top: 2px; }
+  .impact p { margin: 0; color: var(--ham-text-secondary); }
+  .impact .num { font-family: var(--ham-font-display); font-weight: 600; font-size: 22px; line-height: 1; color: var(--ham-text-primary); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Bottom nav ---------- */
+  .bottom-nav { position: sticky; bottom: 0; z-index: var(--ham-z-nav); background: var(--ham-bg-surface); border-top: 1px solid var(--ham-border-default); box-shadow: var(--ham-shadow-sm); padding-bottom: env(safe-area-inset-bottom); }
+  .bottom-nav ul { list-style: none; margin: 0; padding: 0 var(--ham-space-2); display: grid; grid-template-columns: repeat(4, 1fr); height: var(--ham-size-bottomnav-height); }
+  .bottom-nav a { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; color: var(--ham-text-secondary); font-size: var(--ham-type-nav-compact-size); line-height: var(--ham-type-nav-compact-line-height); font-weight: var(--ham-type-nav-compact-weight); letter-spacing: var(--ham-type-nav-compact-tracking); border-radius: var(--ham-radius-md); }
+  .bottom-nav a .i { width: 24px; height: 24px; }
+  .bottom-nav a[aria-current="page"] { color: var(--ham-text-brand); }
+  .bottom-nav a[aria-current="page"]::before { content: ""; position: absolute; top: 0; width: 32px; height: 4px; border-radius: 0 0 4px 4px; background: var(--ham-border-selected); }
+  .bottom-nav a[aria-current="page"] .i { stroke-width: 2.25; }
+  .bottom-nav .nav-icon { position: relative; display: inline-flex; }
+  .bottom-nav .badge { top: -6px; right: -12px; box-shadow: 0 0 0 2px var(--ham-bg-surface); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<!--ICONS-->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></symbol>
+  <symbol id="i-calendar-clock" viewBox="0 0 24 24"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M17.5 17.5 16 16.3V14"/><circle cx="16" cy="16" r="6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-circle-user" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/></symbol>
+  <symbol id="i-hammer" viewBox="0 0 24 24"><path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+  <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-list-ordered" viewBox="0 0 24 24"><path d="M10 12h11"/><path d="M10 18h11"/><path d="M10 6h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+  <symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-navigation" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-user-check" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+</svg>
+<!--/ICONS-->
+
+<div class="showcase">
+  <aside class="showcase__notes" aria-label="About this mockup">
+    <h1>Volunteer home · phone</h1>
+    <button class="theme-toggle" type="button" id="themeToggle" aria-pressed="false">
+      <svg class="i" aria-hidden="true"><use href="#i-moon"/></svg><span>Dark theme</span>
+    </button>
+    <p>Kevin Thompson · Tue, Oct 6, 12:15 PM · 390 × 844.</p>
+    <p>Spec: <code>docs/ux/navigation.md</code> §7. Tokens: <code>design-system/tokens.css</code>.</p>
+    <p>The card order follows §7.3: blocking item, then needs response (reconfirmation and invitation), then next up, heads-up, later, and the impact line.</p>
+  </aside>
+
+  <div class="phone">
+    <div class="screen" id="screen">
+      <header class="appbar">
+        <div class="appbar__row">
+          <img class="appbar__logo" src="../../../design-system/assets/logo-white-on-dark.png" alt="Miami Temple Seventh-day Adventist" width="154" height="32">
+          <span class="appbar__name" aria-label="Home Assistance Ministry">HAM</span>
+          <span class="appbar__spacer"></span>
+          <button class="icon-btn" type="button" aria-label="Inbox, 3 need a response">
+            <svg class="i i-lg" aria-hidden="true"><use href="#i-bell"/></svg>
+            <span class="badge" aria-hidden="true">3</span>
+          </button>
+        </div>
+        <div class="leaf-stripe" aria-hidden="true"></div>
+      </header>
+
+      <main id="main">
+        <section class="greeting" aria-labelledby="hi">
+          <p class="greeting__date">Tuesday, Oct 6</p>
+          <h1 id="hi">Hi Kevin</h1>
+          <p><strong>3 things</strong> need you this week.</p>
+        </section>
+
+        <div class="stack">
+          <!-- 2. Blocking item (§42) -->
+          <section class="card card--blocking" aria-labelledby="c-agree">
+            <h2 class="card__kicker"><svg class="i i-sm" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Before Sat, Oct 10</h2>
+            <h3 id="c-agree">Our Safety Agreement was updated</h3>
+            <p>Please review and accept version 3 so you can serve on Saturday.</p>
+            <a class="btn btn--primary btn--lg" href="#">Review &amp; accept <span class="hint">(2 min)</span></a>
+          </section>
+
+          <!-- 3. Needs response: reconfirmation (§32) -->
+          <section class="card" aria-labelledby="c-rec">
+            <div class="card__head">
+              <h2 class="card__kicker">Still coming? · 7 days out</h2>
+              <span class="chip chip--reconfirm"><svg class="i" aria-hidden="true"><use href="#i-calendar-clock"/></svg>Reconfirmation Needed</span>
+            </div>
+            <h3 id="c-rec">HAM #039 · Bathroom grab bars</h3>
+            <ul class="facts">
+              <li><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg><span>Tue, Oct 13 · 9:00 AM – 12:00 PM</span></li>
+            </ul>
+            <div class="btn-row">
+              <button class="btn btn--primary" type="button" aria-label="Yes, I'll be there for HAM #039">Yes, I'll be there</button>
+              <button class="btn btn--secondary" type="button" aria-label="I can't make it to HAM #039">I can't make it</button>
+            </div>
+          </section>
+
+          <!-- 3. Needs response: invitation (§28) -->
+          <section class="card" aria-labelledby="c-inv">
+            <div class="card__head">
+              <h2 class="card__kicker">Invitation · reply by Wed 6:00 PM</h2>
+              <span class="chip chip--invited"><svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>Invited</span>
+            </div>
+            <p class="countdown">
+              <svg class="i i-sm" aria-hidden="true"><use href="#i-hourglass"/></svg>29 hours left
+              <span class="sep" aria-hidden="true">·</span><span class="spots">3 of 5 spots filled</span>
+            </p>
+            <h3 id="c-inv">HAM #041 · Exterior painting</h3>
+            <ul class="facts">
+              <li><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg><span>Sat, Oct 17 · 8:00 AM – 2:00 PM</span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-map-pin"/></svg><span>Little River area · about 6 mi</span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-hammer"/></svg><span>Your task: <b>Prep &amp; prime trim</b></span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-package"/></svg><span>Bring if you can: extension ladder</span></li>
+            </ul>
+            <details class="why" open>
+              <summary><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg>Why you were invited</summary>
+              <ul class="why__list">
+                <li><svg class="i i-sm" aria-hidden="true"><use href="#i-check"/></svg><span>Painting (you: experienced)</span></li>
+                <li><svg class="i i-sm" aria-hidden="true"><use href="#i-check"/></svg><span>You have an extension ladder</span></li>
+                <li><svg class="i i-sm" aria-hidden="true"><use href="#i-check"/></svg><span>You're free Saturdays</span></li>
+                <li><svg class="i i-sm" aria-hidden="true"><use href="#i-check"/></svg><span>Within your 10-mile limit</span></li>
+              </ul>
+            </details>
+            <div class="btn-row">
+              <button class="btn btn--primary" type="button" aria-label="Accept invitation to HAM #041">Accept</button>
+              <button class="btn btn--secondary" type="button" aria-label="Decline invitation to HAM #041">Decline</button>
+            </div>
+            <p class="note"><svg class="i i-sm" aria-hidden="true"><use href="#i-shield-check"/></svg>Declining an invitation doesn't affect your reliability score.</p>
+          </section>
+
+          <!-- 4. Next up -->
+          <section class="card" aria-labelledby="c-next">
+            <div class="card__head">
+              <h2 class="card__kicker">Next up · in 4 days</h2>
+              <span class="chip chip--assigned"><svg class="i" aria-hidden="true"><use href="#i-user-check"/></svg>Assigned</span>
+            </div>
+            <h3 id="c-next">HAM #038 · Wheelchair ramp</h3>
+            <ul class="facts">
+              <li><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg><span>Sat, Oct 10 · 7:30 AM – 1:00 PM</span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-map-pin"/></svg><span>1400 NW Example Ave, Miami (Allapattah)</span></li>
+            </ul>
+            <p><a class="btn btn--secondary" href="#"><svg class="i" aria-hidden="true"><use href="#i-navigation"/></svg>Directions<span class="sr-only"> (opens maps)</span></a></p>
+            <ul class="facts">
+              <li><svg class="i" aria-hidden="true"><use href="#i-hammer"/></svg><span>Your task: <b>Frame &amp; deck</b></span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span>Task Leader: Tom N. · Leader: Luis R.</span></li>
+              <li><svg class="i" aria-hidden="true"><use href="#i-package"/></svg><span>Bring: drill/driver, safety glasses</span></li>
+            </ul>
+            <details class="why">
+              <summary><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg>Project details</summary>
+            </details>
+          </section>
+
+          <!-- 5. Heads-up: credential (§24.1) -->
+          <section class="card" aria-labelledby="c-heads">
+            <div class="card__head">
+              <h2 class="card__kicker" id="c-heads">Heads-up</h2>
+              <span class="chip chip--expiring"><svg class="i" aria-hidden="true"><use href="#i-calendar-clock"/></svg>Expiring Soon</span>
+            </div>
+            <p>Your <b>EPA Lead-Safe (RRP) Renovator</b> certificate expires <b>Nov 3</b> (28 days). Tasks that need it will be unavailable after that. Other HAM work isn't affected.</p>
+            <a class="btn btn--quiet" href="#">Update it<svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+          </section>
+
+          <!-- 6. Later -->
+          <section class="card" aria-labelledby="c-later">
+            <h2 class="card__kicker" id="c-later">Later</h2>
+            <ul class="later">
+              <li>
+                <span class="later__title">Sat, Oct 24 · HAM #044 · Yard cleanup</span>
+                <span class="later__status">
+                  <span class="chip chip--waitlisted"><svg class="i" aria-hidden="true"><use href="#i-list-ordered"/></svg>Waitlisted (#2)</span>
+                  <span class="muted small">We'll tell you if a spot opens.</span>
+                </span>
+              </li>
+            </ul>
+            <a class="btn btn--quiet" href="#">See all my projects<svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+          </section>
+
+          <!-- 7. Ministry impact (aggregate only, §63) -->
+          <section class="impact" aria-label="Ministry impact this year">
+            <svg class="i i-lg" aria-hidden="true"><use href="#i-heart"/></svg>
+            <p>This year, HAM served <span class="num">38</span> families with <span class="num">1,246</span> volunteer hours. Thank you.</p>
+          </section>
+        </div>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Main">
+        <ul>
+          <li><a href="#" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-house"/></svg>Home</a></li>
+          <li><a href="#"><svg class="i" aria-hidden="true"><use href="#i-layout-grid"/></svg>Projects</a></li>
+          <li><a href="#" aria-label="Inbox, 3 need a response"><span class="nav-icon"><svg class="i" aria-hidden="true"><use href="#i-inbox"/></svg><span class="badge" aria-hidden="true">3</span></span>Inbox</a></li>
+          <li><a href="#"><svg class="i" aria-hidden="true"><use href="#i-circle-user"/></svg>Me</a></li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    var root = document.documentElement;
+    function isDark() {
+      var t = root.getAttribute('data-theme');
+      return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    function sync() {
+      var d = isDark();
+      btn.setAttribute('aria-pressed', String(d));
+      btn.querySelector('span').textContent = d ? 'Light theme' : 'Dark theme';
+      btn.querySelector('use').setAttribute('href', d ? '#i-sun' : '#i-moon');
+    }
+    btn.addEventListener('click', function () { root.setAttribute('data-theme', isDark() ? 'light' : 'dark'); sync(); });
+    sync();
+  })();
+</script>
+</body>
+</html>
