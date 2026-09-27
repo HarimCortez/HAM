@@ -23,3 +23,6 @@ uv.lock.bak
 # Local Postgres cluster (make dev-db)
 /pgdata/
 
+
+# Agent worktrees (temporary, per session)
+/.claude/worktrees/
