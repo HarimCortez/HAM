@@ -2,7 +2,8 @@
 
 Build-order step 0. Owner: ham-ux-designer. Personas: [personas.md](personas.md). Brand: [brand-notes.md](brand-notes.md).
 All sample names, addresses and numbers are fictional. The sample "today" for both screens is **Tuesday, Oct 6, 2026** (America/New_York).
-PRD gaps use the official IDs in `docs/prd-open-questions.md` (Q-004 to Q-022, all Open). Any design choice that depends on an open question is marked **proposal pending Q-NNN**. Choices with no official Q yet are marked **proposal (no Q yet)**.
+PRD gaps use the official IDs in `docs/prd-open-questions.md`. The product owner decided Q-002 and Q-004 to Q-024 and Q-026 on 2026-09-27; this doc reflects those decisions and cites them as **(Q-NNN)**. Still open: Q-001 (reliability numbers), Q-003 (stack) and Q-025 (requesters without email); anything depending on them is marked **pending Q-NNN**. Choices with no official Q are marked **proposal (no Q yet)**.
+HAM is single-church in V1 (Q-026). Church name, logos, colors, mission line and contact info come from the church profile, so product copy uses `{church.name}` / `{church.shortName}`. "Miami Temple" appears only as sample data.
 
 Contents
 1. Principles
@@ -31,11 +32,11 @@ Contents
 ```mermaid
 flowchart TB
   subgraph PUB["Public / no account"]
-    RF["Request help form (§6)"] --> VER["Verify email or phone (§7.1)"] --> RCONF["Request received"]
+    RF["Request help form (§6)"] --> VER["Verify by email code (§7.1, Q-019; no email: pending Q-025)"] --> RCONF["Request received"]
     RLINK["Secure request page (§7.2)"]
-    REXP["Link expired: verify to get new link (§7.3)"]
+    REXP["Link expired: verify by email code to get new link (§7.3; no email: pending Q-025)"]
     SURV["Completion survey, one-time link (§54)"]
-    SCORE_PUB["Scoreboard, aggregates only (§63) Q-005"]
+    SCORE_PUB["Public scoreboard embed on church website, no login, aggregates only (§63, §68, Q-005)"]
     SIGNIN["Sign in: magic link / MFA (§60)"]
   end
 
@@ -66,7 +67,7 @@ flowchart TB
   PW --> PWM["Media (§45, §46)"]
   PW --> PWG["Agreement (§41)"]
   PW --> PWC["Comments (§57)"]
-  PW --> PWL["Activity / audit (§58): Director and Admin only; PL access is Q-021"]
+  PW --> PWL["Activity / audit (§58): Director and Admin only; no PL access (Q-021)"]
   PW --> PWF["Survey & feedback (§54, §55)"]
   SIGNIN --> HOME
 ```
@@ -75,7 +76,9 @@ Who reaches what (V = view, A = act, own = own records only, asg = assigned proj
 
 | Destination | Req. | Board | Pastor | Dir. | Asst Dir. | PL | TL | Vol. | Contr. | SMS | Admin |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| **Public scoreboard embed** (church website, no login) | V | V | V | V | V | V | V | V | V | V | V (anyone, incl. the public) |
 | Secure request page | own | – | – | – | – | – | – | – | – | – | – |
+| Requester name, address, phone, hazards `[PII]` | own | per §8 Board route | per §8 pastoral route | V, reveal not logged | V, reveal logged | V asg, reveal logged | V asg, reveal logged | – (address only once Assigned, Q-004) | address + contact asg (§4.9) | – | – |
 | Requests | – | A (Board route) | A | A | A | – | – | – | – | – | V |
 | Projects / workspace | – | V (Board info) | V (oversight) | A | A (no scope) | A asg | A asg task | V asg/inv | V asg | V media-only | V |
 | Schedule | – | V | V | V | V | V asg | V asg | own | own | – | V |
@@ -84,9 +87,14 @@ Who reaches what (V = view, A = act, own = own records only, asg = assigned proj
 | Incidents | – | if notified | serious | A | A | report + V own proj | report | report | – | – | V |
 | Templates | – | – | – | A approve | A propose | A propose / per-project | – | – | – | – | – |
 | Reports & scoreboard | – | V | V | A export | A | scoreboard | scoreboard | scoreboard | – | scoreboard | A |
-| Audit log | – | – | – | V + export | – | – (Q-021, proposed No) | – | – | – | – | V + export |
+| Audit log | – | – | – | V + export | – | – (Q-021: No) | – | – | – | – | V + export |
 | Admin | – | – | – | – | – | – | – | – | – | – | A |
 | Inbox, Me | – | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Notes on the table:
+- **Public scoreboard embed (Q-005).** The same aggregates as the signed-in member scoreboard, published as an embed on the {church.name} website with no sign-in. Privacy rule: **no names, and no breakdown small enough to identify a family** (§63, §68). In practice: no requester, volunteer or leader names; no addresses, streets or neighborhoods; no per-project rows; any category, area or period slice below the suppression threshold is folded into "Other" or hidden. The threshold is a fixed rule in the rules module, not an admin setting (PRD-GAP: the number itself is not decided; ham-rules-engineer to propose). The embed must keep working, or fail quietly, if HAM is down (§70.3).
+- **Requester details (Q-009).** Project Leaders and Task Leaders both see requester name, address, phone and hazards, only on projects/tasks they are assigned to. Neither sees requester circumstances beyond that. Pastor and Board rep access follows what their approval route needs (§8, §67); the table doesn't expand it.
+- **PII reveal logging (Q-024).** On leadership screens (hover card, side panel), each reveal of requester name or address writes an audit event for every role **except the HAM Director**. The reveal label reads "Leadership only · viewing is logged" for logged roles and "Leadership only" for the Director (see §8.6).
 
 ---
 
@@ -116,7 +124,8 @@ A left icon rail with labels on long-press/hover plus the same destinations as d
 ### 3.3 Desktop (≥ 1024px): left sidebar
 ```
 ┌──────────────────────┐
-│ [Miami Temple logo]  │
+│ [{church.shortName}  │
+│  logo]               │
 │ HAM                  │
 │──────────────────────│
 │ WORK                 │
@@ -169,16 +178,18 @@ A left icon rail with labels on long-press/hover plus the same destinations as d
 ---
 
 ## 5. Requester secure-link experience (§6, §7, §41, §45, §46, §48, §54)
-- **No nav, no account, one page.** The church logo and "Home Assistance Ministry, Miami Temple" appear at the top so the page feels like part of the church (brand-notes).
+- **No nav, no account, one page.** The church logo and "Home Assistance Ministry, {church.name}" (both from the church profile, Q-026) appear at the top so the page feels like part of the church (brand-notes).
 - **Page order (mobile):**
   1. Greeting with the request number
   2. Plain-language status and what happens next
-  3. **Things we need from you** (0–n action cards: verify contact, upload photos (batch n), answer questions, sign agreement, approve cost change (method: proposal pending Q-008), media consent per item, survey)
+  3. **Things we need from you** (0–n action cards: verify contact, upload photos (batch n), answer questions, sign agreement, approve cost change, media consent per item, survey)
   4. Schedule (date and arrival window, once scheduled)
   5. Your request (read-only summary)
-  6. How to reach us (proposal pending Q-007)
-- **Flow:** Church site "Request help" → form (§6.1, with property-authority certification §6.2) → verify email (§7.1; SMS code is Q-019) → "We received your request" with the link also sent by email → secure page.
-- **Link expired** (more than 7 days after completion, or superseded): the page says "For your privacy, this link has expired. We can send you a new one." The person verifies email or phone, gets a new 14-day link, and the old link dies. This is logged (§7.3).
+  6. How to reach us: the ministry phone (tap to call) and email (tap to write), admin-configured in the church profile (Q-007). Copy: "Questions? Call {church.hamPhone} or email {church.hamEmail}. We're glad to help."
+- **Cost-share increase (Q-008):** either way works and both are audited. (a) An "Approve new cost" card on this page with the old and new share and one button; or (b) the Project Leader records her verbal approval (who, when, how she was told). If (b) happens first, the card disappears and the page shows "You approved the new cost with Luis on {date}."
+- **Flow:** Church site "Request help" → form (§6.1, with property-authority certification §6.2) → verify by email code (§7.1; email only in V1, Q-019) → "We received your request" with the link also sent by email → secure page.
+- **Link expired** (more than 7 days after completion, or superseded): the page says "For your privacy, this link has expired. We can send you a new one." The person verifies by email code, gets a new 14-day link, and the old link dies. This is logged (§7.3).
+- **Requesters without email: pending Q-025 (open).** How someone with no email address verifies for media upload or gets a new link is not decided. Whether email is a required field on the request form is left unresolved until Q-025 is decided. The verify and link-expired screens must always show the ministry phone as a way to get help ("No email? Call us at {church.hamPhone}."). That fallback copy is a way to reach a person, not a verification method. Step 2 (Intake) will propose the flow.
 - **Survey** (§54) arrives on its own one-time link that expires after 30 days, and also appears as a card on the secure page while that is valid.
 
 Requester-facing status wording (staff screens keep the §52 names):
@@ -206,16 +217,17 @@ Requester-facing status wording (staff screens keep the §52 names):
 | State | Behavior | Copy |
 |---|---|---|
 | **Loading** | Skeletons in the final layout. Show cached content first if there is any. Target around 2 s (§70.2). | — |
-| **Offline** | Persistent thin banner. Cached screens are read-only. Actions that need the server are disabled with the reason given. Check-in offline follows Q-006. | "You're offline. Showing what was saved at 12:02 PM. We'll update when you reconnect." |
+| **Offline** | Persistent thin banner. Cached screens are read-only. Actions that need the server are disabled with the reason given. **Exception: check-in and check-out work offline** (Q-006). They are stored with device time, shown as "waiting to sync", and sent automatically on reconnect. The Project Leader can correct them (§37.2). | "You're offline. Showing what was saved at 12:02 PM. We'll update when you reconnect." · Check-in: "✓ Checked in 7:24 AM · waiting to sync. We'll send it when you have signal." · After sync: "✓ Checked in 7:24 AM" |
+| **Waiting to sync** (queued check-in/out) | A small clock icon + "waiting to sync" beside the time, on the project-day card and in Luis's attendance list ("Kevin T. · 7:24 AM · waiting to sync"). Never shown as an error. If sync is rejected (for example, not assigned), the card says so and asks him to see the leader. | "We couldn't record your check-in. Please ask Luis to check you in." |
 | **Save failed** | Keep the user's input and retry automatically once, then show an inline Retry. Never lose typed text. | "That didn't go through. Your changes are still here. **Try again**" |
 | **No permission / not found** | The same neutral screen for both, so the existence of a project isn't leaked (§68). No project title is shown. | "This page isn't available to your account. If you think you should have access, ask the HAM Director." · **Go home** |
 | **Session expired** (volunteer, PL, contractor) | Enter email → magic link returns to the same page. Drafts are kept locally. | "For your security, please sign in again. We'll bring you right back here." |
-| **MFA** (Admin, Director, Asst Dir., Pastor, Board rep; §60.1) | Required at sign-in. Remember-device policy: proposal pending Q-010. | "Enter the 6-digit code from your authenticator app." |
+| **MFA** (Admin, Director, Asst Dir., Pastor, Board rep; §60.1) | Required at sign-in. A trusted device is remembered for 30 days; audit export and role changes always re-check (Q-010). | "Enter the 6-digit code from your authenticator app." · Checkbox (unchecked by default, since HAM can't tell a shared computer): "Trust this device for 30 days" · Re-check: "Please confirm it's you before exporting the audit log." |
 | **Impersonating** (§59) | Non-dismissable high-contrast banner on every screen showing both identities and the reason. After 15 minutes idle it returns to the admin's own account. Blocked actions show a reason instead of the control. | "You're acting as **Kevin Thompson** (reason: can't see invitation). **Return to my account**" · Blocked: "Role and permission changes aren't allowed while acting as someone else." |
 | **Integration down** (§70.3) | Leadership only: a small status chip ("Calendar sync delayed"). HAM keeps working and nothing blocks. | "Google Calendar sync is delayed. HAM is working normally and will catch up." |
 | **Inactive volunteer, paused** (§20) | Home shows one card, "Your profile is paused", with **Reactivate** (immediate). | "You're paused, so you won't get new invitations. Come back anytime." |
 | **Inactive volunteer, media release withdrawn** (§43) | This is an inactive state, not a blocking card. Home shows only this state with **Restore consent**. Once restored, the profile is active again (agreement rules still apply). | "Your profile is inactive because the media release was withdrawn. HAM participation requires it. You can restore consent anytime." · **Restore consent** |
-| **Agreement update required** (§20, §42) | A top card on Home. Participation is blocked until accepted (§42). What happens to held future slots meanwhile: proposal pending Q-014. | See §7 below. |
+| **Agreement update required** (§20, §42) | A top card on Home. Participation is blocked until accepted (§42). Held future spots are **kept**; check-in is blocked until he accepts, and the Project Leader is alerted 48 h before the project if he still hasn't (Q-014). | See §7 below. |
 | **Empty** | Every list has a helpful empty state with the next step. | See screen specs. |
 
 ---
@@ -235,7 +247,7 @@ Email "You're invited: HAM #041" → tap → (sign in by magic link if needed) �
 
 ### 7.3 Card priority (top to bottom)
 Ordering is deterministic and testable. Within a group, the earliest deadline comes first.
-1. **Project-day card** (only from 2 hours before start until check-out; Q-006 covers offline). Check in / Check out.
+1. **Project-day card** (only from 2 hours before start until check-out). Check in / Check out, working offline as "waiting to sync" (Q-006).
 2. **Blocking items:** onboarding incomplete (§42), agreement new version (§42). A withdrawn media release is *not* a card: it makes the profile inactive (§43, see §6 Global states).
 3. **Needs response, with deadline:** waitlist promotion (24 h, §29/§32) → 48-hour direct assignment (§30) → reconfirmation (§32) → invitation (§28).
 4. **Next up:** the next confirmed commitment.
@@ -273,6 +285,10 @@ flowchart TD
   GPS -->|denied| QRF[Offer QR / ask leader]
   GPS -->|too far| FAR[Not at site yet → Try again / Scan QR]
   GPS -->|ok| IN[Checked in 7:24 AM]
+  QR -->|offline| QUE["Checked in 7:24 AM · waiting to sync (Q-006)"]
+  GPS -->|offline| QUE
+  QUE -->|reconnect| IN
+  QUE -->|sync rejected| SEEPL[Ask the leader to check you in]
   IN --> OUT[Check out → hours shown]
   H --> CRED[Credential expiring] --> ME[Me → Credentials]
   H -. any card, no permission .-> NP[Neutral no-permission]
@@ -321,12 +337,12 @@ flowchart TD
 │ NEXT UP · in 4 days                   │
 │ HAM #038 · Wheelchair ramp            │
 │ Sat, Oct 10 · 7:30 AM – 1:00 PM       │
-│ 1400 NW Example Ave, Miami (Allapattah)│  ← proposal pending Q-004
+│ 1400 NW Example Ave, Miami (Allapattah)│  ← full address once assigned (Q-004)
 │ [ Directions ↗ ]                      │
 │ Your task: Frame & deck               │
 │ Task Leader: Tom N. · Leader: Luis R. │
 │ Bring: drill/driver, safety glasses   │
-│ Status: Confirmed ✓                   │  ← state names: proposal pending Q-017
+│ Status: Confirmed ✓                   │  ← state names (Q-017)
 │ ▸ Project details                     │
 ├──────────────────────────────────────┤
 │ HEADS-UP                              │
@@ -359,12 +375,15 @@ flowchart TD
 │ │     ▣  Scan site QR to check in  │ │  ← primary, 56px tall
 │ └──────────────────────────────────┘ │
 │ [ Check in with my location ]         │
-│ Leader: Luis R.  [ Call ]             │  ← [Call]: proposal (no Q yet)
+│ Leader: Luis R.  [ Call ]             │  ← [Call]: assigned volunteers, day before + day of only (Q-023)
 │ Report a safety problem or injury ›   │
 └──────────────────────────────────────┘
 After check-in:  ✓ Checked in 7:24 AM   [ Check out ]
+Offline check-in: ✓ Checked in 7:24 AM · ⏲ waiting to sync   [ Check out ]
 After check-out: ✓ 5 h 41 min recorded. Thanks, Kevin!
 ```
+
+**Leader [Call] button (Q-023).** Shown only to volunteers assigned to that project, and only on the calendar day before and the day of the project (local time). On the day before it sits on the *Next up* card ("Leader: Luis R. [ Call ]"); on the day it sits on the project-day card. At any other time, and for invited or waitlisted people, the card shows "Leader: Luis R." with no number and no button. The number is never shown as text on shared or public surfaces, and the server only returns it inside that window. Accessible name: "Call Luis R., Project Leader".
 
 **Other card variants** (same slot as "Needs response"):
 - *Waitlist promotion* (§29, §32): "A spot opened on HAM #044 Yard cleanup, Sat Oct 24. **Confirm by Wed 3:10 PM** (24 h) or we'll offer it to the next person." [Confirm] [No thanks]
@@ -376,9 +395,10 @@ After check-out: ✓ 5 h 41 min recorded. Thanks, Kevin!
 - **Primary action:** whichever action sits on the top card. There is only one filled (primary) button per card, and the top card's is the screen's primary action.
 - **Required vs optional:** Decline reason is optional. Cancel reason is optional; it helps a leader mark the cancellation **Excused** but is never required. Excused is a flag with a reason on a cancellation or No-Show, not a status (§33, Q-022). A No-Show corresponds to attendance **Absent** (§37.2).
 - **Prefill/remember:** check-in remembers the last method used (QR or location). The "Why you were invited" disclosure state is remembered per device.
-- **Location detail:** invitation = general area + approximate distance. Assigned = full street address + Directions (proposal pending Q-004). Requester name, phone and circumstances are never shown (§67, §68).
-- **Credentials:** verification status is one field, Unverified / Verified / Could Not Verify (proposal pending Q-018). Expiry is computed from the expiration date, and **Expiring Soon** is a badge, not a status.
-- **Commitment labels** (Confirmed, Waitlisted, Pending Confirmation): proposal pending Q-017.
+- **Location detail:** invitation = general area + approximate distance. Assigned = full street address + Directions (Q-004). Requester name, phone and circumstances are never shown to plain volunteers (§67, §68). If Kevin is Task Leader on that project, the task view also shows requester name, phone and hazards (Q-009).
+- **Credentials:** verification status is one field, Unverified / Verified / Could Not Verify (Q-018). Expiry is computed from the expiration date, and **Expiring Soon** is a badge, not a status.
+- **Commitment labels** use the Q-017 names: Invited, Accepted, Declined, No Response, Waitlisted, Pending Confirmation, Confirmed, Reconfirmation Needed, Released, Cancelled, No-Show.
+- **Invitation deadline:** 48 hours from sending (Q-002). **Reconfirmation reminders:** daily on days 7, 6 and 5 (Q-011).
 - **Cancel sheet** (§33) is honest and not scolding. It shows the timing effect *before* confirming. With 7 or more days to go: "No effect on your reliability score." Inside 7 days the line follows the §33/§34.1 tiers (numbers are Q-001, kept in the rules module):
   - 4–6 days: "Canceling now lowers your reliability score slightly."
   - 2–3 days: "Canceling now lowers your reliability score moderately."
@@ -408,7 +428,8 @@ After check-out: ✓ 5 h 41 min recorded. Thanks, Kevin!
 - Targets are at least 48 px. Primary check-in is 56 px (gloves; exceeds 2.5.8). There are no swipe-only actions (2.5.7). Accept and Decline are separated by 8 px or more.
 - Status never relies on color alone: icons plus words ("Assigned ✓", "Waitlisted (#2)").
 - High-contrast / sunlight: body text contrast of at least 7:1 on the project-day card is recommended, and text is legible at 200% zoom without horizontal scroll.
-- The QR scanner offers a text alternative: "Can't scan? Enter the 6-character site code" (proposal pending Q-006).
+- The QR scanner offers a text alternative: "Can't scan? Enter the 6-character site code" (proposal, no Q yet; it works offline like QR check-in, Q-006).
+- When a queued check-in syncs, the "waiting to sync" text changes to the plain time and is announced politely (`role="status"`), not as an alert.
 - Focus goes to the result message after Accept/Decline (4.1.3 status messages). There are no timeouts on forms (2.2.1).
 
 ### 7.9 Success measure
@@ -433,11 +454,11 @@ Sign in (MFA) → Home → scan **Needs your attention** (grouped, highest risk 
 
 ### 8.3 Attention groups (fixed order; items within a group ordered by deadline/age)
 1. **Safety & incidents:** new or unreviewed incidents (§56); On Hold for safety (§39).
-2. **Staffing near the 48-hour line:** understaffed projects where the automatic-staffing cutoff (48 h before start) is within 48 hours, i.e. 96 h before start (proposal pending Q-013); reconfirmation problems (§32).
+2. **Staffing near the 48-hour line:** understaffed projects where the automatic-staffing cutoff (48 h before start) is within 48 hours, i.e. 96 h before start (Q-013); reconfirmation problems (§32).
 3. **Decisions only the Director can make:** feasibility after Assessment Completed (§12); scope changes (§13), including those awaiting payor approval.
 4. **Requests & assessments:** Awaiting Approval (info only, owned by pastor/Board); Approved or Assessment Required awaiting assessment (§11, §64).
-5. **Credentials & qualifications:** projects with missing qualifications (§64: a task's required skill or credential isn't covered by an assigned volunteer); a required credential expiring before an assigned project (§24.1); credentials Unverified and waiting for a manual check (§24; status values proposal pending Q-018).
-6. **Tasks, follow-up & budget:** Blocked tasks (§15.5), Completed – Follow-Up Required (§53), budget risks (§64; definition proposal pending Q-015).
+5. **Credentials & qualifications:** projects with missing qualifications (§64: a task's required skill or credential isn't covered by an assigned volunteer); a required credential expiring before an assigned project (§24.1); credentials Unverified and waiting for a manual check (§24; status values per Q-018).
+6. **Tasks, follow-up & budget:** Blocked tasks (§15.5), Completed – Follow-Up Required (§53), budget risks (§64; actual spend over estimate + contingency, Q-015).
 
 Items that are only for awareness (not actionable by the Director) are shown in muted style with the owner named. They never carry a primary button, and they are **excluded from the header count and the group counts**. The header count equals the number of actionable rows listed.
 
@@ -539,18 +560,23 @@ Main area is 1200 px wide: an attention column (≈ 700 px) and a context column
 │          ││    (backordered) since Oct 1                       │                                            │
 │          ││  #033 Completed – Follow-Up Required · 1 task,     │                                            │
 │          ││    open 12 days                                    │                                            │
-│          ││  #037 Actual $1,310 vs estimate $1,150 (+14%)      │                                            │
+│          ││  #037 Actual $1,310 vs estimate + contingency      │                                            │
+│          ││    $1,265 (over by $45)                            │                                            │
 │          │└──────────────────────────────────────────────────┘                                            │
 └──────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Detail panel** (click "Decide…" on #042): slides in from the right (560 px) and holds assessment summary, photos, safety concerns, estimated cost, required licenses/skills, Andre's recommendation, and the requester `[PII]` (name, address), shown **only here**. Options come from §12: Feasible · Place On Hold · Not Executable · Re-scope… Not Executable and Re-scope require a short reason. There is one primary button, *Record decision*, and on success: "Decision recorded · 7:52 PM · Marcus Bell" (the audit event, §58).
+**Detail panel** (click "Decide…" on #042): slides in from the right (560 px) and holds assessment summary, photos, safety concerns, estimated cost, required licenses/skills, Andre's recommendation, and the requester `[PII]` (name, address), shown **only here**. For Marcus the PII block is labeled "Leadership only" and opening it writes no audit event; for Andre (or anyone else who reaches it) it is labeled "Leadership only · viewing is logged" and opening it writes a view event (Q-024). Options come from §12: Feasible · Place On Hold · Not Executable · Re-scope… Not Executable and Re-scope require a short reason. There is one primary button, *Record decision*, and on success: "Decision recorded · 7:52 PM · Marcus Bell" (the audit event, §58).
 
 ### 8.6 Content & privacy rules
-- **Attention rows identify projects by ID + category** (as in the calendar title format, §51.1). The requester `[PII]` appears in the detail panel, and on hover of the ID, not in the list. This keeps the attention list shareable in a leadership meeting while the Director still has full access (§67). A "hide names" presentation mode is deferred. Whether revealing `[PII]` (hover or opening the panel) writes a view event to the audit log is a proposal (no Q yet); this spec treats the reveal as display only.
-- **Never on shared surfaces** (Calendar, member scoreboard, aggregate reports, AI summary): requester name, address, contact, circumstances ("widowed", "fixed income", "mold in bedroom"), incident narrative, and individual volunteer reliability scores. The AI summary above uses IDs and categories only (§68).
+- **Attention rows identify projects by ID + category** (as in the calendar title format, §51.1). The requester `[PII]` appears in the detail panel, and on hover of the ID, not in the list. This keeps the attention list shareable in a leadership meeting while the Director still has full access (§67). A "hide names" presentation mode is deferred.
+- **Reveal logging (Q-024).** Revealing `[PII]` (hover card on the ID, or opening the detail panel) writes a view event (actor, UTC time, project ID, fields revealed) for every role **except the HAM Director**. The hover card label follows the viewer:
+  - HAM Director: "[lock icon] Leadership only"
+  - Everyone else (Assistant Director, pastors, Board rep, Project and Task Leaders on their assigned projects, Administrator): "[lock icon] Leadership only · viewing is logged"
+  - The label is text plus an icon, and is part of the hover card's accessible name. One event per reveal per item per page view, so hovering back and forth doesn't flood the log.
+- **Never on shared surfaces** (Calendar, member scoreboard, the public scoreboard embed, aggregate reports, AI summary): requester name, address, contact, circumstances ("widowed", "fixed income", "mold in bedroom"), incident narrative, and individual volunteer reliability scores. The AI summary above uses IDs and categories only (§68).
 - Volunteer names (Kevin T., Carlos Diaz) are allowed on leadership screens. Reliability scores are not shown on the dashboard. They live in Volunteers (§34).
-- The scorecard shows aggregates only and is the same component as the member scoreboard (§63). Its headline metrics are Families Served + Volunteer Hours (§80).
+- The scorecard shows aggregates only and is the same component as the member scoreboard and the public embed (§63, Q-005). Its headline metrics are Families Served + Volunteer Hours (§80). Cost of Assistance is actual money spent, church share + requester share (Q-012). On the public embed, the small-group suppression rule applies (see §2 notes).
 
 ### 8.7 Microcopy
 | Where | Copy |
@@ -591,30 +617,36 @@ Main area is 1200 px wide: an attention column (≈ 700 px) and a context column
 - Neutral 403/404.
 - Attention rows are ID-first with PII in the detail panel.
 
-**Open questions these docs depend on** (official IDs; full text, options and defaults are in `docs/prd-open-questions.md`):
+**PRD questions these docs depend on** (official IDs; full text, options and decisions are in `docs/prd-open-questions.md`):
 
-| ID | Where it affects these docs |
-|---|---|
-| Q-001 | Cancel-sheet tier numbers (§7.6) |
-| Q-002 | Invitation deadline shown on the invitation card |
-| Q-004 | Volunteer location detail: area on invite, full address once Assigned (§7.5, §7.6) |
-| Q-005 | Scoreboard audience / public embed (sitemap) |
-| Q-006 | Offline check-in, site-code fallback (§6, §7.4, §7.8) |
-| Q-007 | Requester "How to reach us" (§5) |
-| Q-008 | How the requester approves a cost-share increase (§5; Director scope-change row) |
-| Q-009 | Requester details visible to Project and Task Leaders (personas) |
-| Q-010 | MFA re-challenge / remember device (§6, personas) |
-| Q-011 | Reconfirmation reminder cadence, day 7 to day 5 |
-| Q-012 | "Cost of Assistance" definition (scorecard) |
-| Q-013 | Understaffed alert threshold, 96 h (§8.3 group 2) |
-| Q-014 | Held slots while an agreement update is pending (§6, volunteer sample) |
-| Q-015 | Budget-risk definition (§8.3 group 6) |
-| Q-016 | Dark theme (not assumed; sunlight contrast handled in light theme) |
-| Q-017 | Commitment state labels: Confirmed, Waitlisted, Pending Confirmation (§7.5) |
-| Q-018 | Credential status values + Expiring Soon badge (§7.6, §8.3 group 5) |
-| Q-019 | SMS one-time codes for requester/volunteer verification (§5, personas) |
-| Q-020 | "Late" attendance (Project Leader attendance correction) |
-| Q-021 | Project Leader activity history (access table, sitemap) |
-| Q-022 | Excused as a flag + reason (§7.6) |
+| ID | Status | Where it affects these docs |
+|---|---|---|
+| Q-001 | **Open** | Cancel-sheet tier numbers (§7.6); copy uses words, not numbers |
+| Q-002 | Decided: 48 h | Invitation deadline on the invitation card (§7.6) |
+| Q-004 | Decided: area + distance on invite, full address once assigned | §7.5, §7.6 |
+| Q-005 | Decided: signed-in + public embed, aggregates only, no identifying breakdowns | Sitemap, access table + notes (§2), scorecard (§8.6) |
+| Q-006 | Decided: offline check-in queued as "waiting to sync"; PL can correct | §6, §7.3, §7.4, §7.5, §7.8 |
+| Q-007 | Decided: ministry phone + email from the church profile | §5 |
+| Q-008 | Decided: secure-page approval or PL-recorded verbal approval, both audited | §5; Director scope-change row |
+| Q-009 | Decided: PL and TL both see name, address, phone, hazards on assigned work | Access table (§2), §7.6, personas |
+| Q-010 | Decided: trusted device 30 days; re-check for audit export and role changes | §6, personas |
+| Q-011 | Decided: daily on days 7, 6, 5 | §7.6 |
+| Q-012 | Decided: actual money spent (church + requester share) | Scorecard (§8.6) |
+| Q-013 | Decided: 96 h before start | §8.3 group 2 |
+| Q-014 | Decided: keep spot, block check-in, alert PL 48 h before | §6 |
+| Q-015 | Decided: actual over estimate + contingency | §8.3 group 6, §8.5 sample row |
+| Q-016 | Decided: light only in V1 | Sunlight contrast handled in the light theme |
+| Q-017 | Decided: proposed state names | §7.5, §7.6 |
+| Q-018 | Decided: Unverified / Verified / Could Not Verify + computed Expiring Soon badge | §7.6, §8.3 group 5 |
+| Q-019 | Decided: email codes only in V1 | §5, sitemap, personas |
+| Q-020 | Decided: late after a 15-min grace period | Project Leader attendance (future spec) |
+| Q-021 | Decided: no PL activity history | Access table, sitemap |
+| Q-022 | Decided: flag + reason | §7.6 |
+| Q-023 | Decided: Call button for assigned volunteers, day before + day of | §7.5, personas |
+| Q-024 | Decided: PII reveals logged for everyone except the HAM Director | Access table notes (§2), §8.5, §8.6, personas |
+| Q-025 | **Open** | Requesters without email (§5, sitemap, personas) |
+| Q-026 | Decided: single church, branding from the church profile | Header note, §3.3 sidebar, §5 |
 
-**Proposals with no official Q yet:** the leader [Call] button on the project-day card, and whether revealing requester `[PII]` on the Director dashboard is audit-logged. Both are raised for the coordinator to log.
+**Still undecided and not logged as a Q:** the public-embed suppression threshold (the minimum group size below which a breakdown is hidden, §2 notes); the site-code check-in fallback (§7.8); what the requester sees of volunteer names (personas). Raised for the coordinator to log.
+
+**Hand-off to ham-ui-designer:** `docs/ux/screens/director-dashboard-desktop.html` shows the hover label "Leadership only · viewing is logged" for Marcus. Per Q-024 the Director's label should read "Leadership only" (no logging). Both screens also hard-code "Miami Temple Seventh-day Adventist" as logo alt text; per Q-026 that should come from `{church.name}`.

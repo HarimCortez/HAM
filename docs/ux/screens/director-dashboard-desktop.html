@@ -44,7 +44,7 @@
   .account { display: inline-flex; align-items: center; gap: var(--ham-space-2); height: var(--ham-size-target-min); padding: 0 var(--ham-space-2) 0 4px; border: 0; border-radius: var(--ham-radius-pill); background: none; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
   .account:hover { background: var(--ham-appbar-hover); }
   .avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--ham-appbar-field-bg); border: 1px solid var(--ham-appbar-field-border); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
-  .leaf-stripe { height: 3px; background: linear-gradient(90deg, var(--ham-accent-leaf-light) 0 33.3%, var(--ham-accent-leaf-mid) 33.3% 66.6%, var(--ham-accent-leaf-dark) 66.6%); }
+  .brand-stripe { height: 3px; background: linear-gradient(90deg, var(--ham-accent-brand-light) 0 33.3%, var(--ham-accent-brand-mid) 33.3% 66.6%, var(--ham-accent-brand-dark) 66.6%); }
 
   /* ---------- Shell ---------- */
   .shell { display: grid; grid-template-columns: var(--ham-size-sidebar-width) 1fr; min-height: calc(100vh - 67px); }
@@ -195,7 +195,7 @@
   .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ham-space-3); margin: 0 0 var(--ham-space-3); }
   .kpi { position: relative; padding: var(--ham-space-4); border-radius: var(--ham-radius-md); background: var(--ham-bg-sunken); overflow: hidden; }
   .kpi--hero { background: var(--ham-bg-selected); }
-  .kpi--hero::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--ham-accent-leaf-light), var(--ham-accent-leaf-mid), var(--ham-accent-leaf-dark)); }
+  .kpi--hero::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--ham-accent-brand-light), var(--ham-accent-brand-mid), var(--ham-accent-brand-dark)); }
   .kpi dt { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ham-text-secondary); }
   .kpi dd { margin: var(--ham-space-1) 0 0; font-family: var(--ham-type-kpi-family); font-weight: var(--ham-type-kpi-weight); font-size: 30px; line-height: 36px; font-variant-numeric: tabular-nums; }
   .kpi--hero dd { font-size: var(--ham-type-kpi-size); line-height: var(--ham-type-kpi-line-height); }
@@ -263,7 +263,7 @@
 <header class="topbar">
   <div class="topbar__row">
     <a class="topbar__brand" href="#" aria-label="HAM home">
-      <img src="../../../design-system/assets/logo-white-on-dark.png" alt="Miami Temple Seventh-day Adventist" width="154" height="32">
+      <img src="../../../design-system/brands/miami-temple/logo-white-on-dark.png" alt="Miami Temple Seventh-day Adventist" width="154" height="32">
     </a>
     <label class="search">
       <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
@@ -279,7 +279,7 @@
     </button>
     <button class="account" type="button" aria-haspopup="menu"><span class="avatar" aria-hidden="true">MB</span>Marcus<svg class="i i-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
   </div>
-  <div class="leaf-stripe" aria-hidden="true"></div>
+  <div class="brand-stripe" aria-hidden="true"></div>
 </header>
 
 <div class="shell">
@@ -349,7 +349,7 @@
                 <svg class="i" aria-hidden="true"><use href="#i-triangle-alert"/></svg>
                 <div class="item__body">
                   <p class="item__title">Incident INC-0112 · Injury <span class="chip chip--danger"><svg class="i" aria-hidden="true"><use href="#i-circle-x"/></svg>Not reviewed</span></p>
-                  <p class="item__line"><span class="pid" id="pidDemo" tabindex="0">HAM #036<span class="pii-card" role="tooltip"><strong><svg class="i i-sm" aria-hidden="true"><use href="#i-lock"/></svg>Leadership only · viewing is logged</strong>Requester: <em>[name, sample]</em><br>Address: <em>[street address, sample]</em></span></span> Roof tarp · reported by Luis Romero</p>
+                  <p class="item__line"><span class="pid" id="pidDemo" tabindex="0">HAM #036<span class="pii-card" role="tooltip"><strong><svg class="i i-sm" aria-hidden="true"><use href="#i-lock"/></svg>Leadership only</strong>Requester: <em>[name, sample]</em><br>Address: <em>[street address, sample]</em></span></span> Roof tarp · reported by Luis Romero</p>
                   <p class="item__meta">Sat Oct 3, 3:12 PM · minor cut, first aid</p>
                 </div>
                 <div class="item__actions"><a class="btn btn--primary" href="#">Review incident</a></div>

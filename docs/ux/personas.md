@@ -2,6 +2,8 @@
 
 Build-order step 0. Owner: ham-ux-designer. Implements the role definitions in PRD §4, the auth rules in §60, the permission principles in §67 and the privacy rules in §68.
 All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
+Open-question status follows `docs/prd-open-questions.md` (owner decisions of 2026-09-27). Still open: Q-001, Q-003, Q-025.
+HAM is single-church in V1. Church naming and branding come from the church profile (Q-026), so generic copy uses `{church.name}` / `{church.shortName}`. Miami Temple appears only as sample data.
 
 ## How to use this file
 - Design every screen for one **primary persona**, then check it against the others who can reach it.
@@ -12,7 +14,7 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 
 | Persona | Role (§4) | Auth (§60) | Main device | Frequency | Opens on |
 |---|---|---|---|---|---|
-| Doris, requester | 4.1 Requester | Secure link + email code (SMS: Q-019) | Phone, sometimes a relative's | A few times per request | Her request page |
+| Doris, requester | 4.1 Requester | Secure link + email code (email only in V1, Q-019; no-email case open, Q-025) | Phone, sometimes a relative's | A few times per request | Her request page |
 | Elder Samuel, Board rep | 4.2 | MFA | Laptop at meetings, phone | Around Board meetings, monthly | Decisions to record |
 | Pastor Ruth | 4.3 | MFA | Phone | Weekly, plus urgent pings | Approvals & urgent |
 | Marcus, HAM Director | 4.4 | MFA | Desktop, phone on site | Daily | What needs attention |
@@ -32,7 +34,10 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 - **Frequency:** Submits once, then returns 3–8 times through the secure link (status, uploads, agreement, schedule, survey).
 - **Top jobs:** Ask for help without feeling judged. Know what happens next and when. Upload photos when asked. Sign the service agreement. Know who is coming and when. Say whether the problem was fixed.
 - **Must never see:** Internal comments, approver deliberation, the duplicate/history alert (§9), volunteer names beyond what scheduling requires (proposal: Project Leader first name + arrival window only; no official Q yet), reliability scores, budget internals beyond her own payor share (§13).
-- **Auth:** No account (§7, §60.3). A request-specific secure link is valid until 7 days after completion. After that she re-verifies email or phone and gets a new 14-day link, which kills the old one (§7.3). She must verify before uploading media (§7.1, §45).
+- **Auth:** No account (§7, §60.3). A request-specific secure link is valid until 7 days after completion. After that she re-verifies by **email code** and gets a new 14-day link, which kills the old one (§7.3). She must verify before uploading media (§7.1, §45). V1 uses email codes only; there are no SMS codes (Q-019, decided).
+- **Open (Q-025): no email address.** Doris may not have email of her own. How a requester without email verifies for media upload or gets a new link is **not decided** (options: leadership verifies by phone and records it / a family member's email / an SMS provider for codes only). Until Q-025 is decided, designs must not assume every requester has email, and must not invent a workaround. Step 2 (Intake) will propose one.
+- **Reaching HAM:** her page always shows the ministry phone and email, set by an administrator in the church profile (Q-007, decided). No in-app messaging.
+- **Cost-share increase:** she can approve on her secure page, or tell the Project Leader, who records her verbal approval. Both are audited (Q-008, decided).
 - **Design notes:** One page, no navigation to learn, big touch targets, plain words, compassionate copy (§8.3). Never use a word like "ineligible" without explaining it kindly.
 
 ## Board of Elders representative: Elder Samuel Okafor (§4.2, §8.1, §8.4, §14.2)
@@ -48,7 +53,7 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 - **Device/context:** Phone, between visits.
 - **Top jobs:** Approve or reject requests on the pastoral route. **Certify urgency** fast. Handle reconsiderations of her own rejections (§8.4). Decide whether serious incidents go to the Board rep. Approve media publication (§47.4).
 - **Must never see:** Deleted comments (§57), volunteer feedback (§55), admin settings.
-- **Auth:** MFA (§60.1). Keep the session long enough on a trusted phone so she isn't re-challenged every time (proposal pending Q-010).
+- **Auth:** MFA (§60.1). A trusted phone is remembered for 30 days, so she isn't re-challenged every time (Q-010, decided).
 - **Design notes:** Approving urgent requests must take 3 taps or fewer from the notification. Show why the requester says it's urgent. Show history context (§9) as information, never as an automatic "no".
 
 ## HAM Director: Marcus Bell (§4.4, §12, §13, §57, §58, §64)
@@ -56,13 +61,14 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 - **Device/context:** Desktop at home, 1440px. Phone on site for assessments (§11) and on project days.
 - **Frequency:** Daily, 10–20 minutes.
 - **Top jobs:** Triage what needs him. Make feasibility decisions and scope changes. Clear safety holds. Watch staffing around the 48-hour line. Respond to incidents. Oversee budgets. Export the audit log.
-- **Can see:** Requester identity and address. Deleted comments. Volunteer feedback. Everything operational (§67).
-- **Must never see / must never cause:** Requester PII on shared surfaces such as the calendar, the member scoreboard or aggregate reports (§51.1, §63, §68). When he projects his screen in a leadership meeting, PII could be visible. Attention rows are ID-first by design; a "hide names" presentation mode is deferred.
-- **Auth:** MFA (§60.1).
+- **Can see:** Requester identity and address. Deleted comments. Volunteer feedback. Everything operational (§67). He is the one role whose reveals of requester PII on leadership screens are **not** audit-logged (Q-024, decided).
+- **Must never see / must never cause:** Requester PII on shared surfaces such as the calendar, the member scoreboard, the public scoreboard embed or aggregate reports (§51.1, §63, §68). When he projects his screen in a leadership meeting, PII could be visible. Attention rows are ID-first by design; a "hide names" presentation mode is deferred.
+- **Auth:** MFA (§60.1). Trusted device remembered 30 days; always re-checked for audit export and role changes (Q-010).
 
 ## HAM Assistant Director: Andre Whitfield (§4.5, §12, §24, §39)
 - Like Marcus, with broad operational rights (he can review and upload media but **cannot approve publication**; §47.4 approvers are the Social Media Specialist, HAM Director and pastors), but he **cannot** redefine scope or finally decline execution. He *recommends* instead (§12). He can place projects On Hold and clear safety holds (§39). He verifies credentials manually when auto-verification isn't available (§24). He edits budgets (§14.3).
 - He cannot see deleted comment content (§57). He can see volunteer feedback (§55).
+- He can see requester PII on leadership screens, and each reveal (hover card or side panel) is audit-logged (Q-024).
 - **Design notes:** Same dashboard as the Director. Director-only actions appear as "Recommend …", never as a disabled button with no explanation.
 - **Auth:** MFA.
 
@@ -70,21 +76,26 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 - **Who:** Contractor by trade. He leads 1–2 projects a month and often also leads a task (§4.6).
 - **Device/context:** Phone on site: sunlight, dusty hands or gloves, one hand holding a ladder. Weak signal inside some homes.
 - **Top jobs:** See today at a glance. Run the safety checklist (§38). Show the check-in QR and correct attendance (§37). Move tasks. Handle last-48h staffing (§30). Reassign or replace volunteers (§31). Create justified unplanned tasks (§18). Complete the project (§53).
-- **Must never see:** Volunteer post-project feedback (§55), deleted comments, the audit log or a per-project activity history (§58, §67; Q-021 proposes No), projects he is not assigned to (§67 "project-specific").
-- **Auth:** Passwordless (§60.2). No MFA solely for being a Project Leader (§60.1). This raises the stakes on which requester details he can see. See Q-009.
+- **Can see (assigned projects only):** requester name, address, phone and hazards (Q-009, decided). Each reveal is audit-logged (Q-024). Not the requester's circumstances beyond that (for example financial situation or approval deliberation).
+- **Must never see:** Volunteer post-project feedback (§55), deleted comments, the audit log or a per-project activity history (§58, §67; Q-021 decided: No), projects he is not assigned to (§67 "project-specific").
+- **Auth:** Passwordless (§60.2). No MFA solely for being a Project Leader (§60.1). Because he sees requester contact details without MFA, requester fields stay scoped to his assigned projects and reveals are logged.
+- **Reachable by his crew:** assigned volunteers see a Call button for him the day before and the day of the project only (Q-023).
 
 ## Task Leader: Tom Nguyen (§4.7, §15.5, §17, §53)
 - **Who:** Skilled drywaller. Task Leader is **assigned per task, not a standing role**. On one project Tom is a Task Leader; on the next he is a plain volunteer.
 - **Top jobs:** See his task's requirements, tools, materials and crew. Move the task to In Progress, Blocked (with a reason) or Completed. Complete or cancel his follow-up tasks (§53).
-- **Must never see:** Budget, other projects, volunteer feedback, requester circumstances beyond what the task needs.
+- **Can see (projects/tasks he is assigned to only):** the same requester details as the Project Leader: name, address, phone and hazards (Q-009, decided). Each reveal is audit-logged (Q-024). Access ends when he is no longer assigned.
+- **Must never see:** Budget, other projects, volunteer feedback, requester circumstances beyond name, address, phone and hazards.
 - **Auth:** Passwordless.
 
 ## Volunteer: Kevin Thompson (§4.8, §20–§35, §37, §42, §43)
 - **Who:** 38, electrician's helper, member of the Men's Ministry. Volunteers about once a month. Wants to help without paperwork.
 - **Device/context:** Phone, often at lunch break or in a truck. Opens HAM from an email notification about 70% of the time.
 - **Top jobs:** Accept or decline invitations before the deadline (§28). Reconfirm 7 days out (§32). Know where and when to show up. Check in and out on site (§37). Keep his credentials current (§24.1). Finish onboarding (§42). Cancel honestly when he must (§33). Give feedback (§55). Understand his reliability score (§34).
-- **Must never see:** Other volunteers' reliability scores. Requester circumstances and contact details. Budgets. Requests not yet approved. Projects he isn't invited to or assigned to (§67). The full address before assignment (proposal pending Q-004).
-- **Auth:** Email magic link. SMS code later (§60.2, §75, Q-019).
+- **Must never see:** Other volunteers' reliability scores. Requester circumstances and contact details. Budgets. Requests not yet approved. Projects he isn't invited to or assigned to (§67). The full address before assignment: invitations show area + distance, and the full address appears once he is assigned (Q-004, decided).
+- **Can see when assigned:** the Project Leader's Call button, the day before and the day of the project only (Q-023).
+- **Auth:** Email magic link. Email only in V1; no SMS (§60.2, §75, Q-019).
+- **Weak signal:** he can check in offline. The check-in is queued as "waiting to sync" and sent when he reconnects; the Project Leader can correct it (Q-006, §37.2).
 - **Media release:** mandatory. If he withdraws it, his profile becomes **inactive** until he restores consent (§43).
 - **Design notes:** Home opens on his next action (see [navigation.md](navigation.md#4a-volunteer-home--phone-390px)). Onboarding gaps block participation, so they sit at the top, framed as "almost ready", not as errors.
 
@@ -103,7 +114,7 @@ All names are fictional. Local time is America/New_York, stored in UTC (§70.5).
 
 ## Administrator: Nadia Pierre (§4.11, §58, §59)
 - **Who:** Church IT volunteer.
-- **Top jobs:** Manage users, roles and permissions. Handle integrations (Calendar status, credential verification provider). Change system settings. Troubleshoot through impersonation (reason required, 15-minute idle timeout, dual identity in the audit trail) (§59). Export the audit log. See deleted comments.
+- **Top jobs:** Maintain the church profile (name, logos, contact info including the ministry phone and email shown to requesters; Q-007, Q-026). Manage users, roles and permissions. Handle integrations (Calendar status, credential verification provider). Change system settings. Troubleshoot through impersonation (reason required, 15-minute idle timeout, dual identity in the audit trail) (§59). Export the audit log. See deleted comments.
 - **Must never do while impersonating:** Role or permission changes, privileged budget approvals, protected admin actions (§59).
 - **Auth:** MFA.
 

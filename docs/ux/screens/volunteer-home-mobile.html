@@ -64,7 +64,7 @@
   .icon-btn { position: relative; display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: var(--ham-radius-pill); border: 0; background: transparent; color: inherit; cursor: pointer; }
   .icon-btn:hover { background: var(--ham-appbar-hover); }
   .badge { position: absolute; top: 6px; right: 4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: var(--ham-radius-pill); background: var(--ham-badge-bg); color: var(--ham-badge-fg); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; box-shadow: 0 0 0 2px var(--ham-bg-appbar); }
-  .leaf-stripe { height: 3px; background: linear-gradient(90deg, var(--ham-accent-leaf-light) 0 33.3%, var(--ham-accent-leaf-mid) 33.3% 66.6%, var(--ham-accent-leaf-dark) 66.6%); }
+  .brand-stripe { height: 3px; background: linear-gradient(90deg, var(--ham-accent-brand-light) 0 33.3%, var(--ham-accent-brand-mid) 33.3% 66.6%, var(--ham-accent-brand-dark) 66.6%); }
 
   /* ---------- Content ---------- */
   main { padding: var(--ham-space-6) var(--ham-space-4) var(--ham-space-8); }
@@ -141,7 +141,7 @@
   .later__status { display: flex; flex-wrap: wrap; gap: var(--ham-space-2); align-items: center; }
 
   .impact { display: flex; gap: var(--ham-space-3); align-items: flex-start; padding: var(--ham-space-5) var(--ham-space-4); border-radius: var(--ham-radius-lg); background: var(--ham-bg-surface); border: 1px solid var(--ham-border-default); position: relative; overflow: hidden; }
-  .impact::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--ham-accent-leaf-light), var(--ham-accent-leaf-mid), var(--ham-accent-leaf-dark)); }
+  .impact::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--ham-accent-brand-light), var(--ham-accent-brand-mid), var(--ham-accent-brand-dark)); }
   .impact .i { color: var(--ham-text-brand); margin-top: 2px; }
   .impact p { margin: 0; color: var(--ham-text-secondary); }
   .impact .num { font-family: var(--ham-font-display); font-weight: 600; font-size: 22px; line-height: 1; color: var(--ham-text-primary); font-variant-numeric: tabular-nums; }
@@ -204,7 +204,7 @@
     <div class="screen" id="screen">
       <header class="appbar">
         <div class="appbar__row">
-          <img class="appbar__logo" src="../../../design-system/assets/logo-white-on-dark.png" alt="Miami Temple Seventh-day Adventist" width="154" height="32">
+          <img class="appbar__logo" src="../../../design-system/brands/miami-temple/logo-white-on-dark.png" alt="Miami Temple Seventh-day Adventist" width="154" height="32">
           <span class="appbar__name" aria-label="Home Assistance Ministry">HAM</span>
           <span class="appbar__spacer"></span>
           <button class="icon-btn" type="button" aria-label="Inbox, 3 need a response">
@@ -212,7 +212,7 @@
             <span class="badge" aria-hidden="true">3</span>
           </button>
         </div>
-        <div class="leaf-stripe" aria-hidden="true"></div>
+        <div class="brand-stripe" aria-hidden="true"></div>
       </header>
 
       <main id="main">

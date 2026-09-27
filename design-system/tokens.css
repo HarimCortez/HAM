@@ -1,22 +1,22 @@
-/* HAM design tokens — GENERATED from tokens.json by tools/build_tokens.py. Do not edit by hand. */
-/* Version 1.1.0 */
+/* HAM design tokens — GENERATED from tokens.json + brands/miami-temple/brand.json by tools/build_tokens.py. Do not edit by hand. */
+/* Version 1.2.0 · Brand: Miami Temple Seventh-day Adventist Church */
 
 :root {
   color-scheme: light;
-  --ham-color-brand-50: #EAF7EF;
-  --ham-color-brand-100: #D0EEDB;
-  --ham-color-brand-200: #A3DDB8;
-  --ham-color-brand-300: #6CC68F;
-  --ham-color-brand-400: #34AE66;
+  --ham-color-brand-50: #ECF7ED;
+  --ham-color-brand-100: #D3EDD7;
+  --ham-color-brand-200: #A9DCB2;
+  --ham-color-brand-300: #76C587;
+  --ham-color-brand-400: #40AD60;
   --ham-color-brand-500: #0B9444;
-  --ham-color-brand-600: #087F3A;
-  --ham-color-brand-700: #066B31;
-  --ham-color-brand-800: #055628;
-  --ham-color-brand-900: #04421F;
-  --ham-color-brand-950: #0F2E1C;
-  --ham-color-leaf-light: #8CC63F;
-  --ham-color-leaf-mid: #39B54A;
-  --ham-color-leaf-dark: #0B9444;
+  --ham-color-brand-600: #0A7F3A;
+  --ham-color-brand-700: #0A6B30;
+  --ham-color-brand-800: #0B5626;
+  --ham-color-brand-900: #09421D;
+  --ham-color-brand-950: #132E19;
+  --ham-color-accent-light: #8CC63F;
+  --ham-color-accent-mid: #39B54A;
+  --ham-color-accent-dark: #0B9444;
   --ham-color-neutral-0: #FFFFFF;
   --ham-color-neutral-25: #F6F8F6;
   --ham-color-neutral-50: #EEF1EF;
@@ -73,6 +73,17 @@
   --ham-color-violet-700: #5B2BB5;
   --ham-color-violet-800: #45307A;
   --ham-color-violet-950: #251A40;
+  --ham-color-green-50: #EAF7EF;
+  --ham-color-green-100: #D0EEDB;
+  --ham-color-green-200: #A3DDB8;
+  --ham-color-green-300: #6CC68F;
+  --ham-color-green-400: #34AE66;
+  --ham-color-green-500: #0B9444;
+  --ham-color-green-600: #087F3A;
+  --ham-color-green-700: #066B31;
+  --ham-color-green-800: #055628;
+  --ham-color-green-900: #04421F;
+  --ham-color-green-950: #0F2E1C;
   --ham-font-display: Oswald, "Arial Narrow", "Roboto Condensed", sans-serif;
   --ham-font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --ham-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -236,9 +247,9 @@
   --ham-badge-bg: var(--ham-color-red-600);
   --ham-badge-fg: var(--ham-color-neutral-0);
   --ham-focus-ring: var(--ham-color-brand-700);
-  --ham-accent-leaf-light: var(--ham-color-leaf-light);
-  --ham-accent-leaf-mid: var(--ham-color-leaf-mid);
-  --ham-accent-leaf-dark: var(--ham-color-leaf-dark);
+  --ham-accent-brand-light: var(--ham-color-accent-light);
+  --ham-accent-brand-mid: var(--ham-color-accent-mid);
+  --ham-accent-brand-dark: var(--ham-color-accent-dark);
   --ham-tone-neutral-bg: var(--ham-color-neutral-50);
   --ham-tone-neutral-fg: var(--ham-color-neutral-700);
   --ham-tone-neutral-border: var(--ham-color-neutral-200);
@@ -251,10 +262,10 @@
   --ham-tone-attention-fg: var(--ham-color-amber-700);
   --ham-tone-attention-border: var(--ham-color-amber-200);
   --ham-tone-attention-icon: var(--ham-color-amber-500);
-  --ham-tone-active-bg: var(--ham-color-brand-50);
-  --ham-tone-active-fg: var(--ham-color-brand-800);
-  --ham-tone-active-border: var(--ham-color-brand-200);
-  --ham-tone-active-icon: var(--ham-color-brand-600);
+  --ham-tone-active-bg: var(--ham-color-green-50);
+  --ham-tone-active-fg: var(--ham-color-green-800);
+  --ham-tone-active-border: var(--ham-color-green-200);
+  --ham-tone-active-icon: var(--ham-color-green-600);
   --ham-tone-success-bg: var(--ham-color-teal-50);
   --ham-tone-success-fg: var(--ham-color-teal-700);
   --ham-tone-success-border: var(--ham-color-teal-200);
@@ -499,9 +510,9 @@
   --ham-badge-bg: var(--ham-color-red-600);
   --ham-badge-fg: var(--ham-color-neutral-0);
   --ham-focus-ring: var(--ham-color-brand-300);
-  --ham-accent-leaf-light: var(--ham-color-leaf-light);
-  --ham-accent-leaf-mid: var(--ham-color-leaf-mid);
-  --ham-accent-leaf-dark: var(--ham-color-leaf-dark);
+  --ham-accent-brand-light: var(--ham-color-accent-light);
+  --ham-accent-brand-mid: var(--ham-color-accent-mid);
+  --ham-accent-brand-dark: var(--ham-color-accent-dark);
   --ham-tone-neutral-bg: var(--ham-color-neutral-800);
   --ham-tone-neutral-fg: var(--ham-color-neutral-200);
   --ham-tone-neutral-border: var(--ham-color-neutral-700);
@@ -514,10 +525,10 @@
   --ham-tone-attention-fg: var(--ham-color-amber-200);
   --ham-tone-attention-border: var(--ham-color-amber-800);
   --ham-tone-attention-icon: var(--ham-color-amber-200);
-  --ham-tone-active-bg: var(--ham-color-brand-950);
-  --ham-tone-active-fg: var(--ham-color-brand-200);
-  --ham-tone-active-border: var(--ham-color-brand-800);
-  --ham-tone-active-icon: var(--ham-color-brand-300);
+  --ham-tone-active-bg: var(--ham-color-green-950);
+  --ham-tone-active-fg: var(--ham-color-green-200);
+  --ham-tone-active-border: var(--ham-color-green-800);
+  --ham-tone-active-icon: var(--ham-color-green-300);
   --ham-tone-success-bg: var(--ham-color-teal-950);
   --ham-tone-success-fg: var(--ham-color-teal-200);
   --ham-tone-success-border: var(--ham-color-teal-800);
@@ -535,7 +546,7 @@
   --ham-shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
 }
 
-/* Automatic OS dark mode is OFF (ham.autoDark=false) while Q-016 is open; dark only via data-theme="dark". */
+/* Automatic OS dark mode is OFF (ham.autoDark=false): V1 is light only (Q-016). Dark values are kept for later and apply only via data-theme="dark". */
 
 @media (prefers-reduced-motion: reduce) {
   :root {

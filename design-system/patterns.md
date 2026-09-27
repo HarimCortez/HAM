@@ -11,7 +11,7 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 | ≥ 1024 | App bar (logo, global search, notifications, avatar) + **full sidebar** (264px). |
 - The requester's secure request page (PRD §7.2) has **no nav**: app bar with logo only, single column, `body-lg` text, `control-lg` inputs, one task per screen.
 - Primary action on mobile lives in a sticky bottom action bar (above the bottom nav, `bg.surface`, top `border.default`, safe-area padding). On desktop it sits in the page header, right-aligned.
-- One `h1` per screen (`type-h1`, Oswald). Desktop list/overview pages may use `type-display`.
+- One `h1` per screen (`type-h1`, the brand's display face; Oswald for Miami Temple). Desktop list/overview pages may use `type-display`.
 
 ## 2. List → detail
 - **Mobile:** list screen → push detail screen (back button in app bar). Keep scroll position on return.
@@ -46,7 +46,15 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 - Row 3: queue widgets as compact tables/cards, each with count chip + "View all": awaiting approval, awaiting assessment, in planning, needing volunteers, missing qualifications, upcoming, reconfirmation problems, blocked tasks, on hold, credential alerts, budget risks, incidents, follow-ups, recent completions. Hide widgets with zero items behind a "All clear (5)" collapsed row.
 - Mobile: attention list first, then KPI tiles 2-up, then queues as collapsible sections.
 
-**Member scoreboard (PRD §63):** hero KPIs Families Served + Volunteer Hours (hero tile variant), then 4 supporting tiles; This Month / This Year / All-Time segmented control. Aggregates only; no names, photos of people or addresses. Warm, celebratory but calm: leaf-accent stripe, Oswald numerals, no confetti.
+**Member scoreboard (PRD §63):** hero KPIs Families Served + Volunteer Hours (hero tile variant), then 4 supporting tiles; This Month / This Year / All-Time segmented control. Aggregates only; no names, photos of people or addresses. Warm, celebratory but calm: brand accent stripe, display-face numerals, no confetti. Also available as a public embed on the church website (Q-005); see below.
+
+**Public scoreboard embed (PRD §63, §68; Q-005 decided).** The member scoreboard, read-only, for an `<iframe>` on the church's own website.
+- **Brand:** the church's logo (`logos.onLight`, 32px tall, on `bg.surface`) and `church.name` come from the brand layer (`brands/<brand>/brand.json`), with "Home Assistance Ministry" beneath in `type-label`, `text.secondary`. The mission line is optional (`type-small`). Never hard-code a church's name or logo in the embed.
+- **Content, aggregates only:** the two hero tiles (Families Served, Volunteer Hours) and the four supporting tiles, the This Month / This Year / All-Time control, and "Updated <date>" (`type-small`, `text.tertiary`). Nothing else: no names, initials, photos of people, addresses, neighborhoods, project titles, dates of individual projects, testimonials or per-project breakdowns.
+- **Nothing small enough to identify a family:** if a period's Families Served is below the minimum count from the rules module (`PRD-GAP`: value not yet decided), that period's tiles show "Fewer than N" in `text.secondary` instead of numbers, and Cost of Assistance and Satisfaction Rating are hidden for that period (one family's aid amount or rating would be identifiable). The time control keeps working; This Year and All-Time normally carry the numbers.
+- **Layout:** sized by the iframe, not the viewport (container queries). Under 480px: one column, heroes stacked; 480–799px: heroes side by side, supporting tiles 2-up; 800px and wider: heroes side by side, supporting tiles 4-up. Its own `bg.surface` card with `radius-lg` and `space-6` padding, so it reads well on any host page color. Light theme only.
+- **Accessibility:** the host `<iframe>` needs `title="<shortName> Home Assistance Ministry scoreboard"`. KPIs are real text (not images), each with its label; the time control is a labelled radio group.
+- **Don't:** add a sign-in prompt, cookies, tracking, or links into member areas.
 
 **Volunteer home:** a to-do list in the fixed order of `docs/ux/navigation.md` §7.3: project-day card → blocking items → needs response → next up → heads-up → later → ministry impact line. The reliability score is not on Home; it lives in Me (PRD §34).
 
@@ -75,5 +83,6 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 - Error pages: friendly title, what happened, one action; include logo on requester-facing pages.
 
 ## 11. Theming
-- **V1 is light only (proposed default of Q-016, pending).** The dark tokens are kept for later and apply only via `data-theme="dark"` **on `<html>` only** (status aliases resolve at `:root`). Automatic OS dark mode is off until Q-016 is decided. The mockup theme toggles are for review only.
-- The app bar stays dark ink in both themes. Photos are never tinted. Illustrations use leaf accents + neutrals only so they work in both themes.
+- **V1 is light only (Q-016, decided).** The dark tokens are kept for later and apply only via `data-theme="dark"` **on `<html>` only** (status aliases resolve at `:root`). Automatic OS dark mode is off (`ham.autoDark: false`). The mockup theme toggles are for review only; the app ships no theme switch.
+- The app bar stays dark ink in both themes, so every church's white-on-dark logo works there. Photos are never tinted. Illustrations use the brand accent colors (`accent.brand-*`) + neutrals only.
+- **Church brand:** components never name a church, a logo file or a brand hex. They use semantic tokens (`action.primary.bg`, `text.link`, `accent.brand-*`, `--ham-font-display`) and read name, mission line and logos from the active brand's `brand.json`. See `brands/README.md`.

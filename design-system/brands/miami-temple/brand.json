@@ -1,0 +1,42 @@
+{
+  "$comment": "Church brand layer for HAM. Only the fields below may be customized; see ../README.md. Build: python3 design-system/tools/build_tokens.py --brand miami-temple --check",
+  "id": "miami-temple",
+  "church": {
+    "name": "Miami Temple Seventh-day Adventist Church",
+    "shortName": "Miami Temple",
+    "missionLine": "Reaching Up, Reaching Around, Reaching Out"
+  },
+  "colors": {
+    "primary": "#0B9444",
+    "accents": ["#39B54A", "#8CC63F"],
+    "notes": "Sampled exactly from the logo's three leaves: dark #0B9444 (primary seed), mid #39B54A, light #8CC63F."
+  },
+  "fonts": {
+    "display": "Oswald",
+    "ui": "Inter",
+    "notes": "Oswald echoes the heavy condensed MIAMI TEMPLE wordmark; Inter for everything else."
+  },
+  "logos": {
+    "alt": "Miami Temple Seventh-day Adventist",
+    "onDark": {
+      "file": "logo-white-on-dark.png",
+      "background": "dark",
+      "use": "App bar (always dark ink --ham-bg-appbar), dark photos, dark splash. The original, official artwork.",
+      "size": [3375, 700]
+    },
+    "onLight": {
+      "file": "logo-dark-on-light.png",
+      "small": "logo-dark-on-light@small.png",
+      "background": "light",
+      "wordmarkInk": "#111814",
+      "use": "White or light surfaces: sign-in card, requester pages, emails, PDF reports, public scoreboard embed. Only the wordmark is recolored (to #111814); the leaves are unchanged.",
+      "size": [3375, 700]
+    },
+    "mark": {
+      "file": "logo-mark.png",
+      "background": "any",
+      "use": "Favicon / PWA icon, compact app bar on mobile detail screens, system-message avatar.",
+      "size": [400, 700]
+    }
+  }
+}

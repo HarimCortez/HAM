@@ -13,8 +13,8 @@ Use tokens only (`tokens.css`), never raw hex or px. Icons are [Lucide](https://
 ---
 
 ## 1. App bar (with logo)
-- **Anatomy:** `bg.appbar` (dark ink in both themes) · logo · screen title (mobile) · right slot (search icon, notifications, avatar) · 3px bottom stripe: linear gradient `accent.leaf-light → accent.leaf-mid → accent.leaf-dark` (decorative, `aria-hidden`).
-- **Logo:** `assets/logo-white-on-dark.png`, height 32px (lockup) on ≥390px wide; `logo-mark.png` at 28px when a back button + title need the room (detail screens on mobile). Logo links to Home; `alt="Miami Temple Seventh-day Adventist — HAM"`.
+- **Anatomy:** `bg.appbar` (dark ink in both themes) · logo · screen title (mobile) · right slot (search icon, notifications, avatar) · 3px bottom stripe: linear gradient `accent.brand-light → accent.brand-mid → accent.brand-dark` (decorative, `aria-hidden`).
+- **Logo:** the brand's `logos.onDark` file (`brands/<brand>/brand.json`; Miami Temple: `brands/miami-temple/logo-white-on-dark.png`), height 32px (lockup) on ≥390px wide; the brand's `logos.mark` at 28px when a back button + title need the room (detail screens on mobile). Logo links to Home; `alt` = `logos.alt` + " — HAM" (Miami Temple: `alt="Miami Temple Seventh-day Adventist — HAM"`). Never hard-code the church's logo path or name in a component.
 - **Height:** `--ham-size-appbar-height` + `env(safe-area-inset-top)`. Sticky, `--ham-z-appbar`.
 - **Mobile:** detail screens show back button (left), title (`h3` style, `text.on-appbar`, 1 line, ellipsis allowed for titles only — full title repeated as page `h1`), one overflow action.
 - **Desktop (≥1024):** full lockup left, global search field center (max 480px), notifications + avatar right. Sidebar sits below.
@@ -72,7 +72,7 @@ For "What needs attention" lists (PRD §64) and personal to-dos.
 ## 8. KPI tile
 For member scoreboard (PRD §63) and leadership dashboard (§64).
 - `bg.surface`, `radius-lg`, padding `space-5`. Label (`type-label`, `text.secondary`) → number (`type-kpi`, `text.primary`, `font-variant-numeric: tabular-nums`) → comparison line (`type-small`: "▲ 12 vs last month", arrow icon + words, never color alone).
-- Hero variant (Families Served, Volunteer Hours): number 56px on desktop, `accent.leaf-*` decorative 4px top stripe.
+- Hero variant (Families Served, Volunteer Hours): number 56px on desktop, `accent.brand-*` decorative 4px top stripe.
 - Time switcher (This Month / This Year / All-Time) is a segmented control above the tile group, not per tile.
 - Aggregate only — no names, addresses or circumstances (PRD §63, §68).
 
@@ -97,7 +97,7 @@ For member scoreboard (PRD §63) and leadership dashboard (§64).
 - Safety and legal banners use `danger` and cannot be dismissed.
 
 ## 12. Empty states
-- Centered in the content area, max width 360px: 96px simple line illustration using `accent.leaf-*` + `neutral` only (decorative, `alt=""`), title (`h3`), one sentence (`text.secondary`), one primary or secondary action.
+- Centered in the content area, max width 360px: 96px simple line illustration using `accent.brand-*` + `neutral` only (decorative, `alt=""`), title (`h3`), one sentence (`text.secondary`), one primary or secondary action.
 - Tone is warm and specific: "No invitations right now. We'll let you know when a project needs your skills."
 - Compact variant (inside tables/cards): icon 32px + one line + link.
 
