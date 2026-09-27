@@ -5,7 +5,7 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 
 | ID | PRD § | Question | Options | Proposed default | Status / Decision |
 |---|---|---|---|---|---|
-| Q-001 | §34.1 | Exact reliability penalty numbers (small / moderate / larger / major / largest) and recovery rate | Various | To be proposed by ham-rules-engineer | Open |
+| Q-001 | §34.1 | Exact reliability penalty numbers (small / moderate / larger / major / largest) and recovery rate | Various | Proposed by ham-rules-engineer: cancel 4–6 days 3, 2–3 days 6, 1 day 10, same day 16, no-show 20; +2 per fulfilled commitment, cap 100, floor 0 | Open |
 | Q-002 | §28 | Invitation response deadline length | e.g. 24h / 48h / 72h | 48h | Decided 2026-09-27 (owner): 48 hours |
 | Q-003 | §78 | Technology stack and hosting | See ADR 0001 | To be drafted by ham-architect | Decided 2026-09-27 (owner): Django 5.2 LTS + Postgres + HTMX on Render (ADR 0001 Option B, Accepted) |
 | Q-004 | §28, §40, §67 | What location detail do volunteers see, and when? | Area only / area on invite + full address once Assigned / full address on invite | Area + distance on invite; full address once Assigned; never requester name, phone or circumstances | Decided 2026-09-27 (owner): proposed default (area + distance on invite; full address once assigned) |
@@ -60,6 +60,16 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 | Q-053 | §59 | When impersonation idles out, does the Admin return to their own account or is the session ended? | Return to own / end both | Return to own account | Decided 2026-09-27 (owner accepted proposed default): return to own account |
 | Q-054 | §16, §17, §67 | May the Administrator assign Project/Task Leaders? | No (Director/AD only) / yes | No | Decided 2026-09-27 (owner): No, per PRD §16/§17 |
 | Q-055 | §4.11, §8, Q-041 | Guardrails on Director role grants | none / guardrails | No self-grant; Pastor/Board grants record authorizing body; Admins notified | Decided 2026-09-27 (owner): the Director cannot change his own roles; Pastor and Board representative grants/removals require the authorizing body (Board / pastoral staff) as a recorded reason; every grant/removal emails all Administrators and is audited |
+| Q-056 | §70.2, §78 | Health check reports "degraded" when the oldest due background job has waited longer than a threshold | any lag / 1 min / 5 min | 5 minutes (ops constant) | Open |
+| Q-057 | foundation §8 | `bootstrap_admin` ships as a stub in S1 and is completed in S3a | stub now / move User model earlier | Stub now | Decided 2026-09-27 (default): stub now, finished in S3a |
+| Q-070 | §60.2, Q-032 | Sign-in email rate limit and resend cooldown | 3/5/10 per hour; 30/60 s | 5 per address per hour; 30 s cooldown | Open |
+| Q-071 | §20, Q-037 | How long an emailed account invitation stays valid | 72 h / 7 days / 14 days | 7 days | Open |
+| Q-072 | §60.1 | Wrong authenticator/recovery codes before lockout | 3 / 5 / 10 | 5, then restart email sign-in; audited | Open |
+| Q-073 | §32, §33, §34.1, Q-011, Q-030 | How "N days before the project" is measured | church-local calendar days / 24 h periods | Calendar days in the church time zone for day-based rules; hour-based rules use elapsed time; reminders at 09:00 local; release at end of day 5 | Open |
+| Q-074 | §41, §56 | When the 7-year retention clock starts | agreement: signing / project close; incident: submission / last amendment | Agreement: later of signing and project close; incident: last amendment | Open |
+| Q-075 | §33, §34.1 | Cancelling on the project day after the start time: same-day cancellation or no-show? | same-day / no-show | No-show unless excused | Open |
+| Q-076 | Q-046 | Do role grant and revoke share one 5-minute step-up window? | shared / separate | Shared | Open |
+| Q-077 | §28, §29, §32, §34 | Any reliability penalty for unanswered invitations, unconfirmed waitlist promotions, or release for not reconfirming? | none / small | None in V1 (§34.1 lists only cancellations and no-shows) | Open |
 
 ## Owner action items (not PRD questions)
 - (Open, default) Confirm Miami Temple communications approves HAM's use of the church logo files in `design-system/brands/miami-temple/`, and ask whether a brand guide exists.

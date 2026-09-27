@@ -1,0 +1,638 @@
+"""HAM rules, major version 1: every fixed business number in one place.
+
+PRD §34 and §76 say these values are fixed system rules: deterministic, versioned, and
+NOT administrator-configurable. There is no database and no Admin editing here.
+
+How to change a value:
+1. Change it here (with its PRD section / Q-id in ``sources``).
+2. Bump ``RULES_VERSION`` (``YYYY.MM.DD-N``).
+3. Add an entry to ``docs/rules-changelog.md``.
+4. Pin the new content hash in ``tests/rules/test_version_hash.py``.
+The version/hash test fails if a value changes without steps 2-4.
+
+Every consequential record that depends on these rules (audit events, reliability score
+changes) stores ``RULES_VERSION`` so history stays explainable (§34, §58).
+
+Conventions (see ``types.py``): ``timedelta`` = elapsed UTC time; ``CalendarYears`` =
+calendar retention; ``int`` fields state their unit in ``unit=``; ``Pending`` = PRD-GAP,
+raises ``RuleNotDecidedError`` if used.
+
+Pure Python. Must never import Django (it is imported by the DB layer, jobs and tests).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields
+from datetime import timedelta
+from typing import Any
+
+from .types import CalendarYears, Pending, contains_pending
+
+RULES_VERSION = "2026.09.27-1"
+
+
+def rule(
+    value: Any,
+    *,
+    label: str,
+    sources: tuple[str, ...],
+    unit: str = "",
+    unit_one: str = "",
+    note: str = "",
+) -> Any:
+    """Declare one rule: its value plus the human label and PRD/decision sources.
+
+    The metadata is exposed read-only through ``dataclasses.fields(...)[i].metadata`` and is
+    what the Admin "Rules" screen shows (see ``view.py``).
+    """
+    return field(
+        default=value,
+        metadata={
+            "label": label,
+            "sources": sources,
+            "unit": unit,
+            "unit_one": unit_one,
+            "note": note,
+        },
+    )
+
+
+def group(factory: type, *, label: str) -> Any:
+    return field(default_factory=factory, metadata={"label": label})
+
+
+# --------------------------------------------------------------------------------------
+# Staffing, invitations, waitlist and reconfirmation (PRD §28–§32, §76)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class StaffingRules:
+    INVITATION_RESPONSE_WINDOW: timedelta = rule(
+        timedelta(hours=48),
+        label="Time a volunteer has to answer an invitation",
+        sources=("PRD §28", "Q-002"),
+    )
+    WAITLIST_PROMOTION_CONFIRM_WINDOW: timedelta = rule(
+        timedelta(hours=24),
+        label="Time a promoted waitlisted volunteer has to confirm (Pending Confirmation)",
+        sources=("PRD §29", "PRD §32"),
+    )
+    AUTO_STAFFING_CUTOFF_BEFORE_START: timedelta = rule(
+        timedelta(hours=48),
+        label="Automatic invitations and waitlist cycling stop this long before the project; "
+        "the Project Leader controls staffing after that",
+        sources=("PRD §29", "PRD §30", "PRD §76"),
+    )
+    UNDERSTAFFED_ALERT_BEFORE_START: timedelta = rule(
+        timedelta(hours=96),
+        label="Leadership is alerted about an understaffed project this long before it starts",
+        sources=("PRD §29", "PRD §30", "PRD §64", "Q-013"),
+    )
+    RECONFIRMATION_DAYS_BEFORE: int = rule(
+        7,
+        label="Accepted volunteers are asked to reconfirm",
+        unit="days before the project",
+        sources=("PRD §32",),
+        note="How 'days before' is measured is open: PRD-GAP Q-073.",
+    )
+    RECONFIRMATION_REMINDER_DAYS_BEFORE: tuple[int, ...] = rule(
+        (7, 6, 5),
+        label="Daily reconfirmation reminders while unconfirmed",
+        unit="days before the project",
+        sources=("PRD §32", "Q-011"),
+        note="How 'days before' is measured is open: PRD-GAP Q-073.",
+    )
+    UNCONFIRMED_RELEASE_DAYS_BEFORE: int = rule(
+        5,
+        label="A still-unconfirmed slot is released and the first qualified waitlisted "
+        "volunteer is promoted",
+        unit="days before the project",
+        sources=("PRD §32", "PRD §76"),
+        note="How 'days before' is measured is open: PRD-GAP Q-073.",
+    )
+    AGREEMENT_UNACCEPTED_LEADER_ALERT_BEFORE_START: timedelta = rule(
+        timedelta(hours=48),
+        label="Project Leader is alerted this long before start if an assigned volunteer has "
+        "not accepted a changed agreement (the slot is kept; check-in is blocked)",
+        sources=("PRD §42", "Q-014"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Reliability score (PRD §21, §30, §33, §34)
+# --------------------------------------------------------------------------------------
+_Q001 = (
+    "Q-001: small/moderate/larger/major/largest penalty numbers and recovery rate are "
+    "not decided by the product owner."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReliabilityRules:
+    SCORE_MIN: int = rule(0, label="Lowest possible reliability score", sources=("PRD §34",))
+    SCORE_MAX: int = rule(100, label="Highest possible reliability score", sources=("PRD §34",))
+    INITIAL_SCORE: int = rule(
+        100, label="Score a new volunteer starts with", sources=("PRD §34.1",)
+    )
+    CANCELLATION_FREE_DAYS_BEFORE: int = rule(
+        7,
+        label="Cancelling at least this early carries no penalty",
+        unit="days before the project",
+        sources=("PRD §33", "PRD §34.1"),
+        note="How 'days before' is measured is open: PRD-GAP Q-073.",
+    )
+    CANCELLATION_BAND_LOWER_BOUNDS_DAYS: tuple[int, ...] = rule(
+        (7, 4, 2, 1, 0),
+        label="Cancellation bands: 7+ days, 4–6 days, 2–3 days, 1 day, same day",
+        unit="days before the project",
+        sources=("PRD §34.1",),
+        note="How 'days before' is measured is open: PRD-GAP Q-073.",
+    )
+    PENALTY_CANCEL_7_PLUS_DAYS: int = rule(
+        0, label="Penalty: cancelled 7 or more days before", unit="points",
+        sources=("PRD §33", "PRD §34.1"),
+    )
+    PENALTY_CANCEL_4_TO_6_DAYS: int | Pending = rule(
+        Pending("Q-001", "3 points (small)"),
+        label="Penalty: cancelled 4–6 days before (small)", unit="points",
+        sources=("PRD §34.1", "Q-001"), note=_Q001,
+    )
+    PENALTY_CANCEL_2_TO_3_DAYS: int | Pending = rule(
+        Pending("Q-001", "6 points (moderate)"),
+        label="Penalty: cancelled 2–3 days before (moderate)", unit="points",
+        sources=("PRD §34.1", "Q-001"), note=_Q001,
+    )
+    PENALTY_CANCEL_1_DAY: int | Pending = rule(
+        Pending("Q-001", "10 points (larger)"),
+        label="Penalty: cancelled 1 day before (larger)", unit="points",
+        sources=("PRD §34.1", "Q-001"), note=_Q001,
+    )
+    PENALTY_CANCEL_SAME_DAY: int | Pending = rule(
+        Pending("Q-001", "16 points (major; slightly less than a no-show)"),
+        label="Penalty: same-day cancellation (major)", unit="points",
+        sources=("PRD §33", "PRD §34.1", "Q-001"), note=_Q001,
+    )
+    PENALTY_NO_SHOW: int | Pending = rule(
+        Pending("Q-001", "20 points (largest)"),
+        label="Penalty: no-show (largest)", unit="points",
+        sources=("PRD §33", "PRD §34.1", "Q-001"), note=_Q001,
+    )
+    RECOVERY_PER_FULFILLED_COMMITMENT: int | Pending = rule(
+        Pending("Q-001", "+2 points per commitment fulfilled as committed, capped at 100"),
+        label="Gradual recovery for each commitment fulfilled as committed", unit="points",
+        sources=("PRD §34.1", "Q-001"), note=_Q001,
+    )
+    PENALTY_EXCUSED: int = rule(
+        0, label="Penalty: cancellation or no-show marked excused (reason required)",
+        unit="points", sources=("PRD §33", "PRD §34.1", "Q-022"),
+    )
+    PENALTY_DEACTIVATION_AUTO_CANCEL: int = rule(
+        0, label="Penalty: assignment cancelled because the volunteer deactivated or the "
+        "account was turned off", unit="points", sources=("PRD §21", "Q-052"),
+    )
+    PENALTY_DECLINE_LAST_MINUTE_ASSIGNMENT: int = rule(
+        0, label="Penalty: declining an unsolicited assignment made inside the last 48 hours",
+        unit="points", sources=("PRD §30",),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Credentials (PRD §24.1)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class CredentialRules:
+    CREDENTIAL_EXPIRY_ALERT_DAYS: tuple[int, ...] = rule(
+        (60, 30, 7),
+        label="Credential expiration alerts",
+        unit="days before expiration",
+        sources=("PRD §24.1", "PRD §76"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Attendance (PRD §37.2, §16, §68)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class AttendanceRules:
+    LATE_GRACE_PERIOD: timedelta = rule(
+        timedelta(minutes=15),
+        label="Check-in counts as Late after this grace period past the start time",
+        sources=("PRD §37.2", "Q-020"),
+    )
+    LEADER_PHONE_VISIBLE_FROM_DAYS_BEFORE: int = rule(
+        1,
+        label="Assigned volunteers can see the Project Leader's phone from this many days "
+        "before the project through the project day",
+        unit="calendar days before the project (church time zone)",
+        unit_one="calendar day before the project (church time zone)",
+        sources=("PRD §16", "PRD §68", "Q-023", "Q-030"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Requester links and completion survey (PRD §7.3, §54)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class RequesterAccessRules:
+    REQUESTER_LINK_VALID_AFTER_COMPLETION: timedelta = rule(
+        timedelta(days=7),
+        label="Normal requester link keeps working this long after project completion",
+        sources=("PRD §7.3",),
+    )
+    REGENERATED_REQUESTER_LINK_LIFETIME: timedelta = rule(
+        timedelta(days=14),
+        label="A self-regenerated requester link is valid for (and replaces the old link)",
+        sources=("PRD §7.3", "PRD §76"),
+    )
+    SURVEY_LINK_LIFETIME: timedelta = rule(
+        timedelta(days=30),
+        label="Completion survey one-time link expires after",
+        sources=("PRD §54",),
+    )
+    SURVEY_REMINDER_AFTER_COMPLETION: timedelta = rule(
+        timedelta(days=7),
+        label="One survey reminder is sent this long after completion, if not answered",
+        sources=("PRD §54", "PRD §76"),
+    )
+    SURVEY_REMINDER_COUNT: int = rule(
+        1, label="Number of survey reminders", unit="reminders", unit_one="reminder",
+        sources=("PRD §54",),
+    )
+    SURVEY_RATING_MIN: int = rule(1, label="Lowest satisfaction rating", sources=("PRD §54",))
+    SURVEY_RATING_MAX: int = rule(5, label="Highest satisfaction rating", sources=("PRD §54",))
+
+
+# --------------------------------------------------------------------------------------
+# Media uploads and retention (PRD §45–§47)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class MediaRules:
+    REQUESTER_MEDIA_BATCH_MAX_PHOTOS: int = rule(
+        10, label="Photos per requester upload batch (initial and each reopened batch)",
+        unit="photos", sources=("PRD §45", "PRD §46"),
+    )
+    REQUESTER_MEDIA_BATCH_MAX_VIDEOS: int = rule(
+        3, label="Videos per requester upload batch (initial and each reopened batch)",
+        unit="videos", sources=("PRD §45", "PRD §46"),
+    )
+    REQUESTER_MEDIA_MAX_VIDEO_DURATION: timedelta = rule(
+        timedelta(minutes=2), label="Longest video a requester may upload",
+        sources=("PRD §45", "PRD §46"),
+    )
+    VIDEO_RETENTION_AFTER_CLOSE: timedelta = rule(
+        timedelta(days=30),
+        label="Project videos are deleted this long after the project is Completed or Rejected "
+        "(unless approved for publication)",
+        sources=("PRD §47.1", "PRD §47.4", "PRD §76"),
+    )
+    PHOTO_RETENTION_AFTER_CLOSE: timedelta = rule(
+        timedelta(days=90),
+        label="Project photos are deleted this long after the project is Completed or Rejected "
+        "(unless approved for publication)",
+        sources=("PRD §47.2", "PRD §47.4", "PRD §76"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Record retention (PRD §41, §42, §56, §58)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class RetentionRules:
+    AUDIT_RETENTION: CalendarYears = rule(
+        CalendarYears(1),
+        label="Audit events are purged after",
+        sources=("PRD §58", "Q-036"),
+    )
+    INCIDENT_RETENTION: CalendarYears = rule(
+        CalendarYears(7),
+        label="Incident reports and their amendments are kept for",
+        sources=("PRD §56",),
+        note="Start point (submission vs last amendment) is open: PRD-GAP Q-074.",
+    )
+    HOMEOWNER_AGREEMENT_RETENTION: CalendarYears = rule(
+        CalendarYears(7),
+        label="Signed homeowner service agreements are kept for",
+        sources=("PRD §41",),
+        note="Start point (signing vs project close) is open: PRD-GAP Q-074.",
+    )
+    VOLUNTEER_AGREEMENT_RETENTION_AFTER_INACTIVE: CalendarYears = rule(
+        CalendarYears(7),
+        label="Volunteer agreement records are kept this long after the volunteer becomes "
+        "inactive",
+        sources=("PRD §42",),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Sign-in, MFA, step-up, sessions, impersonation (PRD §59, §60)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class AuthRules:
+    MFA_REQUIRED_ROLES: tuple[str, ...] = rule(
+        ("ADMINISTRATOR", "HAM_DIRECTOR", "ASSISTANT_DIRECTOR", "PASTOR", "BOARD_REPRESENTATIVE"),
+        label="Roles that must use two-step sign-in (authenticator app); the role's "
+        "permissions start only after enrollment",
+        sources=("PRD §60.1", "Q-045"),
+    )
+    MFA_TRUSTED_DEVICE_LIFETIME: timedelta = rule(
+        timedelta(days=30),
+        label="'Trust this device' skips the authenticator step for (unchecked by default)",
+        sources=("PRD §60.1", "Q-010"),
+    )
+    MFA_RECOVERY_CODE_COUNT: int = rule(
+        10, label="Recovery codes issued at enrollment or regeneration", unit="codes",
+        sources=("PRD §60.1", "Q-035", "Q-044"),
+    )
+    STEP_UP_ACTIONS: tuple[tuple[str, str], ...] = rule(
+        (
+            ("role.grant_global", "role_change"),
+            ("role.revoke_global", "role_change"),
+            ("audit.export", "audit_export"),
+            ("user.mfa_reset", "mfa_reset"),
+            ("impersonation.start", "impersonation_start"),
+            ("me.recovery_codes.regenerate", "recovery_codes_regenerate"),
+            ("me.sign_in_email.change", "sign_in_email_change"),
+        ),
+        label="Actions that need a fresh authenticator code ('Confirm it's you'), as "
+        "(action, step-up kind)",
+        sources=("PRD §60.1", "Q-010", "Q-031", "Q-046", "Q-051"),
+        note="Grant and revoke share one kind ('role changes'): PRD-GAP Q-076. The last two "
+        "action codes are not yet in the authz matrix (foundation.md §4).",
+    )
+    STEP_UP_WINDOW: timedelta = rule(
+        timedelta(minutes=5),
+        label="One step-up covers the same kind of action in the same session for",
+        sources=("Q-010", "Q-031", "Q-046"),
+    )
+    SIGN_IN_CODE_LENGTH: int = rule(
+        6, label="Digits in the emailed sign-in code", unit="digits",
+        sources=("PRD §60.2", "foundation.md §2"),
+    )
+    SIGN_IN_CODE_LIFETIME: timedelta = rule(
+        timedelta(minutes=15),
+        label="Emailed sign-in code and link are valid for (single use)",
+        sources=("PRD §60.2", "Q-032"),
+    )
+    SIGN_IN_CODE_MAX_ATTEMPTS: int = rule(
+        5, label="Wrong code entries before the emailed code stops working", unit="tries",
+        sources=("PRD §60.2", "Q-032"),
+    )
+    SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR: int | Pending = rule(
+        Pending("Q-070", "5 sign-in emails per address per hour"),
+        label="Sign-in emails per email address per hour", unit="emails",
+        sources=("PRD §60.2", "Q-070"),
+        note="Proposed in Q-042 (merged into Q-032) but not in the Q-032 decision.",
+    )
+    SIGN_IN_RESEND_COOLDOWN: timedelta | Pending = rule(
+        Pending("Q-070", "30 seconds"),
+        label="Wait before 'Resend email' is allowed",
+        sources=("PRD §60.2", "Q-070"),
+        note="Proposed in Q-042 (merged into Q-032) but not in the Q-032 decision.",
+    )
+    ACCOUNT_INVITATION_LIFETIME: timedelta | Pending = rule(
+        Pending("Q-071", "7 days"),
+        label="An emailed HAM account invitation ('Join HAM') is valid for",
+        sources=("Q-037", "Q-071"),
+    )
+    MFA_CODE_MAX_ATTEMPTS: int | Pending = rule(
+        Pending("Q-072", "5 wrong authenticator codes, then a new email sign-in is needed"),
+        label="Wrong authenticator or recovery codes before the attempt is locked", unit="tries",
+        sources=("PRD §60.1", "Q-072"),
+    )
+    SESSION_IDLE_LIFETIME_STANDARD: timedelta = rule(
+        timedelta(days=30),
+        label="Sign-in lasts this long without activity (roles without two-step sign-in)",
+        sources=("PRD §60.2", "Q-032"),
+    )
+    SESSION_IDLE_LIFETIME_MFA_ROLES: timedelta = rule(
+        timedelta(hours=8),
+        label="Sign-in ends after this long without activity (two-step sign-in roles)",
+        sources=("PRD §60.1", "Q-032"),
+    )
+    SESSION_ABSOLUTE_LIFETIME_MFA_ROLES: timedelta = rule(
+        timedelta(days=7),
+        label="Sign-in always ends after this long (two-step sign-in roles)",
+        sources=("PRD §60.1", "Q-032"),
+    )
+    IMPERSONATION_IDLE_TIMEOUT: timedelta = rule(
+        timedelta(minutes=15),
+        label="Troubleshooting as another user ends after this long without activity; the "
+        "Administrator returns to their own account",
+        sources=("PRD §59", "Q-053"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Public reporting (PRD §63, §68)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ReportingRules:
+    PUBLIC_EMBED_MIN_GROUP_SIZE: int | Pending = rule(
+        Pending("Q-027", "5; below it show 'Fewer than 5' and hide cost and satisfaction"),
+        label="Public scoreboard hides any breakdown smaller than", unit="projects",
+        sources=("PRD §63", "PRD §68", "Q-005", "Q-027"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Integration outbox (PRD §70.3; engineering values from the architecture plan)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class OutboxRules:
+    OUTBOX_MAX_ATTEMPTS: int = rule(
+        8, label="Delivery attempts before an integration message is dead-lettered",
+        unit="attempts", sources=("PRD §70.3", "foundation.md §5"),
+    )
+    OUTBOX_BACKOFF_INITIAL: timedelta = rule(
+        timedelta(minutes=1), label="First retry delay (doubles each attempt)",
+        sources=("PRD §70.3", "foundation.md §5"),
+    )
+    OUTBOX_BACKOFF_MAX: timedelta = rule(
+        timedelta(hours=6), label="Longest retry delay",
+        sources=("PRD §70.3", "foundation.md §5"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# The whole rule set
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Rules:
+    staffing: StaffingRules = group(StaffingRules, label="Staffing, waitlist and reconfirmation")
+    reliability: ReliabilityRules = group(ReliabilityRules, label="Reliability score")
+    credentials: CredentialRules = group(CredentialRules, label="Licenses and certifications")
+    attendance: AttendanceRules = group(AttendanceRules, label="Project day and attendance")
+    requester_access: RequesterAccessRules = group(
+        RequesterAccessRules, label="Requester links and completion survey"
+    )
+    media: MediaRules = group(MediaRules, label="Media uploads and retention")
+    retention: RetentionRules = group(RetentionRules, label="Record retention")
+    auth: AuthRules = group(AuthRules, label="Sign-in and security")
+    reporting: ReportingRules = group(ReportingRules, label="Public reporting")
+    outbox: OutboxRules = group(OutboxRules, label="Integrations")
+
+
+RULES = Rules()
+
+
+# --------------------------------------------------------------------------------------
+# Pure helpers over the values
+# --------------------------------------------------------------------------------------
+CANCELLATION_BAND_CODES = ("free", "days_4_to_6", "days_2_to_3", "day_1", "same_day")
+
+
+def cancellation_band(days_before: int, rules: Rules = RULES) -> str:
+    """Classify a cancellation by whole days before the project (§33, §34.1).
+
+    ``days_before`` is the already-measured whole number of days (0 = same day). How it is
+    measured from clock times is PRD-GAP Q-073 and belongs to the staffing module.
+    A negative value (after the project day) is not a cancellation and raises.
+    """
+    if isinstance(days_before, bool) or not isinstance(days_before, int):
+        raise TypeError("days_before must be an int")
+    if days_before < 0:
+        raise ValueError("days_before < 0 is not a cancellation (see no-show rules)")
+    bounds = rules.reliability.CANCELLATION_BAND_LOWER_BOUNDS_DAYS
+    for code, lower in zip(CANCELLATION_BAND_CODES, bounds, strict=True):
+        if days_before >= lower:
+            return code
+    raise AssertionError("unreachable: last band has lower bound 0")  # pragma: no cover
+
+
+def check_reliability_penalties(
+    *,
+    days_4_to_6: int,
+    days_2_to_3: int,
+    day_1: int,
+    same_day: int,
+    no_show: int,
+    recovery: int,
+    score_max: int = 100,
+) -> tuple[str, ...]:
+    """Problems with a candidate set of Q-001 numbers, or ``()`` if it satisfies the PRD.
+
+    PRD §33/§34.1: penalty increases as the project approaches; same-day is substantial but
+    slightly less than a no-show; no-show is the largest; the score recovers gradually.
+    """
+    problems: list[str] = []
+    ladder = [
+        ("4-6 days", days_4_to_6),
+        ("2-3 days", days_2_to_3),
+        ("1 day", day_1),
+        ("same day", same_day),
+        ("no-show", no_show),
+    ]
+    for name, value in ladder:
+        if isinstance(value, bool) or not isinstance(value, int):
+            problems.append(f"{name}: penalty must be an int")
+        elif not 0 < value <= score_max:
+            problems.append(f"{name}: penalty must be between 1 and {score_max}")
+    if problems:
+        return tuple(problems)
+    for (lo_name, lo), (hi_name, hi) in zip(ladder, ladder[1:]):
+        if not lo < hi:
+            problems.append(f"{lo_name} ({lo}) must be less than {hi_name} ({hi})")
+    if isinstance(recovery, bool) or not isinstance(recovery, int) or not 0 < recovery:
+        problems.append("recovery must be a positive int")
+    elif recovery >= no_show:
+        problems.append("recovery must be gradual: less than the no-show penalty")
+    return tuple(problems)
+
+
+def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
+    """Cross-rule consistency checks. Returns problems; ``()`` means consistent.
+
+    Undecided (``Pending``) values are skipped; they are checked once decided.
+    """
+    p: list[str] = []
+    s, r, a = rules.staffing, rules.reliability, rules.auth
+
+    if not s.RECONFIRMATION_DAYS_BEFORE > s.UNCONFIRMED_RELEASE_DAYS_BEFORE:
+        p.append("reconfirmation must start before the release day")
+    reminders = s.RECONFIRMATION_REMINDER_DAYS_BEFORE
+    if list(reminders) != sorted(set(reminders), reverse=True):
+        p.append("reconfirmation reminder days must be distinct and descending")
+    if reminders and not (
+        reminders[0] <= s.RECONFIRMATION_DAYS_BEFORE
+        and reminders[-1] >= s.UNCONFIRMED_RELEASE_DAYS_BEFORE
+    ):
+        p.append("reconfirmation reminders must fall between reconfirmation and release")
+    if not s.UNDERSTAFFED_ALERT_BEFORE_START > s.AUTO_STAFFING_CUTOFF_BEFORE_START:
+        p.append("understaffed alert must come before the 48-hour cutoff")
+    if not s.UNCONFIRMED_RELEASE_DAYS_BEFORE * timedelta(days=1) - (
+        s.WAITLIST_PROMOTION_CONFIRM_WINDOW
+    ) > s.AUTO_STAFFING_CUTOFF_BEFORE_START:
+        p.append("a slot released at day 5 must be confirmable before the 48-hour cutoff")
+
+    if not r.SCORE_MIN <= r.INITIAL_SCORE <= r.SCORE_MAX:
+        p.append("initial score must be within the score range")
+    bounds = r.CANCELLATION_BAND_LOWER_BOUNDS_DAYS
+    if list(bounds) != sorted(set(bounds), reverse=True) or bounds[-1] != 0:
+        p.append("cancellation band bounds must be distinct, descending and end at 0")
+    if len(bounds) != len(CANCELLATION_BAND_CODES):
+        p.append("one band code per band bound")
+    if bounds and bounds[0] != r.CANCELLATION_FREE_DAYS_BEFORE:
+        p.append("first band must start at the free-cancellation threshold")
+    for name in (
+        "PENALTY_CANCEL_7_PLUS_DAYS",
+        "PENALTY_EXCUSED",
+        "PENALTY_DEACTIVATION_AUTO_CANCEL",
+        "PENALTY_DECLINE_LAST_MINUTE_ASSIGNMENT",
+    ):
+        if getattr(r, name) != 0:
+            p.append(f"{name} must be 0 (PRD §21/§30/§33/§34.1)")
+    q001 = (
+        r.PENALTY_CANCEL_4_TO_6_DAYS,
+        r.PENALTY_CANCEL_2_TO_3_DAYS,
+        r.PENALTY_CANCEL_1_DAY,
+        r.PENALTY_CANCEL_SAME_DAY,
+        r.PENALTY_NO_SHOW,
+        r.RECOVERY_PER_FULFILLED_COMMITMENT,
+    )
+    if not any(contains_pending(v) for v in q001):
+        p.extend(
+            check_reliability_penalties(
+                days_4_to_6=r.PENALTY_CANCEL_4_TO_6_DAYS,
+                days_2_to_3=r.PENALTY_CANCEL_2_TO_3_DAYS,
+                day_1=r.PENALTY_CANCEL_1_DAY,
+                same_day=r.PENALTY_CANCEL_SAME_DAY,
+                no_show=r.PENALTY_NO_SHOW,
+                recovery=r.RECOVERY_PER_FULFILLED_COMMITMENT,
+                score_max=r.SCORE_MAX,
+            )
+        )
+
+    alerts = rules.credentials.CREDENTIAL_EXPIRY_ALERT_DAYS
+    if list(alerts) != sorted(set(alerts), reverse=True) or min(alerts) <= 0:
+        p.append("credential alert days must be distinct, descending and positive")
+
+    ra = rules.requester_access
+    if not ra.SURVEY_REMINDER_AFTER_COMPLETION < ra.SURVEY_LINK_LIFETIME:
+        p.append("survey reminder must be sent before the survey link expires")
+    if not ra.SURVEY_RATING_MIN < ra.SURVEY_RATING_MAX:
+        p.append("survey rating range is empty")
+
+    if not a.SESSION_IDLE_LIFETIME_MFA_ROLES < a.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES:
+        p.append("MFA idle lifetime must be shorter than the absolute lifetime")
+    actions = [action for action, _kind in a.STEP_UP_ACTIONS]
+    if len(actions) != len(set(actions)):
+        p.append("step-up actions must be unique")
+    if len(set(a.MFA_REQUIRED_ROLES)) != len(a.MFA_REQUIRED_ROLES):
+        p.append("MFA roles must be unique")
+
+    o = rules.outbox
+    if not (o.OUTBOX_MAX_ATTEMPTS >= 1 and o.OUTBOX_BACKOFF_INITIAL <= o.OUTBOX_BACKOFF_MAX):
+        p.append("outbox retry settings are inconsistent")
+    return tuple(p)
+
+
+def iter_rules(rules: Rules = RULES) -> Any:
+    """Yield ``(group_field, rule_field, value)`` in declaration order."""
+    for gf in fields(rules):
+        grp = getattr(rules, gf.name)
+        for rf in fields(grp):
+            yield gf, rf, getattr(grp, rf.name)
+
+
+_problems = check_invariants(RULES)
+if _problems:  # pragma: no cover - guarded by tests; fail fast rather than run wrong rules
+    raise RuntimeError("HAM rules are inconsistent: " + "; ".join(_problems))

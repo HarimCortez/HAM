@@ -1,0 +1,71 @@
+# Render blueprint (docs/adr/0001-stack.md §4-§6). Another church deploys its own HAM by
+# forking this blueprint, setting HAM_BRAND to its own design-system/brands/<id>/ folder, and
+# supplying its own secrets — no code change (Q-026).
+databases:
+  - name: ham-db
+    databaseName: ham
+    user: ham
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: ham-web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: HAM_ENV
+        value: production
+      - key: HAM_BRAND
+        value: miami-temple
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ham-db
+          property: connectionString
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DJANGO_EMAIL_BACKEND
+        value: anymail.backends.resend.EmailBackend
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ANYMAIL_RESEND_API_KEY
+        sync: false
+    buildCommand: "python manage.py migrate --noinput"
+
+  - type: worker
+    name: ham-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: "python manage.py procrastinate worker"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: DJANGO_SECRET_KEY
+      - key: HAM_ENV
+        value: production
+      - key: HAM_BRAND
+        value: miami-temple
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ham-db
+          property: connectionString
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_EMAIL_BACKEND
+        value: anymail.backends.resend.EmailBackend
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ANYMAIL_RESEND_API_KEY
+        sync: false

@@ -1,0 +1,65 @@
+[project]
+name = "ham"
+version = "0.1.0"
+description = "HAM — Home Assistance Ministry web app"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "django>=5.2,<5.3",
+  "psycopg[binary]>=3.2",
+  "django-allauth[mfa]>=65.3",
+  "procrastinate[django]>=2.15",
+  "django-anymail>=12.0",
+  "django-stubs-ext>=5.1",
+  "whitenoise>=6.7",
+  "gunicorn>=23.0",
+  "django-environ>=0.11",
+  "uuid6>=2024.7.10",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-django>=4.9",
+  "factory-boy>=3.3",
+  "time-machine>=2.16",
+  "ruff>=0.7",
+  "mypy>=1.13",
+  "django-stubs[compatible-mypy]>=5.1",
+  "pip-audit>=2.7",
+  "import-linter>=2.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["design-system", "frontend", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DJ"]
+ignore = []
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["frontend/", "design-system/", "migrations/"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py"]
+testpaths = ["tests", "ham"]
+addopts = "-ra"
+
+[tool.importlinter]
+root_package = "ham"
+
+[[tool.importlinter.contracts]]
+name = "web depends on domain modules, not the reverse"
+type = "layers"
+layers = [
+  "ham.web",
+  "ham.platform",
+]
