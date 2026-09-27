@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.claude/agent-memory-local/
+.claude/settings.local.json
