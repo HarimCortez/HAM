@@ -2,7 +2,7 @@
 
 Build-order step 0. Owner: ham-ux-designer. Personas: [personas.md](personas.md). Brand: [brand-notes.md](brand-notes.md).
 All sample names, addresses and numbers are fictional. The sample "today" for both screens is **Tuesday, Oct 6, 2026** (America/New_York).
-PRD gaps use the official IDs in `docs/prd-open-questions.md`. The product owner decided Q-002 and Q-004 to Q-024 and Q-026 on 2026-09-27; this doc reflects those decisions and cites them as **(Q-NNN)**. Still open: Q-001 (reliability numbers), Q-003 (stack) and Q-025 (requesters without email); anything depending on them is marked **pending Q-NNN**. Choices with no official Q are marked **proposal (no Q yet)**.
+PRD gaps use the official IDs in `docs/prd-open-questions.md`. The product owner decided Q-002 and Q-004 to Q-024 and Q-026 on 2026-09-27; this doc reflects those decisions and cites them as **(Q-NNN)**. Still open: Q-001 (reliability numbers) and Q-003 (stack); anything depending on them is marked **pending Q-NNN**. Updated 2026-09-28 for step 2 (Intake): Q-025 (requesters without email) and Q-124 (Administrator and requests) are decided, and the intake defaults Q-101, Q-106 and Q-125 are applied; see [intake.md](intake.md). Choices with no official Q are marked **proposal (no Q yet)**.
 HAM is single-church in V1 (Q-026). Church name, logos, colors, mission line and contact info come from the church profile, so product copy uses `{church.name}` / `{church.shortName}`. "Miami Temple" appears only as sample data.
 
 Contents
@@ -32,9 +32,10 @@ Contents
 ```mermaid
 flowchart TB
   subgraph PUB["Public / no account"]
-    RF["Request help form (§6)"] --> VER["Verify by email code (§7.1, Q-019; no email: pending Q-025)"] --> RCONF["Request received"]
-    RLINK["Secure request page (§7.2)"]
-    REXP["Link expired: verify by email code to get new link (§7.3; no email: pending Q-025)"]
+    RF["Request help form (§6; answers saved as you go, Q-100)"] --> VER["Verify by email code or email button (§7.1, Q-019, Q-100)"] --> RCONF["Request received"]
+    RF -->|"I don't use email (Q-025)"| RSAVED["Request saved: a HAM leader will call to confirm"]
+    RLINK["Secure request page (§7.2; opens in full, contact masked, Q-101)"]
+    REXP["Link expired: verify by email code to get new link (§7.3; no email on file: call the ministry, Q-025)"]
     SURV["Completion survey, one-time link (§54)"]
     SCORE_PUB["Public scoreboard embed on church website, no login, aggregates only (§63, §68, Q-005)"]
     SIGNIN["Sign in: magic link / MFA (§60)"]
@@ -78,8 +79,8 @@ Who reaches what (V = view, A = act, own = own records only, asg = assigned proj
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | **Public scoreboard embed** (church website, no login) | V | V | V | V | V | V | V | V | V | V | V (anyone, incl. the public) |
 | Secure request page | own | – | – | – | – | – | – | – | – | – | – |
-| Requester name, address, phone, hazards `[PII]` | own | per §8 Board route | per §8 pastoral route | V, reveal not logged | V, reveal logged | V asg, reveal logged | V asg, reveal logged | – (address only once Assigned, Q-004) | address + contact asg (§4.9) | – | – |
-| Requests | – | A (Board route) | A | A | A | – | – | – | – | – | V |
+| Requester name, address, phone, hazards `[PII]` | own (contact masked on the page, Q-101) | V all requests, reveal logged (Q-125) | V all requests, reveal logged (Q-125) | V, reveal not logged | V, reveal logged | V asg, reveal logged | V asg, reveal logged | – (address only once Assigned, Q-004) | address + contact asg (§4.9) | – | contact masked, no reveal (Q-124) |
+| Requests | – | A (every awaiting request, Q-106) | A (every awaiting request, Q-106) | A (+ Needs a phone check, Q-025) | A (+ Needs a phone check, Q-025) | – | – | – | – | – | V only, contact masked (Q-124) |
 | Projects / workspace | – | V (Board info) | V (oversight) | A | A (no scope) | A asg | A asg task | V asg/inv | V asg | V media-only | V |
 | Schedule | – | V | V | V | V | V asg | V asg | own | own | – | V |
 | Volunteers | – | – | – | A | A | V asg team | V task crew | – | – | – | A |
@@ -93,8 +94,9 @@ Who reaches what (V = view, A = act, own = own records only, asg = assigned proj
 
 Notes on the table:
 - **Public scoreboard embed (Q-005).** The same aggregates as the signed-in member scoreboard, published as an embed on the {church.name} website with no sign-in. Privacy rule: **no names, and no breakdown small enough to identify a family** (§63, §68). In practice: no requester, volunteer or leader names; no addresses, streets or neighborhoods; no per-project rows; any category, area or period slice below the suppression threshold is folded into "Other" or hidden. The threshold is a fixed rule in the rules module, not an admin setting (PRD-GAP: the number itself is not decided; ham-rules-engineer to propose). The embed must keep working, or fail quietly, if HAM is down (§70.3).
-- **Requester details (Q-009).** Project Leaders and Task Leaders both see requester name, address, phone and hazards, only on projects/tasks they are assigned to. Neither sees requester circumstances beyond that. Pastor and Board rep access follows what their approval route needs (§8, §67); the table doesn't expand it.
-- **PII reveal logging (Q-024).** On leadership screens (hover card, side panel), each reveal of requester name or address writes an audit event for every role **except the HAM Director**. The reveal label reads "Leadership only · viewing is logged" for logged roles and "Leadership only" for the Director (see §8.6).
+- **Requester details (Q-009).** Project Leaders and Task Leaders both see requester name, address, phone and hazards, only on projects/tasks they are assigned to. Neither sees requester circumstances beyond that. There is no approval routing (Q-106): all pastors and the Board rep see every request awaiting approval and may reveal contact details on any of them, each reveal logged (Q-125). Requests still waiting for a phone check (Q-025) are visible only to the Director and Assistant Directors.
+- **Administrator and requests (Q-124).** View only: the request list and detail, with requester contact details masked and no reveal button (consistent with Q-050). Anything more goes through audited impersonation. In the mobile nav, Requests sits under *More*.
+- **PII reveal logging (Q-024).** On leadership screens, requester contact details sit behind a deliberate **Show contact details** button in the detail view (there is no hover-card reveal on lists). Each reveal writes an audit event for every role **except the HAM Director**. The reveal label reads "Leadership only · viewing is logged" for logged roles and "Leadership only" for the Director (see §8.6).
 
 ---
 
@@ -187,16 +189,18 @@ A left icon rail with labels on long-press/hover plus the same destinations as d
   5. Your request (read-only summary)
   6. How to reach us: the ministry phone (tap to call) and email (tap to write), admin-configured in the church profile (Q-007). Copy: "Questions? Call {church.hamPhone} or email {church.hamEmail}. We're glad to help."
 - **Cost-share increase (Q-008):** either way works and both are audited. (a) An "Approve new cost" card on this page with the old and new share and one button; or (b) the Project Leader records her verbal approval (who, when, how she was told). If (b) happens first, the card disappears and the page shows "You approved the new cost with Luis on {date}."
-- **Flow:** Church site "Request help" → form (§6.1, with property-authority certification §6.2) → verify by email code (§7.1; email only in V1, Q-019) → "We received your request" with the link also sent by email → secure page.
+- **Access (Q-101):** the link opens the full page. There is no second code per device. Contact details (email, phone, street line) are masked on the page. Every requester email carries the link under a neutral subject (Q-102).
+- **Flow (Q-100):** Church site "Request help" → form (§6.1, with property-authority certification §6.2; answers saved as the person goes, on HAM's server for up to 24 h and in the tab) → **Send request** → verify by email code or the button in the email (§7.1; email only in V1, Q-019) → "We received your request" on the request's own page, with the link also sent by email. A wrong or expired code never loses the answers. Nothing reaches leaders before verification. Detail: [intake.md](intake.md) R1–R10.
 - **Link expired** (more than 7 days after completion, or superseded): the page says "For your privacy, this link has expired. We can send you a new one." The person verifies by email code, gets a new 14-day link, and the old link dies. This is logged (§7.3).
-- **Requesters without email: pending Q-025 (open).** How someone with no email address verifies for media upload or gets a new link is not decided. Whether email is a required field on the request form is left unresolved until Q-025 is decided. The verify and link-expired screens must always show the ministry phone as a way to get help ("No email? Call us at {church.hamPhone}."). That fallback copy is a way to reach a person, not a verification method. Step 2 (Intake) will propose the flow.
+- **Requesters without email (Q-025, decided).** The form asks for an email (their own or a helper's) **or** an explicit "I don't use email" tick; a phone number is always required. A no-email request is saved without a code, and the person is told: "A HAM leader will call you to confirm your request before it goes further." It waits in the Director/AD **Needs a phone check** list until a leader calls and records **Verified by phone call** (audited; blocked while impersonating). Only then does it reach the approvers. Updates go by phone, photos are taken at the site visit, and there is no secure link. The link-expired screen for a request with no email on file shows only "Please call us at {church.hamPhone}. We'll help you right away."
 - **Survey** (§54) arrives on its own one-time link that expires after 30 days, and also appears as a card on the secure page while that is valid.
 
 Requester-facing status wording (staff screens keep the §52 names):
 
 | §52 status | Requester sees |
 |---|---|
-| Submitted, Awaiting Approval | "We've received your request. Our pastors or Board are reviewing it." |
+| Submitted | "We've received your request." (brief: the automatic duplicate check, Q-106) |
+| Awaiting Approval | "Our pastors or Board are reviewing your request." |
 | Approved, Assessment Required | "Good news, your request is approved. Next, someone from HAM will visit to look at the work." |
 | Assessment Completed, Planning | "We visited and are now planning the work." |
 | Recruiting, Ready | "We're organizing volunteers for your project." |
@@ -208,7 +212,7 @@ Requester-facing status wording (staff screens keep the §52 names):
 | Rejected | Compassionate explanation + reason + "Ask us to reconsider" (once) (§8.3) |
 | Reconsideration Pending | "We're taking another look at your request." |
 | Not Executable | "We're very sorry. After visiting, we aren't able to do this work safely or within what HAM can offer. {reason}." |
-| Cancelled | "This request has been closed. {reason}. You're always welcome to submit a new request." |
+| Cancelled | "This request has been closed. {reason}. You're always welcome to submit a new request." Before a decision, only three reasons exist (Q-107): withdrew, sent twice, spam or test; the exact sentences are in intake.md R10. |
 
 ---
 
@@ -456,7 +460,7 @@ Sign in (MFA) → Home → scan **Needs your attention** (grouped, highest risk 
 1. **Safety & incidents:** new or unreviewed incidents (§56); On Hold for safety (§39).
 2. **Staffing near the 48-hour line:** understaffed projects where the automatic-staffing cutoff (48 h before start) is within 48 hours, i.e. 96 h before start (Q-013); reconfirmation problems (§32).
 3. **Decisions only the Director can make:** feasibility after Assessment Completed (§12); scope changes (§13), including those awaiting payor approval.
-4. **Requests & assessments:** Awaiting Approval (info only, owned by pastor/Board); Approved or Assessment Required awaiting assessment (§11, §64).
+4. **Requests & assessments:** **Needs a phone check** (actionable, Director/AD; urgent ones first, Q-025); Awaiting Approval (info only, owned by pastors and the Board rep); Approved or Assessment Required awaiting assessment (§11, §64).
 5. **Credentials & qualifications:** projects with missing qualifications (§64: a task's required skill or credential isn't covered by an assigned volunteer); a required credential expiring before an assigned project (§24.1); credentials Unverified and waiting for a manual check (§24; status values per Q-018).
 6. **Tasks, follow-up & budget:** Blocked tasks (§15.5), Completed – Follow-Up Required (§53), budget risks (§64; actual spend over estimate + contingency, Q-015).
 
@@ -566,14 +570,15 @@ Main area is 1200 px wide: an attention column (≈ 700 px) and a context column
 └──────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Detail panel** (click "Decide…" on #042): slides in from the right (560 px) and holds assessment summary, photos, safety concerns, estimated cost, required licenses/skills, Andre's recommendation, and the requester `[PII]` (name, address), shown **only here**. For Marcus the PII block is labeled "Leadership only" and opening it writes no audit event; for Andre (or anyone else who reaches it) it is labeled "Leadership only · viewing is logged" and opening it writes a view event (Q-024). Options come from §12: Feasible · Place On Hold · Not Executable · Re-scope… Not Executable and Re-scope require a short reason. There is one primary button, *Record decision*, and on success: "Decision recorded · 7:52 PM · Marcus Bell" (the audit event, §58).
+**Detail panel** (click "Decide…" on #042): slides in from the right (560 px) and holds assessment summary, photos, safety concerns, estimated cost, required licenses/skills, Andre's recommendation, and the requester `[PII]` (name, address), shown **only here**, masked until the viewer taps **Show contact details**. For Marcus the block is labeled "Leadership only" and revealing it writes no audit event; for Andre (or anyone else who reaches it) it is labeled "Leadership only · viewing is logged" and revealing it writes a view event (Q-024). Opening the panel alone reveals nothing. Options come from §12: Feasible · Place On Hold · Not Executable · Re-scope… Not Executable and Re-scope require a short reason. There is one primary button, *Record decision*, and on success: "Decision recorded · 7:52 PM · Marcus Bell" (the audit event, §58).
 
 ### 8.6 Content & privacy rules
-- **Attention rows identify projects by ID + category** (as in the calendar title format, §51.1). The requester `[PII]` appears in the detail panel, and on hover of the ID, not in the list. This keeps the attention list shareable in a leadership meeting while the Director still has full access (§67). A "hide names" presentation mode is deferred.
-- **Reveal logging (Q-024).** Revealing `[PII]` (hover card on the ID, or opening the detail panel) writes a view event (actor, UTC time, project ID, fields revealed) for every role **except the HAM Director**. The hover card label follows the viewer:
+- **Attention rows identify projects and requests by ID + category only** (as in the calendar title format, §51.1; for requests, Q-132: no neighborhood or ZIP either). The requester `[PII]` appears only in the detail view, behind a deliberate **Show contact details** button, never in the list. There is **no hover-card reveal**: hover reveals happen by accident, create noisy audit events and don't exist on touch screens (changed 2026-09-28 with intake). This keeps the attention list shareable in a leadership meeting while the Director still has full access (§67). A "hide names" presentation mode is deferred.
+- **Reveal logging (Q-024).** Tapping **Show contact details** writes a view event (actor, UTC time, project/request ID, surface, field names) for every role **except the HAM Director**. The label follows the viewer:
   - HAM Director: "[lock icon] Leadership only"
-  - Everyone else (Assistant Director, pastors, Board rep, Project and Task Leaders on their assigned projects, Administrator): "[lock icon] Leadership only · viewing is logged"
-  - The label is text plus an icon, and is part of the hover card's accessible name. One event per reveal per item per page view, so hovering back and forth doesn't flood the log.
+  - Everyone else who may reveal (Assistant Director, pastors, Board rep, Project and Task Leaders on their assigned projects): "[lock icon] Leadership only · viewing is logged"
+  - Administrator: no button; "Hidden · Not shown to the Administrator role" (Q-124, Q-050).
+  - The label is text plus an icon, and is read with the revealed region's heading. One event per reveal per item per page view; the details re-hide on navigation.
 - **Never on shared surfaces** (Calendar, member scoreboard, the public scoreboard embed, aggregate reports, AI summary): requester name, address, contact, circumstances ("widowed", "fixed income", "mold in bedroom"), incident narrative, and individual volunteer reliability scores. The AI summary above uses IDs and categories only (§68).
 - Volunteer names (Kevin T., Carlos Diaz) are allowed on leadership screens. Reliability scores are not shown on the dashboard. They live in Volunteers (§34).
 - The scorecard shows aggregates only and is the same component as the member scoreboard and the public embed (§63, Q-005). Its headline metrics are Families Served + Volunteer Hours (§80). Cost of Assistance is actual money spent, church share + requester share (Q-012). On the public embed, the small-group suppression rule applies (see §2 notes).
@@ -644,9 +649,16 @@ Main area is 1200 px wide: an attention column (≈ 700 px) and a context column
 | Q-022 | Decided: flag + reason | §7.6 |
 | Q-023 | Decided: Call button for assigned volunteers, day before + day of | §7.5, personas |
 | Q-024 | Decided: PII reveals logged for everyone except the HAM Director | Access table notes (§2), §8.5, §8.6, personas |
-| Q-025 | **Open** | Requesters without email (§5, sitemap, personas) |
+| Q-025 | Decided: email (own or a helper's) or "I don't use email"; no-email requests wait for a Director/AD phone check; updates by phone, photos at the visit | Sitemap, §5, §8.3 group 4, access table notes |
 | Q-026 | Decided: single church, branding from the church profile | Header note, §3.3 sidebar, §5 |
+| Q-100 | Decided: verify before submit; answers saved server-side | Sitemap, §5 |
+| Q-101, Q-102 | Open, default in use: link opens the full page with contact masked; every requester email carries the link | §5 |
+| Q-106 | Open, default in use: no routing; all pastors and the Board rep see every awaiting request | Access table + notes, §8.3 |
+| Q-107 | Open, default in use: pre-decision close reasons withdrew / sent twice / spam or test | §5 status table |
+| Q-124 | Decided: Administrator views requests with contact masked, no reveal | Access table + notes, §8.6 |
+| Q-125 | Open, default in use: pastors and Board rep may reveal on every request, logged | Access table + notes |
+| Q-132 | Open, default in use: request rows show HAM # + category only | §8.6 |
 
 **Still undecided and not logged as a Q:** the public-embed suppression threshold (the minimum group size below which a breakdown is hidden, §2 notes); the site-code check-in fallback (§7.8); what the requester sees of volunteer names (personas). Raised for the coordinator to log.
 
-**Hand-off to ham-ui-designer:** `docs/ux/screens/director-dashboard-desktop.html` shows the hover label "Leadership only · viewing is logged" for Marcus. Per Q-024 the Director's label should read "Leadership only" (no logging). Both screens also hard-code "Miami Temple Seventh-day Adventist" as logo alt text; per Q-026 that should come from `{church.name}`.
+**Hand-off to ham-ui-designer:** `docs/ux/screens/director-dashboard-desktop.html` shows a hover label "Leadership only · viewing is logged" for Marcus. The hover reveal is gone (§8.6): replace it with a **Show contact details** button in the detail panel, and per Q-024 the Director's label reads "Leadership only" (no logging). Both screens also hard-code "Miami Temple Seventh-day Adventist" as logo alt text; per Q-026 that should come from `{church.name}`.

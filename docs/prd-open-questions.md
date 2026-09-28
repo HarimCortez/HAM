@@ -117,6 +117,13 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 | Q-130 | §2, §8 | Should requester screens promise a response time? | None / "usually within a few days" / a number | "Usually within a few days" (normal); "as soon as they can" (urgent). | Open — proposed default in use (step 2) |
 | Q-131 | §3.4, §68 | Does the form link to a privacy statement? | Yes (URL in church profile) / no | Yes: a privacy-statement URL in the church profile, stating retention (Q-127). Owner to supply the statement. | Open — proposed default in use (step 2) |
 | Q-132 | §68, Q-004 | May leadership list rows show a general area? | ID + category only / + ZIP / + neighborhood | ID + category only in step 2; revisit with geocoding in staffing. | Open — proposed default in use (step 2) |
+| Q-133 | §10, Q-025 | An urgent request from someone with no email can't reach pastors until the phone check. Alert whom? | None extra / Director+AD urgent alert | Director and AD get an urgent in-app + email alert for urgent Needs-phone-check requests. | Open — proposed default in use (step 2) |
+| Q-134 | Q-025, §58 | Record unsuccessful call attempts during the phone check? | Yes / not in step 2 | Not in step 2; the verify action and closes are audited. | Open — proposed default in use (step 2) |
+| Q-135 | Q-025, §6.1 | May leaders correct a detail (e.g. a mistyped address) during the phone check? | Yes, audited / not in step 2 | Not in step 2. | Open — proposed default in use (step 2) |
+| Q-136 | Q-025, §7 | Does a no-email requester get a secure link? | None / printed or read out | None; updates by phone until an email is added. | Open — proposed default in use (step 2) |
+| Q-137 | Q-101, §68 | What does "contact details masked" on the secure page cover? | Various | Email, phone and street line masked; city and ZIP shown. | Open — proposed default in use (step 2) |
+| Q-138 | Q-124, §45 | Does the Administrator (view only) see request photos? | Yes / count only | Photo count only. | Open — proposed default in use (step 2) |
+| Q-139 | §68, Q-100 | "Continue my request" resume prompt on shared computers | Show details / no details, same browser only | Resume only in the same browser; the prompt shows no details; draft erased after 24 h. | Open — proposed default in use (step 2) |
 
 ## UX backlog (not PRD gaps — implementation/framework choices, not open product questions)
 - **Q-086–Q-089**: never allocated (no row was ever drafted for these ids in any slice) — the id sequence skips straight from Q-085 to Q-090. Noting this here so the gap isn't mistaken for a lost row later.
