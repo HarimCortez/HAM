@@ -295,6 +295,9 @@ class TestLinkExpiredAndNewLink:
         assert b"link has expired" in resp.content
         assert b"e\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2@example.org" in resp.content
 
+        # Drain the setup's own emails (S2.6 "request received" / "new link") first.
+        run_due_jobs_now()
+        run_due_jobs_now()
         mail.outbox.clear()
         send_resp = client.post(
             reverse("web:request_help_link_expired_send", kwargs={"token": old_token}),
