@@ -54,6 +54,9 @@ jobs:
       - name: Import boundaries (import-linter)
         run: uv run lint-imports
 
+      - name: Permission matrix docs (--check)
+        run: uv run python manage.py build_permission_matrix --check
+
       - name: Run tests
         run: uv run pytest --maxfail=1
 
