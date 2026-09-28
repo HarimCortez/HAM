@@ -10,9 +10,43 @@ from django.conf import settings
 from django.templatetags.static import static
 from django.urls import NoReverseMatch, reverse
 
+from ham.platform.church import format_church_time
 from ham.platform.tokens import token_hex
 
 register = template.Library()
+
+
+@register.filter
+def action_label(action: str) -> str:
+    """`{{ event.action|action_label }}` — plain-language audit action name (usability M5)."""
+    from ham.audit.labels import action_label as _action_label
+
+    return _action_label(action)
+
+
+@register.filter
+def target_display(value, names) -> str:
+    """`{{ event.target_type }} {{ event.target_id|target_display:names }}` — resolves a
+    user-type audit target to its display name instead of a raw UUID (usability M5: "show
+    subjects ID-first ... rather than a raw UUID"). `names` is the `names` dict already built
+    by `display_names_for`, keyed by `uuid.UUID`; anything that isn't a resolvable user UUID
+    (a project ID, say) is shown as-is."""
+    import uuid as _uuid
+
+    try:
+        key = _uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return value
+    return names.get(key, value)
+
+
+@register.filter
+def church_time(moment) -> str:
+    """`{{ event.occurred_at|church_time }}` — local time with the zone abbreviation
+    (PRD §70.5), instead of a bare UTC timestamp (usability M6)."""
+    if moment is None:
+        return ""
+    return format_church_time(moment)
 
 
 @register.simple_tag

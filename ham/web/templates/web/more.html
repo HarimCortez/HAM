@@ -1,0 +1,31 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}More · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}More{% endblock %}
+
+{% block content %}
+  <h1>More</h1>
+
+  <ul class="nav-list">
+    {% for item in more_nav_items %}
+      <li class="nav-list__item">
+        <a class="nav-list__link" href="{% url item.url_name %}">
+          <svg class="nav__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{{ item.icon }}"></use></svg>
+          <span>{{ item.label }}</span>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% maybe_url "web:sign_out" as sign_out_url %}
+  {% if sign_out_url %}
+    <form method="post" action="{{ sign_out_url }}" class="nav-list">
+      {% csrf_token %}
+      <button class="nav-list__link nav-list__link--button" type="submit">
+        <svg class="nav__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-log-out"></use></svg>
+        <span>Sign out</span>
+      </button>
+    </form>
+  {% endif %}
+{% endblock %}

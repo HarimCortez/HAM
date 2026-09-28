@@ -21,6 +21,14 @@ body {
     var(--ham-font-ui);
 }
 
+/* M1: form controls otherwise fall back to the browser's own UI font/size (Arial 13.3px). */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
 h1 {
   font: var(--ham-type-h1-weight) var(--ham-type-h1-size) / var(--ham-type-h1-line-height)
     var(--ham-font-display);
@@ -109,10 +117,33 @@ a:hover {
   color: var(--ham-text-on-appbar);
   margin: 0;
   flex: 1;
+  min-width: 0;
+  /* Minor 11: a long title (e.g. "Troubleshoot as someone else") ellipsizes on a phone
+     instead of wrapping the app bar to 2 lines. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* M10: this is a page label, not a second h1 (each page supplies its own). At desktop the
+   sidebar/page h1 already say the same thing, and components.md §1 puts search/notifications/
+   the avatar here instead, so the label is redundant there too. */
+@media (min-width: 1024px) {
+  .app-bar__title {
+    display: none;
+  }
+}
+
+.app-bar__logo-link {
+  min-height: var(--ham-size-target-min);
+  padding-block: var(--ham-space-2);
 }
 
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
 .impersonation-banner {
+  position: sticky;
+  top: calc(var(--ham-size-appbar-height) + env(safe-area-inset-top, 0px));
+  z-index: var(--ham-z-appbar);
   background: var(--ham-tone-attention-bg);
   color: var(--ham-tone-attention-fg);
   border-bottom: 1px solid var(--ham-tone-attention-border);
@@ -125,9 +156,14 @@ a:hover {
     var(--ham-font-ui);
 }
 
+.impersonation-banner__icon {
+  flex: none;
+  color: var(--ham-tone-attention-icon, currentColor);
+}
+
 .impersonation-banner__text {
   flex: 1;
-  min-width: 200px;
+  min-width: var(--ham-size-target-min, 200px);
 }
 
 .impersonation-banner__reason,
@@ -135,6 +171,19 @@ a:hover {
   display: block;
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
     var(--ham-font-ui);
+}
+
+/* M9: at >=1024 the reason and idle line join the name on one line, separated by " · ". */
+@media (min-width: 1024px) {
+  .impersonation-banner__reason,
+  .impersonation-banner__idle {
+    display: inline;
+  }
+
+  .impersonation-banner__reason::before,
+  .impersonation-banner__idle::before {
+    content: " \00b7 ";
+  }
 }
 
 /* --- Layout shell -------------------------------------------------------------------------*/
@@ -210,6 +259,15 @@ a:hover {
 .nav--bottom > .nav {
   display: flex;
   width: 100%;
+  /* CSS safety net (visual QA C2): even if a page ever renders more than 5 items, this stops
+     an overflow from reaching the rest of the page. `bottom_nav_for` is what actually caps
+     the list at 5 (navigation.md §3.1). */
+  overflow: hidden;
+}
+
+.nav--bottom > .nav > li {
+  /* Minor 1: items were left-aligned instead of sharing the row's width. */
+  flex: 1;
 }
 
 .nav--bottom .nav__link {
@@ -221,6 +279,24 @@ a:hover {
   border-radius: 0;
   font: var(--ham-type-nav-compact-weight) var(--ham-type-nav-compact-size) /
     var(--ham-type-nav-compact-line-height) var(--ham-font-ui);
+}
+
+/* Minor 1: the selected tab gets a 32x4px pill above the icon, not just the fill
+   (components.md §2), so the state isn't color-only. */
+.nav--bottom .nav__link[aria-current="page"] {
+  position: relative;
+}
+
+.nav--bottom .nav__link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 4px;
+  border-radius: var(--ham-radius-pill);
+  background: var(--ham-border-selected);
 }
 
 .nav--rail,
@@ -247,12 +323,19 @@ a:hover {
   .nav--rail .nav__link {
     flex-direction: column;
     justify-content: center;
+    gap: var(--ham-space-1);
+    min-height: 64px;
+    padding-block: var(--ham-space-2);
     border-radius: 0;
   }
 
+  /* M7: icon-only tabs are ambiguous (two book-shaped icons for Rules/Audit log); the label
+     shows under the icon like the bottom nav does, not off-screen. */
   .nav--rail .nav__label {
-    position: absolute;
-    left: -9999px;
+    position: static;
+    font: var(--ham-type-nav-compact-weight) var(--ham-type-nav-compact-size) /
+      var(--ham-type-nav-compact-line-height) var(--ham-font-ui);
+    text-align: center;
   }
 }
 
@@ -274,6 +357,13 @@ a:hover {
 
   .nav--sidebar .nav__link {
     justify-content: flex-start;
+    position: relative;
+  }
+
+  /* Minor 2: the selected sidebar item gets the 4px inset left bar (components.md §3), not
+     only the fill. */
+  .nav--sidebar .nav__link[aria-current="page"] {
+    box-shadow: inset 4px 0 0 var(--ham-border-selected);
   }
 
   .sidebar-header {
@@ -285,8 +375,8 @@ a:hover {
   }
 
   .sidebar-header__label {
-    font: var(--ham-type-small-weight) var(--ham-type-small-size) /
-      var(--ham-type-small-line-height) var(--ham-font-ui);
+    font: var(--ham-type-label-weight) var(--ham-type-label-size) /
+      var(--ham-type-label-line-height) var(--ham-font-ui);
     color: var(--ham-text-secondary);
   }
 
@@ -311,10 +401,22 @@ a:hover {
 }
 
 .empty-state {
-  max-width: 360px;
+  max-width: var(--ham-size-empty-max, 360px);
   margin: var(--ham-space-8) auto;
   text-align: center;
   color: var(--ham-text-secondary);
+}
+
+.empty-state h3 {
+  /* M11: titles read as text.primary; only the body copy is secondary. */
+  color: var(--ham-text-primary);
+}
+
+.empty-state__illustration {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto var(--ham-space-4);
+  color: var(--ham-tone-info-icon, var(--ham-text-tertiary));
 }
 
 /* --- Public / signed-out layout (sign-in etc., patterns.md §1 "no nav") ----------------- */
@@ -334,31 +436,79 @@ a:hover {
 }
 
 .public-shell__bar .app-bar__logo {
-  height: 28px;
+  height: 32px;
 }
 
+/* M4: left-aligned column starting near the top, not vertically centered with ~180px of
+   dead space above the h1 on a phone. */
 .public-shell__content {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: var(--ham-space-6) var(--ham-space-4);
+  padding: var(--ham-space-8) var(--ham-space-4) var(--ham-space-6);
 }
 
 .public-card {
-  background: var(--ham-bg-surface);
-  border-radius: var(--ham-radius-lg);
-  box-shadow: var(--ham-shadow-md);
-  padding: var(--ham-space-6);
+  background: transparent;
+  padding: 0;
   max-width: var(--ham-size-form-max, 420px);
   width: 100%;
-  text-align: center;
+  text-align: left;
+}
+
+.public-card__eyebrow {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-4);
 }
 
 .public-card__mission {
   color: var(--ham-text-secondary);
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
     var(--ham-font-ui);
+}
+
+/* M4: a quiet card only reappears at >=1024, where there's room for it not to feel cramped. */
+@media (min-width: 1024px) {
+  .public-card {
+    background: var(--ham-bg-surface);
+    border-radius: var(--ham-radius-lg);
+    padding: var(--ham-space-6);
+  }
+}
+
+.public-shell .form-field input,
+.public-shell .form-field select {
+  min-height: var(--ham-size-control-lg);
+}
+
+.public-shell .btn {
+  min-height: var(--ham-size-control-lg);
+}
+
+.public-shell p {
+  font-size: var(--ham-type-body-lg-size);
+  line-height: var(--ham-type-body-lg-line-height);
+}
+
+/* M4: on mobile the primary action sits in a sticky full-width bar so it's always reachable
+   without scrolling past a keyboard; secondary actions (Resend, Sign out) stay left-aligned
+   in their own row below the form, not inside this bar. */
+@media (max-width: 767px) {
+  .public-shell .form-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--ham-bg-surface);
+    border-top: 1px solid var(--ham-border-default);
+    padding: var(--ham-space-3) var(--ham-space-4) calc(var(--ham-space-3) + env(safe-area-inset-bottom));
+    margin: var(--ham-space-6) calc(var(--ham-space-4) * -1) 0;
+  }
+
+  .public-shell .form-actions .btn--primary {
+    width: 100%;
+  }
 }
 
 /* --- Buttons (components.md §4) --------------------------------------------------------- */
@@ -375,6 +525,12 @@ a:hover {
   text-decoration: none;
   border: none;
   cursor: pointer;
+  /* Minor 13: labels wrap onto a full row rather than breaking mid-word or squeezing. */
+  white-space: normal;
+  text-wrap: balance;
+  transition:
+    background-color var(--ham-duration-fast) ease,
+    color var(--ham-duration-fast) ease;
 }
 
 .btn--primary {
@@ -387,10 +543,46 @@ a:hover {
   color: var(--ham-text-on-primary);
 }
 
+.btn--primary:active {
+  background: var(--ham-action-primary-bg-pressed);
+}
+
 .btn--secondary {
   background: var(--ham-action-secondary-bg);
   color: var(--ham-action-secondary-fg);
   border: 1.5px solid var(--ham-action-secondary-border);
+}
+
+.btn--secondary:hover {
+  background: var(--ham-action-secondary-bg-hover);
+}
+
+.btn--danger {
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border: 1.5px solid var(--ham-tone-danger-border);
+}
+
+.btn--danger:hover {
+  background: var(--ham-tone-danger-border);
+}
+
+/* M4/M9: Ghost — no fill, no border, used for a page's least-important action (Sign out on
+   the two-step setup screen, etc.). */
+.btn--ghost {
+  background: transparent;
+  color: var(--ham-action-ghost-fg);
+}
+
+.btn--ghost:hover {
+  background: var(--ham-action-ghost-bg-hover);
+}
+
+.btn[disabled] {
+  background: var(--ham-action-disabled-bg);
+  color: var(--ham-action-disabled-fg);
+  border-color: var(--ham-action-disabled-bg);
+  cursor: not-allowed;
 }
 
 /* --- Offline banner (navigation.md §6) --------------------------------------------------- */
@@ -438,6 +630,7 @@ a:hover {
 .form-field input[type="tel"],
 .form-field input[type="url"],
 .form-field input[type="search"],
+.form-field input[type="date"],
 .form-field select,
 .form-field textarea {
   min-height: var(--ham-size-control-md);
@@ -472,6 +665,7 @@ a:hover {
   align-items: center;
   gap: var(--ham-space-2);
   font-weight: 400;
+  min-height: var(--ham-size-target-min);
 }
 
 .form-field--toggle input[type="checkbox"],
@@ -479,6 +673,16 @@ a:hover {
   width: 24px;
   height: 24px;
   flex: none;
+}
+
+/* M2: browser-blue checkboxes/radios are off-palette. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--ham-action-primary-bg);
+}
+
+.role-row {
+  min-height: var(--ham-size-target-min);
 }
 
 .form-field__help {
@@ -490,8 +694,18 @@ a:hover {
 
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--ham-space-3);
   margin-top: var(--ham-space-6);
+}
+
+/* M8: below 768, stack secondary account actions full width instead of squeezing/overflowing
+   ("Reset two-step sign-in" wrapping to 5 lines, "Troubleshoot as..." spilling out). */
+@media (max-width: 767px) {
+  .card .form-actions .btn,
+  .form-actions .btn {
+    flex: 1 1 100%;
+  }
 }
 
 .inline-alert {
@@ -538,12 +752,25 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: var(--ham-space-1);
-  height: 28px;
+  height: var(--ham-size-chip, 28px);
   padding-inline: var(--ham-space-3);
   border-radius: var(--ham-radius-pill);
   border: 1px solid;
   font: var(--ham-type-chip-weight) var(--ham-type-chip-size) / var(--ham-type-chip-line-height)
     var(--ham-font-ui);
+}
+
+.chip__icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* Role chips (Users & roles) are labels, not statuses; keep them a plain neutral tag. */
+.chip--tag {
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  border-color: transparent;
 }
 
 .chip--neutral {
@@ -586,12 +813,28 @@ a:hover {
 }
 
 .filter-bar select,
-.filter-bar input[type="search"] {
+.filter-bar input {
   min-height: var(--ham-size-control-md);
   padding-inline: var(--ham-space-3);
   border: 1.5px solid var(--ham-border-strong);
-  border-radius: var(--ham-radius-md);  background: var(--ham-bg-surface);
+  border-radius: var(--ham-radius-md);
+  background: var(--ham-bg-surface);
   color: var(--ham-text-primary);
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
+}
+
+.filter-bar label {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+@media (max-width: 767px) {
+  .filter-bar,
+  .filter-bar select,
+  .filter-bar input {
+    width: 100%;
+  }
 }
 
 .filter-bar__summary {  color: var(--ham-text-secondary);
@@ -619,8 +862,16 @@ a:hover {
   vertical-align: middle;
 }
 
-.data-table tr:hover td {
-  background: var(--ham-bg-hover);
+.data-table td.is-nowrap {
+  white-space: nowrap;
+}
+
+/* Minor 5: only highlight rows for real pointers, so the first stacked "card" on a touch
+   phone isn't left stuck grey. */
+@media (hover: hover) {
+  .data-table tr:hover td {
+    background: var(--ham-bg-hover);
+  }
 }
 
 @media (max-width: 1023px) {
@@ -643,11 +894,21 @@ a:hover {
     border: 1px solid var(--ham-border-default);
     border-radius: var(--ham-radius-md);
     margin-bottom: var(--ham-space-3);
+    background: var(--ham-bg-surface);
     padding: var(--ham-space-2);
   }
 
   .data-table td {
     border: none;
+    padding-block: var(--ham-space-1);
+  }
+
+  /* Minor 5/9: a stacked cell that isn't self-explanatory gets its header back as a prefix
+     ("Two-step: Not needed"). Opt in per-cell with `data-label="..."`, not automatic, since
+     the first column (a name/link) reads fine without one. */
+  .data-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--ham-text-secondary);
   }
 }
 
@@ -669,7 +930,7 @@ a:hover {
   border-radius: var(--ham-radius-lg);
   box-shadow: var(--ham-shadow-lg);
   padding: var(--ham-space-6);
-  max-width: 480px;
+  max-width: var(--ham-size-modal-sm, 480px);
   margin: var(--ham-space-8) auto;
 }
 
@@ -755,6 +1016,24 @@ a:hover {
   color: var(--ham-text-tertiary);
 }
 
+/* Minor 12: spacing utilities, so page templates stop reaching for inline `style=` (still
+   tokens only, never a literal px value). */
+.mt-4 {
+  margin-top: var(--ham-space-4);
+}
+
+.mt-6 {
+  margin-top: var(--ham-space-6);
+}
+
+.mt-8 {
+  margin-top: var(--ham-space-8);
+}
+
+.mb-6 {
+  margin-bottom: var(--ham-space-6);
+}
+
 .text-secondary {
   color: var(--ham-text-secondary);
 }
@@ -769,6 +1048,61 @@ a:hover {
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
   border-color: var(--ham-tone-danger-border);
+}
+
+/* --- Home (M11: desktop two-column, per navigation.md §3.3) ----------------------------- */
+.home-grid {
+  display: grid;
+  gap: var(--ham-space-6);
+}
+
+.home-grid > div > .card,
+.home-grid > div > .empty-state {
+  margin-bottom: var(--ham-space-4);
+}
+
+@media (min-width: 1280px) {
+  .home-grid {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
+  }
+}
+
+/* --- Admin index / More (visual QA C2, usability C2, Q-091) ----------------------------- */
+.nav-list {
+  list-style: none;
+  margin: 0 0 var(--ham-space-4);
+  padding: 0;
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  overflow: hidden;
+}
+
+.nav-list__item + .nav-list__item {
+  border-top: 1px solid var(--ham-border-subtle);
+}
+
+.nav-list__link {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-3);
+  min-height: var(--ham-size-target-min);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  color: var(--ham-text-primary);
+  text-decoration: none;
+  width: 100%;
+  background: var(--ham-bg-surface);
+  border: none;
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+
+@media (hover: hover) {
+  .nav-list__link:hover {
+    background: var(--ham-bg-hover);
+  }
 }
 
 /* --- S3b auth: recovery codes grid (docs/ux/auth-and-access.md C3, F) -------------------- */

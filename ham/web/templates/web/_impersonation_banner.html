@@ -1,0 +1,20 @@
+{% load static %}{% comment %}
+Impersonation banner (navigation.md §6, auth-and-access.md I2, PRD §59): non-dismissable, on
+every screen — including errors and not-found (visual QA C1) — so acting-as is never invisible.
+Included by both base.html and base_public.html, directly under the bar. A `region` landmark
+(not `role="alert"`) so assistive tech doesn't re-announce it on every page (usability M8).
+{% endcomment %}
+{% if request.actor.is_impersonating %}
+  <div class="impersonation-banner" role="region" aria-label="Impersonation">
+    <svg class="impersonation-banner__icon" aria-hidden="true" width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-user-cog"></use></svg>
+    <span class="impersonation-banner__text">
+      Acting as <strong>{{ impersonation_target_full_name|default:request.actor.target_display_name }}</strong>
+      <span class="impersonation-banner__reason">Reason: {{ request.actor.impersonation_reason }}</span>
+      <span class="impersonation-banner__idle">{{ request.actor.impersonation_idle_minutes_left }} min left if idle</span>
+    </span>
+    <form method="post" action="{% url 'web:impersonation_stop' %}">
+      {% csrf_token %}
+      <button class="btn btn--secondary" type="submit">Return to my account</button>
+    </form>
+  </div>
+{% endif %}

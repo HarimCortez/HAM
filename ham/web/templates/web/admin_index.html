@@ -1,0 +1,28 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}Admin · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Admin{% endblock %}
+
+{% block content %}
+  <h1>Admin</h1>
+  <p class="text-secondary">Everything below is also on the sidebar at a wider screen.</p>
+
+  {% if admin_items %}
+    <ul class="nav-list">
+      {% for item in admin_items %}
+        <li class="nav-list__item">
+          <a class="nav-list__link" href="{% url item.url_name %}">
+            <svg class="nav__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{{ item.icon }}"></use></svg>
+            <span>{{ item.label }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <section class="empty-state">
+      <h3>Nothing here yet</h3>
+      <p>You don't have any admin destinations to use right now.</p>
+    </section>
+  {% endif %}
+{% endblock %}

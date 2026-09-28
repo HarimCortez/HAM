@@ -1,33 +1,38 @@
 {% extends "web/base.html" %}
 {% load web_extras %}
 
-{% block title %}{{ event.action }} · Audit log · {{ church.short_name }} HAM{% endblock %}
+{% block title %}{{ event.action|action_label }} · Audit log · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Audit event{% endblock %}
 
 {% block content %}
   <p><a href="{% url 'web:audit_log' %}">&larr; Back to audit log</a></p>
-  <h1>{{ event.action }}</h1>
+  <h1>{{ event.action|action_label }}</h1>
+  <p class="text-tertiary">{{ event.action }}</p>
   <dl class="kv-list">
     <dt>Subject</dt>
-    <dd>{{ event.target_type }} {{ event.target_id }}</dd>
+    <dd>{{ event.target_type }} &middot; {{ event.target_id|target_display:names }}</dd>
 
     <dt>Actor</dt>
     <dd>
       {{ names|get_item:event.actor_user_id|default:event.actor_type }}
       {% if event.acting_as_user_id %}
         acting as {{ names|get_item:event.acting_as_user_id }}
-        {% if event.reason %} · Reason: {{ event.reason }}{% endif %}
+        {% if event.reason %} &middot; Reason: {{ event.reason }}{% endif %}
       {% endif %}
     </dd>
 
     <dt>When</dt>
-    <dd>{{ event.occurred_at }} UTC</dd>
+    <dd>{{ event.occurred_at|church_time }} (UTC {{ event.occurred_at }})</dd>
 
     {% if event.before or event.after %}
       <dt>Before &rarr; after</dt>
       <dd>
-        {% if event.before %}<div>Before: {{ event.before }}</div>{% endif %}
-        {% if event.after %}<div>After: {{ event.after }}</div>{% endif %}
+        <dl class="kv-list">
+          {% for key, value in event.before.items %}
+            <dt>{{ key }}</dt>
+            <dd>{{ value }} &rarr; {{ event.after|get_item:key }}</dd>
+          {% endfor %}
+        </dl>
       </dd>
     {% endif %}
 

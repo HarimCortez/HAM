@@ -69,7 +69,10 @@ def home(request):
     an "Invite someone" card for anyone who may invite but has no `user.list` nav destination
     (an Assistant Director, Q-082)."""
     ctx = request.actor
-    context: dict[str, object] = {}
+    from ham.identity.services import display_names_for
+
+    full_name = display_names_for([ctx.user_id]).get(ctx.user_id, "")
+    context: dict[str, object] = {"first_name": full_name.split(" ")[0] if full_name else ""}
     if authorize(ctx, "integrations.view_status").allowed:
         from ham.outbox.services import subscriber_status_counts
 
@@ -109,6 +112,30 @@ def _recent_sign_in_failures(ctx) -> dict[str, object]:
 def inbox(request):
     """Inbox placeholder (foundation.md §10; navigation.md §4)."""
     return render(request, "web/inbox.html")
+
+
+@require_GET
+@requires_action("shell.use")
+def admin_index(request):
+    """The Admin hub (visual QA C2 / usability C2, Q-091): a plain server-rendered list of the
+    admin-group destinations (Users & roles, Church settings, Integrations, Rules, Audit log)
+    this viewer may use, so they share one mobile tab instead of five. `nav.admin_group_items`
+    already applies `authorize()` per item, so this page shows exactly what the sidebar/rail
+    would — nothing here grants access beyond the per-route guard on each destination."""
+    from ham.web.nav import admin_group_items_for
+
+    return render(request, "web/admin_index.html", {"admin_items": admin_group_items_for(request)})
+
+
+@require_GET
+@requires_action("shell.use")
+def more(request):
+    """The More page (visual QA C2 / usability C2, Q-091): whatever this role's built nav has
+    left over once Home/Admin/Inbox have their own tab — Me, and for a Director-like role,
+    the admin-group items too — plus Sign out, so it's always reachable on a phone."""
+    from ham.web.nav import more_items_for
+
+    return render(request, "web/more.html", {"more_nav_items": more_items_for(request)})
 
 
 @require_GET
@@ -194,14 +221,24 @@ def api_me(request):
     return JsonResponse(data)
 
 
-@require_GET
 def not_found(request, exception=None):
     """The neutral 'no permission / not found' page (navigation.md §6, auth-and-access.md J3):
     same status code, copy and timing whether a route doesn't exist or the viewer just isn't
-    allowed to see it, so a project's existence is never leaked (§68)."""
-    return render(request, "web/not_found.html", status=404)
+    allowed to see it, so a project's existence is never leaked (§68).
+
+    Visual QA C1: a signed-in person never drops out of the shell (nav stays, and — while
+    impersonating — so does the banner), so this renders `not_found.html` with `base.html`'s
+    nav/banner for anyone with a session, and only falls back to the no-nav `base_public.html`
+    for a genuinely anonymous visitor."""
+    actor = getattr(request, "actor", None)
+    signed_in = bool(actor and actor.is_authenticated)
+    return render(request, "web/not_found.html", {"signed_in": signed_in}, status=404)
 
 
 def server_error(request):
-    """Generic 500 (foundation.md §10)."""
-    return render(request, "web/server_error.html", status=500)
+    """Generic 500 (foundation.md §10). Same C1 treatment as `not_found`: a signed-in person
+    keeps the shell (nav, impersonation banner) instead of dropping to the no-nav public
+    layout."""
+    actor = getattr(request, "actor", None)
+    signed_in = bool(actor and actor.is_authenticated)
+    return render(request, "web/server_error.html", {"signed_in": signed_in}, status=500)

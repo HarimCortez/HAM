@@ -10,11 +10,6 @@
       <h1>Audit log</h1>
       <p class="text-secondary">Audit history goes back one year.</p>
     </div>
-    <form method="post" action="{% url 'web:audit_export' %}">
-      {% csrf_token %}
-      {% for key, value in request_get.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
-      <button class="btn btn--secondary" type="submit">Export</button>
-    </form>
   </div>
 
   {% if export_blocked %}
@@ -25,42 +20,89 @@
   {% endif %}
 
   <form method="get" class="filter-bar" role="search">
-    <label class="visually-hidden" for="id_from">From</label>
+    <label for="id_range">Date range</label>
+    <select id="id_range" name="range">
+      <option value="custom" {% if not request_get.range %}selected{% endif %}>Custom dates</option>
+      {% for key, label, _days in range_presets %}
+        <option value="{{ key }}" {% if request_get.range == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <label for="id_from">From</label>
     <input id="id_from" type="date" name="from" value="{{ request_get.from }}">
-    <label class="visually-hidden" for="id_to">To</label>
+    <label for="id_to">To</label>
     <input id="id_to" type="date" name="to" value="{{ request_get.to }}">
-    <label class="visually-hidden" for="id_action">Action</label>
-    <input id="id_action" type="text" name="action" value="{{ request_get.action }}" placeholder="Action (e.g. role.granted)">
-    <label class="visually-hidden" for="id_role">Role</label>
-    <input id="id_role" type="text" name="role" value="{{ request_get.role }}" placeholder="Role at the time">
+    <label for="id_user_q">Person</label>
+    <input id="id_user_q" type="search" name="user_q" value="{{ request_get.user_q }}" placeholder="Name or email">
+    <label for="id_project">Project ID</label>
+    <input id="id_project" type="search" name="project" value="{{ request_get.project }}" placeholder="e.g. HAM number 37">
+    <label for="id_action">Action</label>
+    <select id="id_action" name="action">
+      <option value="">All actions</option>
+      {% for group in action_groups %}
+        <optgroup label="{{ group.label }}">
+          {% for action in group.actions %}
+            <option value="{{ action }}" {% if request_get.action == action %}selected{% endif %}>{{ action|action_label }}</option>
+          {% endfor %}
+        </optgroup>
+      {% endfor %}
+    </select>
+    <label for="id_role">Role at the time</label>
+    <select id="id_role" name="role">
+      <option value="">Any role</option>
+      {% for code in role_choices %}
+        <option value="{{ code }}" {% if request_get.role == code %}selected{% endif %}>{{ role_labels|get_item:code }}</option>
+      {% endfor %}
+    </select>
     <button class="btn btn--secondary" type="submit">Filter</button>
   </form>
 
-  <p class="filter-bar__summary">{{ events|length }} events</p>
-
-  <div class="list-detail">
-    <table class="data-table">
-      <thead>
-        <tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Subject</th></tr>
-      </thead>
-      <tbody>
-        {% for event in events %}
-          <tr>
-            <td><a href="{% url 'web:audit_log_detail' event_id=event.id %}">{{ event.occurred_at }}</a></td>
-            <td>
-              {% if event.acting_as_user_id %}
-                {{ names|get_item:event.actor_user_id }} as {{ names|get_item:event.acting_as_user_id }}
-              {% else %}
-                {{ names|get_item:event.actor_user_id|default:event.actor_type }}
-              {% endif %}
-            </td>
-            <td>{{ event.action }}</td>
-            <td>{{ event.target_type }} {{ event.target_id }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4">No events match these filters. Try a wider date range.</td></tr>
+  {% if user_matches %}
+    <div class="inline-alert inline-alert--info" role="status">
+      <p>More than one person matches "{{ request_get.user_q }}" — pick one:</p>
+      <ul>
+        {% for row in user_matches %}
+          <li><a href="?{{ request_get.urlencode }}&amp;user_q=&amp;user={{ row.user.id }}">{{ row.display_name }} ({{ row.user.email }})</a></li>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
+      </ul>
+    </div>
+  {% endif %}
+
+  <p class="filter-bar__summary">{{ range_label }} &middot; {{ events|length }} events</p>
+
+  <form method="post" action="{% url 'web:audit_export' %}" class="form-actions">
+    {% csrf_token %}
+    {% for key, value in request_get.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+    <button class="btn btn--secondary" type="submit" {% if not events %}disabled{% endif %}>
+      Export {{ events|length }} event{{ events|length|pluralize }}
+    </button>
+  </form>
+  <p class="text-secondary">
+    Uses your current filters: {{ range_label }}{% if request_get.action %} &middot; {{ request_get.action|action_label }}{% endif %}
+    &middot; {{ events|length }} event{{ events|length|pluralize }}. The file includes event IDs
+    and staff names, not requester names or addresses.
+  </p>
+
+  <table class="data-table">
+    <thead>
+      <tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Subject</th></tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+        <tr>
+          <td class="is-nowrap"><a href="{% url 'web:audit_log_detail' event_id=event.id %}">{{ event.occurred_at|church_time }}</a></td>
+          <td data-label="Who">
+            {% if event.acting_as_user_id %}
+              {{ names|get_item:event.actor_user_id }} acting as {{ names|get_item:event.acting_as_user_id }}
+            {% else %}
+              {{ names|get_item:event.actor_user_id|default:event.actor_type }}
+            {% endif %}
+          </td>
+          <td data-label="Action">{{ event.action|action_label }}</td>
+          <td data-label="Subject">{{ event.target_type }} &middot; {{ event.target_id|target_display:names }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No events match these filters. Try a wider date range.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endblock %}
