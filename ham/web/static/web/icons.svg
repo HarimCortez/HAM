@@ -73,4 +73,29 @@
     <circle cx="12" cy="12" r="8.5" />
     <path d="m6.2 17.8 11.6-11.6" />
   </symbol>
+  <!-- S2.8 (intake.md L1-L11): Requests nav + leadership screens. -->
+  <symbol id="icon-clipboard-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="4.5" width="14" height="16" rx="2" />
+    <rect x="9" y="3" width="6" height="3" rx="1" />
+    <path d="M8.5 11h.01M8.5 14.5h.01M8.5 18h.01M11.5 11h4M11.5 14.5h4M11.5 18h4" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+  </symbol>
+  <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="2.75" />
+  </symbol>
+  <symbol id="icon-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 4 21.5 20H2.5Z" />
+    <path d="M12 10v4.5M12 17.2h.01" />
+  </symbol>
+  <symbol id="icon-phone-call" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 4.5h3.5l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5V19a1.5 1.5 0 0 1-1.6 1.5A15.5 15.5 0 0 1 3.5 6.1 1.5 1.5 0 0 1 5 4.5Z" />
+  </symbol>
+  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="8.5" y="8.5" width="11" height="11" rx="1.5" />
+    <path d="M5.5 15.5H4.7A1.7 1.7 0 0 1 3 13.8V4.7A1.7 1.7 0 0 1 4.7 3h9.1A1.7 1.7 0 0 1 15.5 4.7v.8" />
+  </symbol>
 </svg>

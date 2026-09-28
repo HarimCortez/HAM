@@ -1,0 +1,55 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Record a phone check · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Phone check{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Record a phone check &middot; {{ request_row.display_number }}</h1>
+    <p>Call the person who asked and confirm they made this request. Then record it here.</p>
+    <p class="locked-note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> {% if is_director %}Leadership only{% else %}Leadership only &middot; viewing is logged{% endif %}</p>
+    <p><strong>{{ revealed.full_name }}</strong> &middot; {{ revealed.phone }}</p>
+
+    <p class="disclosure">
+      <details>
+        <summary>What to say</summary>
+        <p>"Hello, this is {your first name} from the Home Assistance Ministry at
+        {{ church.name }}. We received a request for help with your home, number
+        {{ request_row.display_number }}. Did you ask us for help? &hellip; Is this the best
+        number for us to call you with updates?"</p>
+      </details>
+    </p>
+
+    {% if is_impersonating %}
+      <p class="locked-note">Phone checks can't be recorded while acting as someone else.</p>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+          <label>
+            <input type="checkbox" name="confirmed">
+            I spoke with {{ revealed.full_name }} by phone, and she or he confirmed they
+            asked for this help.
+          </label>
+        </div>
+        <p class="text-secondary">
+          What happens next: {{ request_row.display_number }} goes to the pastors and Board
+          for review. They won't get an email, so please tell them that.
+        </p>
+        <div class="form-actions">
+          <button class="btn btn--primary" type="submit">Verified by phone call</button>
+        </div>
+      </form>
+    {% endif %}
+
+    <p>
+      <a href="{% url 'web:request_close' request_id=request_row.id %}?reason=spam&amp;note=">They didn't ask for this &rsaquo;</a>
+    </p>
+    <p>
+      <a href="{% url 'web:request_close' request_id=request_row.id %}?reason=requester_withdrew&amp;note=">They no longer need help &rsaquo;</a>
+    </p>
+    <p class="text-secondary">No answer? Nothing to record. It stays on the list so you or a colleague can try again.</p>
+  </div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}{{ detail.display_number }} · Requests · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}{{ detail.display_number }}{% endblock %}
+
+{% block content %}
+  <p><a href="{% url 'web:requests' %}">&larr; Back to Requests</a></p>
+  {% include "web/_request_detail.html" %}
+{% endblock %}
