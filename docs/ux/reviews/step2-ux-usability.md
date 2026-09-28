@@ -291,3 +291,36 @@ Reviewer: ham-ux-designer · 2026-09-28. Method: I read the templates, views, em
 3. L2 History shows the certification version string, "Agreed to intake statements 2026-09-28.1" (screenshot `leader-request-detail-1280.png`). Show "Agreed to the intake statements", with the version in a `title`.
 4. The church phone renders unformatted on R8 and R11b (`r8_verify.html:49`, `r11b_find_request.html:10`). Use `phone_national` as R10 does.
 5. On R3, State comes after ZIP (`r3_home.html:76-88`). Postal order is City, State, ZIP.
+
+---
+
+## Final re-check at f1d4fb9
+
+Reviewer: ham-ux-designer · 2026-09-28. Method: I read the templates, views, email builders and presentation helpers, and looked at the regenerated screenshots. I did not run the app.
+
+| ID | Result | Evidence |
+|---|---|---|
+| M1 | **Fixed** | `presentation.py:192` filters `none_known` out, so L2 falls through to the shield line "None that they know of." (`_request_detail.html:119-120`, confirmed in `leader-request-detail-1280.png`). Note parsing now uses `partition` on the first " (" (`presentation.py:185-187`), so a note with commas or parentheses parses correctly. R10 uses the same helper (`views_requester.py:895-912`). Residual minor: see F-m1. |
+| M2 | **Fixed** | R10 uses `NEED_CATEGORY_LABELS` / `PROPERTY_TYPE_LABELS` (`views_requester.py:878-879`). `secure-page-390.png` shows "Roof or ceiling" and "House". |
+| M4 + N-M1 | **Fixed** | Stored as two separate fields (`views_requester.py:270-283`, `requests/models.py:117-123`, DB constraints at `:182-199`). Composed for display only (`presentation.py:201-210`, `_request_detail.html:98`). The textarea echoes only the requester's own words (`r2_need.html:78`). "Choose why it's urgent." is on the reason fieldset (`forms.py:168`, `r2_need.html:56-60`). The label drops "(optional)" and changes wording for "Something else" (`r2_need.html:66,74-75`). |
+| M5 | **Partially** | Prefilled from the church state (`views_requester.py:373-379`), `autocomplete="address-level1"` added, and validated as a real state (`forms.py:126-130`). It is still a 2-character text box showing "FL" (`r3_home.html:81`, `request-home-390-text200.png`), not "Florida · Change" with a select. Because it's prefilled, Doris normally won't touch it, so this is now **Minor**. |
+| M6 | **Fixed** | R8 branches on purpose: no "Last step" eyebrow and "Enter it to open your request page" for a new link (`r8_verify.html:7-9,17-27`). The code email branches too (`verification.py:49-63`, subject "{short} HAM code"). Residual minor: the new-link email doesn't name the HAM #. |
+| M7 | **Fixed** | R11b issues the link directly and sends one E4 email per matching request, with no code and no E3 (`services.py:321-380`, `notifications.py:257-276`: "Your HAM #…", "Here's the link to your request."). The link goes straight to R10. `confirm_link.html:9-11,21` is purpose-aware. Residual minor: `<title>` is still "Confirm your request" for `new_link` (`confirm_link.html:3`). |
+| M8 | **Fixed** | Already-received state on R8 and the link page (`views_requester.py:571-582, 671-683, 733-761`; `_already_received.html:9-16`: "We already received your request · HAM #… · Open my request page"). The fallback message no longer says "start again" (`:626`). The HAM # is only revealed after proof of session, which is a sensible privacy trade-off. Not built: the focus/visibility check on R8. That's acceptable, because typing the code now lands on the right state. Residual minor: see F-m2. |
+| M10 + N-M2 | **Fixed** | `{% block bottom_nav %}{% endblock %}` (`request_phone_check.html:11`, `base.html:66`). `leader-phone-check-sheet-390.png` shows **Verified by phone call** clear of any tab bar, the Call button with a nationally formatted number, the 48px statement card, and the close links visible. |
+| Minor: viewer same tab | **Partially** | `target="_blank"` has been removed (`_request_media_gallery.html:42-60`). However, `request_media_view` serves the raw file (`views_requests.py:534-563`) and the manifest uses `display: standalone` (`views.py:241`). In the installed PWA on iOS there's no browser Back button, so Marcus is stranded on a bare image. Fix: a small viewer page (image plus "← Back to HAM #047"), or a `<dialog>` lightbox. |
+| Minor: role=status | **Fixed** | A single visually hidden `role="status"` region for the whole gallery (`_request_media_gallery.html:34-36`). The chips are plain text (`:63-71`). |
+| Minor: history version | **Fixed** | "Agreed to the intake statements", with the version only in `title` (`requests/queries.py:495-497`, `_request_detail.html:182`, screenshot). |
+| Minor: church phone format | **Fixed on screens** | `phone_national` in `r8_verify.html:62`, `r11b_find_request.html:11` and `r10_secure_page.html:82,90`. **Not in emails:** `notifications.py:128` ("Questions? Call {church.phone}…") and `:239` (duplicate-close text) print the raw value. If the phone or email is unset, this renders "Call  or email ." |
+| Minor: R3 field order | **Fixed** | City, State, ZIP (`r3_home.html:72-91`). |
+
+### New Blocker/Major
+None.
+
+### Residual minors (for the follow-up list)
+- **F-m1 (L2 hazard note attribution):** the free-text hazard note is attached to the *first* code (`presentation.py:196`). If Doris ticks "Dogs or other animals" and "Something else: loose wiring", L2 reads "Dogs or other animals — 'loose wiring'". Attach the note to `something_else` if present, or else show it on its own line as "Note: '…'".
+- **F-m2 (neutral already-received page):** `_already_received.html:18-20` gives only "Go to Ask for help" as its action, which still nudges toward a duplicate. Lead with "Check your email for the link to your request page", add "or call {church phone}", and drop or demote the Ask-for-help link.
+- **F-m3 (R10 with no church phone):** `secure-page-390.png` shows "How to reach us · We're glad to help." and "No longer need help? Call us…" with no number. Make the church phone required in church settings (repeats Minor 14).
+- **F-m4 (stale screenshot):** `secure-page-390.png` shows "Safety · None that I know of". With the current code R10 would render "None noted" (`views_requester.py:880`, `r10_secure_page.html:66`). Re-shoot it. "None that you know of" would be the kinder wording.
+- **F-m5 (200% text):** in `request-home-390-text200.png` the sticky Back/Continue bar sits over the "Type of home" cards. Confirm that a focused card scrolls clear of the bar (WCAG 2.4.11), for example with `scroll-padding-bottom` equal to the bar height.
+- **F-m6:** the code email still says "use the button below" above a bare URL (Minor 11).
