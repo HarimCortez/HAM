@@ -13,6 +13,13 @@ Thumbnails/full views load from the authorized, short-lived `request_media.view`
 alt text is "HAM #<number> photo/video <index>" only -- never a filename, status detail, or
 anything else that could carry PII (§68).
 {% endcomment %}
+{% load web_extras %}
+{% comment %}
+FIX-F1 Gallery: the viewer opens in the same tab (no `target="_blank"` -- on a phone that
+stranded Marcus in a tab with no "Back"); the fallback chip prints a label, not the raw status;
+one shared `role="status"`/`aria-live` region for the whole gallery instead of one per
+processing chip (each was separately announced on load); a `space-8` gap before this section.
+{% endcomment %}
 <section class="media-gallery" aria-labelledby="request-detail-photos-{{ detail.id }}">
   <{{ heading_tag|default:"h3" }} id="request-detail-photos-{{ detail.id }}">
     Photos ({{ gallery.counts.photos }}) &middot; Videos ({{ gallery.counts.videos }})
@@ -24,6 +31,9 @@ anything else that could carry PII (§68).
       &middot; not shown to the Administrator role.
     </p>
   {% elif gallery.items %}
+    <div class="visually-hidden" role="status" aria-live="polite">
+      {% for item in gallery.items %}{% if item.status == "processing" or item.status == "uploaded" %}{{ item.media_kind|capfirst }} {{ item.index }} processing. {% endif %}{% endfor %}
+    </div>
     <ul class="media-gallery__grid">
       {% for item in gallery.items %}
         <li class="media-gallery__item">
@@ -32,8 +42,6 @@ anything else that could carry PII (§68).
               <a
                 class="media-gallery__link"
                 href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
-                target="_blank"
-                rel="noopener"
               >
                 <img
                   class="media-gallery__thumb"
@@ -46,23 +54,21 @@ anything else that could carry PII (§68).
               <a
                 class="media-gallery__link media-gallery__link--video"
                 href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
-                target="_blank"
-                rel="noopener"
                 aria-label="{{ detail.display_number }}, video {{ item.index }}"
               >
                 <span class="text-secondary" aria-hidden="true">&#9654;&nbsp;Video {{ item.index }}</span>
               </a>
             {% endif %}
           {% elif item.status == "processing" or item.status == "uploaded" %}
-            <span class="chip chip--neutral" role="status">
+            <span class="chip chip--neutral">
               {{ item.media_kind|capfirst }} {{ item.index }} &middot; processing&hellip;
             </span>
           {% elif item.failure_code == "processing_unavailable" %}
-            <span class="chip chip--attention" role="status">
+            <span class="chip chip--attention">
               {{ item.media_kind|capfirst }} {{ item.index }} &middot; couldn't be processed
             </span>
           {% else %}
-            <span class="chip chip--neutral">{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ item.status }}</span>
+            <span class="chip chip--neutral">{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ item.status|media_status_label }}</span>
           {% endif %}
         </li>
       {% endfor %}

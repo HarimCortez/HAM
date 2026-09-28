@@ -62,6 +62,7 @@ class UploadGrid {
   private summaryCount: HTMLElement;
   private liveRegion: HTMLElement;
   private reserveUrl: string;
+  private iconsUrl: string;
   private tiles: TileState[] = [];
   private photoCount = 0;
   private videoCount = 0;
@@ -76,6 +77,7 @@ class UploadGrid {
     this.summaryCount = root.querySelector<HTMLElement>("[data-upload-summary]")!;
     this.liveRegion = root.querySelector<HTMLElement>("[data-upload-live]")!;
     this.reserveUrl = root.dataset.reserveUrl ?? "";
+    this.iconsUrl = root.dataset.iconsUrl ?? "";
     this.maxPhotos = Number(root.dataset.maxPhotos ?? "10");
     this.maxVideos = Number(root.dataset.maxVideos ?? "3");
     this.photoTypes = (root.dataset.photoTypes ?? "").split(",").filter(Boolean);
@@ -123,9 +125,20 @@ class UploadGrid {
   }
 
   private addRejectedTile(file: File, message: string): void {
+    // M10: design-system/screens/intake.md C§24 "the tile shows the file name, file-x icon
+    // and the reason; no thumbnail" -- was one run-on text node ("bad.txtThat file type isn't
+    // supported.") with no icon and an awkward line break.
     const el = document.createElement("li");
     el.className = "upload-tile upload-tile--rejected";
-    el.innerHTML = `<div class="upload-tile__status"><span>${escapeHtml(file.name)}</span><span>${escapeHtml(message)}</span></div>`;
+    el.innerHTML = `
+      <div class="upload-tile__thumb" aria-hidden="true">
+        <svg width="24" height="24"><use href="${this.iconsUrl}#icon-file-x"></use></svg>
+      </div>
+      <div class="upload-tile__status">
+        <span class="upload-tile__filename">${escapeHtml(file.name)}</span>
+        <span class="upload-tile__reason">${escapeHtml(message)}</span>
+      </div>
+    `;
     this.grid.appendChild(el);
   }
 

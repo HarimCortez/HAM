@@ -151,7 +151,8 @@ class TestN8HistorySurvivesClose:
 
         history = request_history(req)
         labels = [e.label for e in history]
-        assert "Awaiting Approval (automatic)" in labels
+        # FIX-F1 status casing: sentence case everywhere.
+        assert "Awaiting approval (automatic)" in labels
 
     def test_closed_by_is_recorded_and_shown_in_history_actor(self, requester_ctx, director_ctx):
         req = _submit(requester_ctx)

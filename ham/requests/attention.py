@@ -93,17 +93,37 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
 
     urgent_rows = [r for r in rows if r.urgent_requested]
     other_rows = [r for r in rows if not r.urgent_requested]
+    # FIX-F1 minor 1: cap at MAX_URGENT_CARDS individual cards; any further urgent rows fold
+    # into a single "N more urgent" card instead of a long column of primary buttons.
+    shown_urgent, extra_urgent = (
+        urgent_rows[:MAX_URGENT_CARDS],
+        urgent_rows[MAX_URGENT_CARDS:],
+    )
     cards = [
         AttentionCard(
             key=f"requests.awaiting_approval.{row.id}",
-            title=f"{row.display_number} · {need_category_label(row.need_category)}",
+            title=(
+                f"{row.display_number} · {need_category_label(row.need_category)} · "
+                f"{_waiting_words((clock_now() - row.submitted_at).total_seconds() / 3600)}"
+            ),
             count=1,
             urgent=True,
             actionable=True,
             href=f"/requests/{row.id}",
         )
-        for row in urgent_rows
+        for row in shown_urgent
     ]
+    if extra_urgent:
+        cards.append(
+            AttentionCard(
+                key="requests.awaiting_approval.more_urgent",
+                title=f"{len(extra_urgent)} more urgent",
+                count=len(extra_urgent),
+                urgent=True,
+                actionable=True,
+                href="/requests?status=AWAITING_APPROVAL",
+            )
+        )
     if other_rows:
         cards.append(
             AttentionCard(
@@ -117,6 +137,25 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
             )
         )
     return cards
+
+
+MAX_URGENT_CARDS = 3
+"""FIX-F1 minor 1 (step2-ui-visual-qa.md): a UI display cap, not a business rule (nothing in
+`ham.rules` governs how many attention cards render) -- with a lot of urgent awaiting-approval
+requests at once, one card per request broke the "one primary action" pattern (a column of
+solid-primary "Open" buttons). Past this many, the rest fold into one "N more urgent" card."""
+
+
+def _waiting_words(hours: float | None) -> str:
+    """Like `_oldest_waiting_words`, but for a single request's own age (no "oldest ")."""
+    if hours is None:
+        return ""
+    if hours < 1:
+        return "waiting under 1 h"
+    if hours < 24:
+        return f"waiting {round(hours)} h"
+    days = round(hours / 24)
+    return f"waiting {days} day" if days == 1 else f"waiting {days} days"
 
 
 def _plural_verb_phrase(n: int) -> str:

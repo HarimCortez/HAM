@@ -3,6 +3,12 @@
 
 {% block title %}Record a phone check · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Phone check{% endblock %}
+{% comment %}
+N-M2/M10: this is a full-screen sheet with its own sticky action bar (Verified by phone
+call). Drop the fixed bottom nav so the two sticky bars don't stack and hide the primary
+button behind the tab bar at <1024.
+{% endcomment %}
+{% block bottom_nav %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">

@@ -194,9 +194,19 @@ a:hover {
   color: var(--ham-tone-danger-icon, currentColor);
 }
 
+/* N5: `flex: 1; min-width: var(--ham-size-target-min)` let the text shrink to ~80px at 390,
+   wrapping "Urgent request needs a pastor..." to 7 lines beside the buttons and making the
+   sticky banner ~22% of the viewport. Give it a sane basis to wrap *itself* onto its own line
+   at, instead of squeezing down to the tap-target minimum. */
 .urgent-banner__text {
-  flex: 1;
-  min-width: var(--ham-size-target-min, 200px);
+  flex: 1 1 16em;
+  min-width: 0;
+}
+
+.urgent-banner__actions {
+  display: flex;
+  gap: var(--ham-space-2);
+  flex: none;
 }
 
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
@@ -1038,13 +1048,12 @@ input[type="radio"] {
   }
 }
 
-@media (min-width: 768px) {
-  /* Always show the filters inline at >=768, overriding the <details> closed state so this
-     degrades to a normal filter bar once there's room for one. */
-  .filter-bar-sheet:not([open]) .filter-bar {
-    display: flex;
-  }
-}
+/* N1: the <details> is server-rendered `open` (requests_list.html) so the filter bar is
+   always in the accessibility tree and passes checkVisibility() at >=768 without depending on
+   CSS to reveal a closed <details> -- Chromium 131+ hides closed <details> content through its
+   ::details-content slot in a way `display` can't override. `.filter-bar-sheet__trigger`'s
+   `display: none` default (above) already hides the disclosure triangle at >=768; a small
+   inline script in requests_list.html collapses the sheet back down on mobile viewports only. */
 
 .filter-bar__summary {  color: var(--ham-text-secondary);
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
@@ -1414,6 +1423,13 @@ input[type="radio"] {
     var(--ham-font-ui);
 }
 
+/* M17: the phone-check attention card's phone-call icon (design-system/screens/intake.md
+   "Director/AD Home"). */
+.attention-card__icon {
+  flex: none;
+  color: var(--ham-text-secondary);
+}
+
 /* Usability M13: the Inbox "Updates" row (title + relative time) uses the same link as the
    admin index/More lists, just spread across the row instead of left-aligned. */
 .nav-list__link--split {
@@ -1684,7 +1700,9 @@ input[type="radio"] {
 /* --- Choice card / choice chip (C19) ------------------------------------------------------ */
 .choice-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11em), 1fr));
+  /* B3: 11em (176px) needed 360px for 2 columns (2 * 176 + gap), but the content box at 390
+     is 358px -- one pixel short, so it fell back to 1 column. 10.5em (168px) fits. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5em), 1fr));
   gap: var(--ham-space-2);
   margin-bottom: var(--ham-space-4);
 }
@@ -1711,6 +1729,9 @@ input[type="radio"] {
      of it doubled the spacing there. Cards used standalone (L9/L10, outside `.choice-grid`)
      still want space between them, added back below. */
   margin-bottom: 0;
+  /* B2: a long unbroken word could spill past the card border at 195px. Let it break
+     anywhere as a last resort, rather than overflow. */
+  overflow-wrap: anywhere;
 }
 
 label.choice-card + label.choice-card {
@@ -1827,17 +1848,44 @@ label.choice-card + label.choice-card {
   padding: var(--ham-space-3) var(--ham-space-4) calc(var(--ham-space-3) + env(safe-area-inset-bottom, 0px));
   margin: var(--ham-space-6) calc(var(--ham-space-4) * -1) 0;
   z-index: var(--ham-z-sticky, 10);
+  /* FIX-F1 B1: let the @container query below react to the bar's own width, not the
+     viewport's, so it also stacks correctly inside the 1280px wizard-aside 2-column layout. */
+  container-type: inline-size;
 }
 
 .action-bar__inner {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--ham-space-3);
   max-width: var(--ham-size-form-max);
   margin: 0 auto;
 }
 
 .action-bar__inner .btn--primary {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.action-bar__inner .btn--secondary,
+.action-bar__inner .btn--ghost {
+  flex: 0 0 auto;
+}
+
+/* FIX-F1 B1: at very large text or very narrow widths the buttons no longer fit in one row
+   (§S0.2 200% text, 195px == 390 CSS px at 200% page zoom) -- stack them full width instead
+   of letting the primary button's right edge run off-screen. `flex-wrap` above is the
+   fallback for browsers without container queries; this rule is the real fix. */
+@container (max-width: 22em) {
+  .action-bar__inner {
+    flex-direction: column;
+  }
+
+  .action-bar__inner .btn--primary,
+  .action-bar__inner .btn--secondary,
+  .action-bar__inner .btn--ghost {
+    flex: 1 1 auto;
+    width: 100%;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -1893,6 +1941,30 @@ label.choice-card + label.choice-card {
 }
 
 /* --- Upload tile / grid / summary (C24) ------------------------------------------------------ */
+/* M10: "Take a photo"/"Choose from my phone" were auto-width and crowded together at 390 --
+   full width, stacked, with a gap between them; side by side once there's room (>=768). */
+.upload-picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+  margin: var(--ham-space-3) 0;
+}
+
+.upload-picker-row .btn {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .upload-picker-row {
+    flex-direction: row;
+  }
+
+  .upload-picker-row .btn {
+    width: auto;
+    flex: 1;
+  }
+}
+
 .upload-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr));
@@ -1951,6 +2023,30 @@ label.choice-card + label.choice-card {
 .upload-tile__remove svg {
   width: 20px;
   height: 20px;
+}
+
+/* M10: the rejected tile ("bad.txt" + "That file type isn't supported.") used to be one run
+   of text with no icon. Reuses `.upload-tile__thumb`'s layout for a centered `file-x` icon
+   (design-system C§24: "no thumbnail" means no image preview, not no icon), with the filename
+   and reason as their own lines instead of a single run-together sentence. */
+.upload-tile--rejected .upload-tile__thumb {
+  color: var(--ham-tone-danger-icon, var(--ham-text-secondary));
+}
+
+.upload-tile--rejected .upload-tile__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+}
+
+.upload-tile__filename {
+  color: var(--ham-text-primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.upload-tile__reason {
+  color: var(--ham-text-secondary);
 }
 
 .upload-summary {
@@ -2051,6 +2147,14 @@ label.choice-card + label.choice-card {
   display: none;
 }
 
+/* Cheap minor: `list-style: none` above doesn't suppress the standard `::marker` pseudo
+   element in every engine (a stray triangle/glyph could still render next to our own
+   CSS-drawn chevron below). Belt and suspenders with `-webkit-details-marker` above. */
+.disclosure summary::marker {
+  content: "";
+  display: none;
+}
+
 /* M14/minor 10: a rotating chevron instead of the browser's default disclosure triangle.
    Drawn with borders (not the icon sprite) so this rule doesn't have to know the static
    file's hashed URL. */
@@ -2099,6 +2203,12 @@ label.choice-card + label.choice-card {
    slice's CSS never interleaves with FIX-C's template/CSS work on the same file. See
    `ham/web/templates/web/_request_media_gallery.html`.
    ================================================================================================ */
+/* Gallery item 4: a section gap before Photos, so it doesn't sit flush under the hazard row
+   at 390. */
+.media-gallery {
+  margin-top: var(--ham-space-8);
+}
+
 .media-gallery__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
@@ -2205,7 +2315,14 @@ fieldset:has(
     max-width: var(--ham-size-wizard-max);
     display: grid;
     grid-template-columns: var(--ham-size-form-max) var(--ham-size-aside);
-    gap: var(--ham-space-8);
+    /* N2: `gap` used to also apply as a *row* gap between every column-1 child (eyebrow, h1,
+       captions, form...), and the aside's old `grid-row: 1 / -1` only actually spanned row 1
+       (there's no explicit row template, so `-1` didn't reach the real last row) -- together
+       that stretched row 1 to the aside's full height, leaving ~130px of dead space between
+       the progress bar and the h1. Zero out the row gap and let each column-1 child provide
+       its own spacing (they already have margins); only the column gap stays. */
+    row-gap: 0;
+    column-gap: var(--ham-space-8);
     align-items: start;
   }
 
@@ -2215,7 +2332,10 @@ fieldset:has(
 
   .wizard-aside {
     grid-column: 2;
-    grid-row: 1 / -1;
+    /* N2: span comfortably past any realistic number of column-1 rows instead of relying on
+       `-1`, so the aside always covers the full column-1 height regardless of how many
+       children a given step has. */
+    grid-row: 1 / span 99;
     position: sticky;
     top: var(--ham-space-8);
     border-left: 1px solid var(--ham-border-default);

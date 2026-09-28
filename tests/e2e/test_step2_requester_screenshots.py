@@ -146,6 +146,10 @@ def test_requester_screens(live_server, settings, tmp_path):
         page.fill("#id_full_name", "No Email QA Requester")
         page.fill("#id_phone", "(305) 555-0177")
         page.check("#id_no_email")
+        # FIX-E made availability a required field on this step; this screenshot script
+        # predates that and never selected one, so R5 -> R6 now 422s (fixed here, test-only --
+        # the production requirement itself is FIX-E's).
+        page.check("input[name=availability][value=any_time]")
         page.click("text=Continue")
         page.wait_for_url("**/request-help/step/review")
         page.check("input[name=attested_statements][value=owner_authority]")
@@ -178,7 +182,11 @@ def test_requester_screens_200pct_text(live_server, settings, tmp_path):
         browser = p.chromium.launch()
         context = browser.new_context(viewport={"width": 390, "height": 844})
         page = context.new_page()
-        page.add_init_script("document.documentElement.style.fontSize = '200%';")
+        page.add_init_script(
+            "document.addEventListener('DOMContentLoaded', () => {"
+            " document.documentElement.style.fontSize = '200%';"
+            "});"
+        )
 
         page.goto(f"{live_server.url}/request-help")
         page.click("text=Start")

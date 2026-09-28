@@ -1,5 +1,5 @@
 {% extends "web/base_public.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Safety at the home &middot; {{ church.short_name }} HAM{% endblock %}
 
@@ -27,6 +27,8 @@
             <input type="checkbox" name="hazards" value="{{ value }}" class="hazard-checkbox"
                    {% if value in payload.hazards %}checked{% endif %}
                    onchange="document.getElementById('id_none_known').checked = false; document.getElementById('hazard-note-field').hidden = !document.querySelectorAll('.hazard-checkbox:checked').length;">
+            {% comment %}M3/design-system/screens/intake.md R4: dog, droplets, zap, triangle-alert, bug, circle-ellipsis.{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'dogs_or_other_animals' %}dog{% elif value == 'mold' %}droplets{% elif value == 'exposed_wiring' %}zap{% elif value == 'sagging_floors_roof_stairs' %}triangle-alert{% elif value == 'pests' %}bug{% else %}circle-ellipsis{% endif %}"></use></svg>
             <span>{{ hazard_labels|get_item:value }}</span>
           </label>
         {% endfor %}
@@ -36,6 +38,7 @@
         <input type="checkbox" name="hazards" value="none_known" id="id_none_known"
                {% if "none_known" in payload.hazards %}checked{% endif %}
                onchange="if (this.checked) { document.querySelectorAll('.hazard-checkbox').forEach(function(c){c.checked=false;}); document.getElementById('hazard-note-field').hidden = true; }">
+        <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-shield-check"></use></svg>
         <span>None that I know of</span>
       </label>
     </fieldset>

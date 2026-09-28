@@ -11,25 +11,29 @@
 
   <div data-upload-root
        data-reserve-url="{{ reserve_url }}"
+       data-icons-url="{% static 'web/icons.svg' %}"
        data-max-photos="{{ max_photos }}"
        data-max-videos="{{ max_videos }}"
        data-photo-types="{{ photo_types }}"
        data-video-types="{{ video_types }}">
-    <button class="btn btn--secondary" type="button" onclick="document.getElementById('camera-input').click();">
-      Take a photo
-    </button>
-    {% comment %}
-    axe "label" (critical): a visually-hidden file input triggered by a button is still in the
-    accessibility tree and focusable, so it needs its own name -- `aria-label` plus
-    `tabindex="-1"` so it's never a separate stop in the tab order (the button is).
-    {% endcomment %}
-    <input id="camera-input" type="file" accept="image/*" capture="environment" data-upload-input
-           class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Take a photo">
-    <button class="btn btn--secondary" type="button" onclick="document.getElementById('file-input').click();">
-      Choose from my phone
-    </button>
-    <input id="file-input" type="file" accept="image/*,video/*" multiple data-upload-input
-           class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Choose photos or videos from my phone">
+    {% comment %}M10: full-width with a gap at 390, not auto-width buttons crowded together.{% endcomment %}
+    <div class="upload-picker-row">
+      <button class="btn btn--secondary" type="button" onclick="document.getElementById('camera-input').click();">
+        Take a photo
+      </button>
+      {% comment %}
+      axe "label" (critical): a visually-hidden file input triggered by a button is still in the
+      accessibility tree and focusable, so it needs its own name -- `aria-label` plus
+      `tabindex="-1"` so it's never a separate stop in the tab order (the button is).
+      {% endcomment %}
+      <input id="camera-input" type="file" accept="image/*" capture="environment" data-upload-input
+             class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Take a photo">
+      <button class="btn btn--secondary" type="button" onclick="document.getElementById('file-input').click();">
+        Choose from my phone
+      </button>
+      <input id="file-input" type="file" accept="image/*,video/*" multiple data-upload-input
+             class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Choose photos or videos from my phone">
+    </div>
 
     <p class="upload-summary" data-upload-summary>0 of {{ max_photos }} photos &middot; 0 of {{ max_videos }} videos</p>
     <div class="visually-hidden" role="status" aria-live="polite" data-upload-live></div>

@@ -455,7 +455,7 @@ def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
     if request.awaiting_approval_at is not None:
         entries.append(
             HistoryEntry(
-                label="Awaiting Approval (automatic)", occurred_at=request.awaiting_approval_at
+                label="Awaiting approval (automatic)", occurred_at=request.awaiting_approval_at
             )
         )
     if request.status == RequestStatus.CANCELLED.value and request.closed_at is not None:

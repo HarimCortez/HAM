@@ -17,7 +17,13 @@
     {% endfor %}
   </nav>
 
-  <details class="filter-bar-sheet">
+  {% comment %}
+  N1: server-render this open (so it works with JS off and at any width -- checkVisibility()
+  on the search input must pass at >=768 in every browser, and a closed <details> can't be
+  reopened by CSS `display` alone in Chromium 131+). A small inline script below collapses it
+  on mobile viewports only, where it's meant to start as a disclosure.
+  {% endcomment %}
+  <details class="filter-bar-sheet" id="filter-bar-sheet" open>
     <summary class="filter-bar-sheet__trigger">Filters{% if category or status %} · {{ filter_count }}{% endif %}</summary>
     <form method="get" class="filter-bar" role="search">
       <input type="hidden" name="tab" value="{{ active_tab }}">
@@ -99,7 +105,7 @@
     </div>
 
     {% if selected %}
-      <div class="split-detail" role="region" aria-label="{{ selected.detail.display_number }} details">
+      <div class="split-detail" role="region" aria-label="{{ selected.detail.display_number }} details" tabindex="0">
         {% include "web/_request_detail.html" with detail=selected.detail request_row=selected.request_row contact_state=selected.contact_state updates_by=selected.updates_by source_label=selected.source_label need_category_label=selected.need_category_label status_label=selected.status_label status_tone=selected.status_tone status_icon=selected.status_icon property_type_label=selected.property_type_label relationship_label=selected.relationship_label cancel_reason_label=selected.cancel_reason_label gallery=selected.gallery hazards=selected.hazards availability_labels=selected.availability_labels can_view_matches=selected.can_view_matches matches=selected.matches newest_match_id=selected.newest_match_id history=selected.history can_view_history=selected.can_view_history can_cancel=selected.can_cancel can_verify_phone=selected.can_verify_phone can_reopen_media=selected.can_reopen_media has_email=selected.has_email revealed=selected.revealed is_director=selected.is_director standalone=False heading_tag="h3" %}
       </div>
     {% endif %}
@@ -121,6 +127,18 @@
         next.set("id", a.getAttribute("data-request-id"));
         a.setAttribute("href", "?" + next.toString());
       });
+    })();
+  </script>
+  {% comment %}
+  N1: collapse the filters disclosure on mobile only. Server-rendered `open` (above) is the
+  real fix so the filter bar is always reachable with JS off or at >=768; this just restores
+  the "starts collapsed" mobile behaviour when JS is available.
+  {% endcomment %}
+  <script>
+    (function () {
+      if (!window.matchMedia || !window.matchMedia("(max-width: 767px)").matches) return;
+      var sheet = document.getElementById("filter-bar-sheet");
+      if (sheet) sheet.removeAttribute("open");
     })();
   </script>
 {% endblock %}
