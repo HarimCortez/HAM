@@ -21,6 +21,20 @@ DJANGO_EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 DEFAULT_FROM_EMAIL=no-reply@example.org
 ```
 
+## Email in production (`ham.integrations`, foundation.md §8 S4)
+
+Production selects an Anymail ESP backend and its settings entirely from the environment —
+never hard-coded (CLAUDE.md "Secrets come from environment variables or a secret store").
+Example for Postmark (any Anymail-supported ESP works the same way):
+
+```
+DJANGO_EMAIL_BACKEND=anymail.backends.postmark.EmailBackend
+ANYMAIL_SETTINGS_JSON={"POSTMARK_SERVER_TOKEN": "<secret, from the secret store>"}
+```
+
+`ANYMAIL_SETTINGS_JSON` is parsed as JSON into Django's `ANYMAIL` setting
+(`config/settings/base.py`). Dev and test never read it (console/locmem backends).
+
 (`.env.example` isn't checked in: this sandbox's `.claude/settings.json` denies reading/writing
 any `.env*` path, including `.env.example`, as a secrets guardrail. Copy the block above
 instead — nothing in it is a real secret.)

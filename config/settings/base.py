@@ -10,6 +10,7 @@ Never put a fixed business rule here (deadlines, retention, weights) — those l
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import environ
@@ -43,6 +44,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "procrastinate.contrib.django",
     "ham.platform",
+    "ham.outbox",
+    "ham.integrations",
     "ham.web",
 ]
 
@@ -116,12 +119,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # church name anywhere else in the codebase.
 HAM_BRAND = env("HAM_BRAND")
 
-# django-anymail backend selection lands with the S4 email adapter; base settings only
-# reserve the setting so every environment defines *something* (12-factor).
+# Email adapter (ham.integrations.email, foundation.md §8 S4): dev = console, test = locmem
+# (overridden below/in test.py), prod = whichever Anymail ESP backend the environment names —
+# never a hard-coded provider (CLAUDE.md "Secrets come from environment variables").
 EMAIL_BACKEND = env(
     "DJANGO_EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="no-reply@example.org")
+
+# Anymail's own per-ESP settings (e.g. an API key), as a JSON object so this stays a single
+# secret store lookup and never needs a code change to add another environment variable per
+# provider. Empty by default; dev/test never use an Anymail backend so it is never read.
+ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
 
 LOGGING = {
     "version": 1,
