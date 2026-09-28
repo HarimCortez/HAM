@@ -13,7 +13,7 @@
 
   <h2>What happens next</h2>
   <ol>
-    <li>A HAM leader will call you{% if phone %} at <strong class="u-wrap-anywhere">{{ phone|phone_national }}</strong>{% endif %} to
+    <li>A HAM leader will call you{% if phone %} at <strong class="u-nowrap">{{ phone|phone_national }}</strong>{% endif %} to
       confirm it's you who asked. This usually happens within a few days.</li>
     <li>After that call, our pastors or Board review your request.</li>
     <li>If it's approved, we'll call you to arrange a visit. We'll take any photos we need when
@@ -35,7 +35,7 @@
 
   <div class="action-bar">
     <div class="action-bar__inner">
-      <a class="btn btn--secondary" href="{% url 'web:request_help_start' %}">Done</a>
+      <a class="btn btn--secondary btn--full-mobile" href="{% url 'web:request_help_start' %}">Done</a>
     </div>
   </div>
 {% endblock %}

@@ -5,8 +5,13 @@ FIX-D (visual M9): the "Good to know" aside for the wizard (R1-R6, R9) at >=1280
 2-column grid at >=1280; the step rail is intentionally not built, per the visual QA "Minimum
 to accept" note). Context: aside_heading (str), aside_body (safe-ish list of plain strings,
 rendered as short paragraphs), church.
+
+FIX-H M2: `aside_repeats_intro` (bool, only set for R3) hides this below 1280, where it would
+otherwise sit right under a page intro line that already says the same thing -- the >=1280
+side column is a different reading context (not immediately under the intro), so it still
+shows there.
 {% endcomment %}
-<aside class="wizard-aside" aria-label="Good to know">
+<aside class="wizard-aside{% if aside_repeats_intro %} wizard-aside--repeats-intro{% endif %}" aria-label="Good to know">
   <h2 class="type-h3">{{ aside_heading }}</h2>
   {% for line in aside_body %}<p>{{ line }}</p>{% endfor %}
   {% if church.phone or church.email %}

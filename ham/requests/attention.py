@@ -147,15 +147,20 @@ solid-primary "Open" buttons). Past this many, the rest fold into one "N more ur
 
 
 def _waiting_words(hours: float | None) -> str:
-    """Like `_oldest_waiting_words`, but for a single request's own age (no "oldest ")."""
+    """Like `_oldest_waiting_words`, but for a single request's own age (no "oldest ").
+
+    FIX-H polish: a non-breaking space between the number and its unit so "1 h"/"3 days"
+    never splits across lines on the Pastor Home cards (a plain string, not a template, so the
+    fix lives here rather than as CSS `white-space: nowrap`, which would also stop the rest of
+    a longer title from wrapping)."""
     if hours is None:
         return ""
     if hours < 1:
-        return "waiting under 1 h"
+        return "waiting under 1 h"
     if hours < 24:
-        return f"waiting {round(hours)} h"
+        return f"waiting {round(hours)} h"
     days = round(hours / 24)
-    return f"waiting {days} day" if days == 1 else f"waiting {days} days"
+    return f"waiting {days} day" if days == 1 else f"waiting {days} days"
 
 
 def _plural_verb_phrase(n: int) -> str:
@@ -165,14 +170,15 @@ def _plural_verb_phrase(n: int) -> str:
 
 
 def _oldest_waiting_words(hours: float | None) -> str:
+    """FIX-H polish: same non-breaking-space treatment as `_waiting_words`."""
     if hours is None:
         return ""
     if hours < 1:
-        return "oldest waiting under 1 h"
+        return "oldest waiting under 1 h"
     if hours < 24:
-        return f"oldest waiting {round(hours)} h"
+        return f"oldest waiting {round(hours)} h"
     days = round(hours / 24)
-    return f"oldest waiting {days} day" if days == 1 else f"oldest waiting {days} days"
+    return f"oldest waiting {days} day" if days == 1 else f"oldest waiting {days} days"
 
 
 def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:

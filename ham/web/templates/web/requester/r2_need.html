@@ -1,5 +1,5 @@
 {% extends "web/base_public.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Your need &middot; {{ church.short_name }} HAM{% endblock %}
 
@@ -13,6 +13,13 @@
 
   {% include "web/requester/_error_summary.html" %}
 
+  {% comment %}
+  FIX-H M2: below 1280 the "Good to know" aside used to render after the sticky bar; moved
+  above the form so it's always before the bar. The >=1280 grid still places it in its own
+  side column regardless of this position.
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" %}
+
   <form method="post" novalidate>
     {% csrf_token %}
 
@@ -23,9 +30,11 @@
       {% if errors.need_category %}<p class="form-field__error" id="id_need_category-error">{{ errors.need_category }}</p>{% endif %}
       <div class="choice-grid">
         {% for value in need_category_choices %}
-          <label class="choice-card">
+          <label class="choice-card{% if value == 'something_else' %} choice-card--full{% endif %}">
             <input type="radio" name="need_category" value="{{ value }}"
                    {% if payload.need_category == value %}checked{% endif %}>
+            {% comment %}M3/design-system/screens/intake.md R2: house, droplet, plug-zap, door-closed, layers, accessibility, paint-roller, trees, circle-help (always last).{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'roof_or_ceiling' %}home{% elif value == 'plumbing_or_water' %}droplet{% elif value == 'electrical' %}plug-zap{% elif value == 'doors_windows_locks' %}door-closed{% elif value == 'floors_or_stairs' %}layers{% elif value == 'ramps_rails_grab_bars' %}accessibility{% elif value == 'painting_or_walls' %}paint-roller{% elif value == 'yard_or_outside' %}trees{% else %}circle-help{% endif %}"></use></svg>
             <span>{{ need_category_labels|get_item:value }}</span>
           </label>
         {% endfor %}
@@ -80,9 +89,15 @@
       </div>
     </div>
 
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Start over.
+    {% endcomment %}
+    <p class="wizard-back-link"><button class="link-button" type="submit" form="start-over-form">Start over</button></p>
+
     <div class="action-bar">
       <div class="action-bar__inner">
-        <button class="btn btn--ghost" type="submit" form="start-over-form">Start over</button>
+        <button class="btn btn--ghost action-bar__back" type="submit" form="start-over-form">Start over</button>
         <button class="btn btn--primary" type="submit">Continue</button>
       </div>
     </div>
@@ -91,6 +106,4 @@
         onsubmit="return confirm('Start over? Your saved answers will be erased.');">
     {% csrf_token %}
   </form>
-
-  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

@@ -119,9 +119,15 @@
     <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Your details stay private inside HAM. Only the people
       handling your request can see them.</p>
 
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Back.
+    {% endcomment %}
+    <p class="wizard-back-link"><a href="{% url 'web:request_help_step' step=prev_step %}">&larr; Back</a></p>
+
     <div class="action-bar">
       <div class="action-bar__inner">
-        <a class="btn btn--ghost" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
         <button class="btn btn--primary" type="submit">Send request</button>
       </div>
     </div>
