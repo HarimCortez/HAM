@@ -83,11 +83,18 @@ EMAIL_VERIFICATION_METHODS: frozenset[VerificationMethod] = frozenset(
 
 # PRD-GAP Q-107: proposed default in use; owner may change.
 class CancelReason(StrEnum):
-    """Pre-decision close reasons (Q-107). Never need or eligibility."""
+    """Pre-decision close reasons (Q-107). Never need or eligibility.
+
+    PRD-GAP Q-140: proposed default in use. ``COULDNT_REACH_THEM`` is a 4th reason, only
+    for a "Needs a phone check" request no one could get hold of (not an eligibility
+    judgement -- the person may ask again). ``check_transition`` below refuses it from any
+    other source status.
+    """
 
     SPAM = "spam"  # spam or a test
     REQUESTER_WITHDREW = "requester_withdrew"
     DUPLICATE_SUBMISSION = "duplicate_submission"
+    COULDNT_REACH_THEM = "couldnt_reach_them"  # Q-140: NEEDS_PHONE_CHECK only
 
 
 class UrgencyStatus(StrEnum):
@@ -273,8 +280,13 @@ def check_transition(
         if reason is None or reason == "":
             return _refuse(Refusal.REASON_REQUIRED, t)
         try:
-            CancelReason(reason)
+            cancel_reason = CancelReason(reason)
         except ValueError:
+            return _refuse(Refusal.REASON_NOT_ALLOWED, t)
+        # Q-140: "couldn't reach them" only makes sense -- and is only allowed -- while the
+        # request is still waiting for a phone check; any other source status refuses it.
+        phone_check_only = cancel_reason is CancelReason.COULDNT_REACH_THEM
+        if phone_check_only and state is not RequestStatus.NEEDS_PHONE_CHECK:
             return _refuse(Refusal.REASON_NOT_ALLOWED, t)
 
     return TransitionDecision(

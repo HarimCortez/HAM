@@ -51,25 +51,22 @@ READ_ONLY_ACTIONS = frozenset(
 # action yet"), per docs/prd-open-questions.md.
 PLACEHOLDER_ACTIONS = frozenset(
     {
-        "requester_pii.reveal",  # Q-081/Q-122/Q-125: wired by S2.2's reveal_requester_pii
         "me.sign_in_email.change",  # Q-083: matrix entry declared, flow not built this slice
         # S2.0 (intake.md §10 "S2.0 contents"): matrix rows + stub service signatures land
         # now; the real `@command`-wrapped services land in S2.2 (ham.requests),
         # S2.3 (ham.requester_portal), S2.4b (ham.media), S2.5 (ham.notifications).
-        "request.submit",
+        # S2.2 wired: request.submit, request.cancel, request.contact_verify_phone,
+        # system.request.complete_intake_checks, system.intake.purge (see
+        # ham/requests/services.py) -- removed from this set below.
         "requester.media.upload",
         "requester.media.remove",
         "requester_link.regenerate",
         "request_media.reopen",
-        "request.cancel",
         "request.create_assisted",
-        "request.contact_verify_phone",
         "intake_source.manage",
         "notification.acknowledge",
-        "system.request.complete_intake_checks",
         "system.media.process",
         "system.media.purge",
-        "system.intake.purge",
     }
 )
 
@@ -78,7 +75,10 @@ PLACEHOLDER_ACTIONS = frozenset(
 # authorize -> step-up -> atomic -> record because it also needs to return export bytes rather
 # than a `CommandResult`, and lives inside `ham.authz` itself, one layer above where `@command`
 # is defined). Verified independently by tests/authz/test_audit_access.py, not skipped here.
-MANUALLY_WIRED_ACTIONS = frozenset({"audit.export"})
+# S2.2: `requester_pii.reveal` (`ham.requests.services.reveal_requester_pii`) is the same
+# shape -- Q-024 needs a reveal that is sometimes *not* audited (a non-impersonating
+# Director), which `@command`'s "always write one audit event" pipeline can't express.
+MANUALLY_WIRED_ACTIONS = frozenset({"audit.export", "requester_pii.reveal"})
 
 
 def _command_files() -> list[Path]:
