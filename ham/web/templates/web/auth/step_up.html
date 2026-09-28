@@ -1,0 +1,28 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Confirm it's you · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h2>Confirm it's you</h2>
+  <p>Before {{ label }}, enter the code from your authenticator app.</p>
+
+  {% if error %}
+    <p class="form-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="{% url 'web:step_up' %}" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <div class="field">
+      <label class="field__label" for="id_code">Authenticator code</label>
+      <input class="field__input" type="text" name="code" id="id_code"
+             inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Confirm</button>
+      <a class="btn btn--secondary" href="{{ next }}">Cancel</a>
+    </div>
+  </form>
+  <p>Lost your phone? Use a recovery code above instead — it's accepted in the same field.</p>
+{% endblock %}

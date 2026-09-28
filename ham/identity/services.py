@@ -20,7 +20,7 @@ from ham.authz.context import ActorContext
 from ham.outbox.api import emit as outbox_emit
 from ham.platform.clock import now as clock_now
 
-from .models import RoleAssignment, SharedIdentityProfile, User
+from .models import ImpersonationSession, RoleAssignment, SharedIdentityProfile, User
 
 # Least-privilege default for an invitation's role list (Q-037, Q-040 lineage): anyone who may
 # invite gets at least Volunteer, without necessarily being able to grant every other role.
@@ -475,6 +475,139 @@ def assign_task_leader(
             aggregate_id=task_id,
             payload={"user_id": str(user_id)},
         ),
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# Impersonation (§59, Q-034, Q-049, Q-053)
+# ---------------------------------------------------------------------------------------
+@command("impersonation.start")
+def start_impersonation(
+    ctx: ActorContext, *, target_user_id: uuid.UUID, reason: str
+) -> CommandResult:
+    if not reason.strip():
+        raise ValueError("impersonation.start: a reason is required (§59)")
+    if target_user_id == ctx.user_id:
+        raise PermissionDenied("impersonation.start: you cannot troubleshoot as yourself")
+    assert ctx.user_id is not None
+    with transaction.atomic():
+        target = User.objects.select_for_update().get(pk=target_user_id)
+        if not target.is_active or target.is_disabled:
+            raise ValueError("impersonation.start: cannot troubleshoot as a turned-off account")
+        target_is_admin = RoleAssignment.objects.filter(
+            user=target, role=roles.ADMINISTRATOR, revoked_at__isnull=True
+        ).exists()
+        if target_is_admin:
+            raise PermissionDenied(
+                "impersonation.start: cannot troubleshoot as another Administrator (Q-034)"
+            )
+        now = clock_now()
+        session = ImpersonationSession.objects.create(
+            admin_user_id=ctx.user_id,
+            target_user_id=target_user_id,
+            reason=reason,
+            started_at=now,
+            last_activity_at=now,
+        )
+    return CommandResult(
+        value=session,
+        audit_action="impersonation.started",
+        target_type="user",
+        target_id=str(target_user_id),
+        reason=reason,
+        after={"impersonation_id": str(session.id)},
+    )
+
+
+@command("impersonation.stop")
+def stop_impersonation(
+    ctx: ActorContext, *, end_reason: str = ImpersonationSession.END_REASON_MANUAL
+) -> CommandResult:
+    assert ctx.impersonation_id is not None
+    with transaction.atomic():
+        session = ImpersonationSession.objects.select_for_update().get(
+            pk=ctx.impersonation_id, ended_at__isnull=True
+        )
+        now = clock_now()
+        duration_seconds = int((now - session.started_at).total_seconds())
+        session.ended_at = now
+        session.end_reason = end_reason
+        session.save(update_fields=["ended_at", "end_reason"])
+    return CommandResult(
+        value=session,
+        audit_action="impersonation.ended",
+        target_type="user",
+        target_id=str(session.target_user_id),
+        after={"end_reason": end_reason, "duration_seconds": duration_seconds},
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# Church profile (Q-007, S3a build note left this to S3b) and outbox retry (S4 seam)
+# ---------------------------------------------------------------------------------------
+@command("church_profile.update")
+def update_church_profile(
+    ctx: ActorContext,
+    *,
+    ham_phone: str | None = None,
+    ham_email: str | None = None,
+    time_zone: str | None = None,
+    website_url: str | None = None,
+) -> CommandResult:
+    from ham.platform.models import ChurchProfile
+
+    profile = ChurchProfile.objects.select_for_update().get(pk=ChurchProfile.get_solo().pk)
+    changed: list[str] = []
+    for field, value in (
+        ("ham_phone", ham_phone),
+        ("ham_email", ham_email),
+        ("time_zone", time_zone),
+        ("website_url", website_url),
+    ):
+        if value is not None and getattr(profile, field) != value:
+            setattr(profile, field, value)
+            changed.append(field)
+    profile.updated_by_id = ctx.user_id
+    profile.save()
+    return CommandResult(
+        value=profile,
+        audit_action="church_profile.updated",
+        target_type="church_profile",
+        target_id=str(profile.pk),
+        after={"changed_fields": changed},
+    )
+
+
+@command("outbox.retry")
+def retry_outbox_delivery(ctx: ActorContext, *, delivery_id: uuid.UUID) -> CommandResult:
+    from ham.outbox.services import retry_delivery
+
+    retry_delivery(delivery_id)
+    return CommandResult(
+        value=None,
+        audit_action="outbox.retried",
+        target_type="outbox_delivery",
+        target_id=str(delivery_id),
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# Me -> Sign-in & security: regenerate recovery codes (step-up; docs/ux/auth-and-access.md F)
+# ---------------------------------------------------------------------------------------
+@command("me.recovery_codes.regenerate", resource_from=_resource_self)
+def regenerate_own_recovery_codes(ctx: ActorContext) -> CommandResult:
+    from . import mfa
+
+    assert ctx.user_id is not None
+    user = User.objects.get(pk=ctx.user_id)
+    if not mfa.is_enrolled(user):
+        raise ValueError("me.recovery_codes.regenerate: two-step sign-in isn't set up yet")
+    codes = mfa.regenerate_recovery_codes(user)
+    return CommandResult(
+        value=codes,
+        audit_action="auth.mfa.recovery_codes_regenerated",
+        target_type="user",
+        target_id=str(ctx.user_id),
     )
 
 

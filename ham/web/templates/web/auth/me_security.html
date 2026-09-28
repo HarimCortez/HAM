@@ -1,0 +1,55 @@
+{% extends "web/base.html" %}
+
+{% block title %}Sign-in & security · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Sign-in & security{% endblock %}
+
+{% block content %}
+  {% if messages %}
+    {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
+  {% endif %}
+
+  <section class="card">
+    <h3>Two-step sign-in</h3>
+    {% if mfa_required %}
+      {% if is_enrolled %}
+        <p>On · {{ recovery_codes_left }} of 10 recovery codes left.</p>
+        <form method="post" action="{% url 'web:me_recovery_codes_regenerate' %}">
+          {% csrf_token %}
+          <button class="btn btn--secondary" type="submit">Make new recovery codes</button>
+        </form>
+      {% else %}
+        <p>Not set up yet.</p>
+        <a class="btn btn--primary" href="{% url 'web:mfa_setup' %}">Set up two-step sign-in</a>
+      {% endif %}
+    {% else %}
+      <p>Not needed for your current role.</p>
+    {% endif %}
+  </section>
+
+  {% if is_enrolled %}
+    <section class="card">
+      <h3>Trusted devices</h3>
+      {% if trusted_devices %}
+        <ul>
+          {% for device in trusted_devices %}
+            <li>Trusted until {{ device.expires_at }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No trusted devices.</p>
+      {% endif %}
+      <form method="post" action="{% url 'web:me_forget_devices' %}">
+        {% csrf_token %}
+        <button class="btn btn--secondary" type="submit">Stop trusting all devices</button>
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="card">
+    <h3>Sign out everywhere</h3>
+    <form method="post" action="{% url 'web:sign_out' %}">
+      {% csrf_token %}
+      <button class="btn btn--secondary" type="submit">Sign out</button>
+    </form>
+  </section>
+{% endblock %}

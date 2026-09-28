@@ -191,6 +191,98 @@ class RoleAssignment(models.Model):
         return self.revoked_at is None
 
 
+class SignInChallenge(models.Model):
+    """One emailed sign-in code+link (PRD §60.2, foundation.md §7). The code and the link
+    token are one credential (docs/ux/auth-and-access.md A2 "Link and code are one
+    credential"): consuming either consumes both, and neither the code nor the raw link
+    token is ever stored — only their hashes (`ham.identity.authn`), so a leaked database
+    row can't be replayed.
+
+    Created whether or not `email` has an account (foundation.md §7 "identical response for
+    unknown emails") — this row exists purely to rate-limit/cooldown by address without ever
+    branching visibly on account existence.
+    """
+
+    id = UUID7Field()
+    email = CIEmailField()
+    code_hash = models.CharField(max_length=64)
+    link_token_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    # Where to send the person after sign-in (never trusted as an open redirect without the
+    # `url_has_allowed_host_and_scheme` check in the view).
+    next_url = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        db_table = "identity_sign_in_challenge"
+        indexes = [models.Index(fields=["email", "created_at"], name="sign_in_challenge_email_idx")]
+
+    def __str__(self) -> str:  # pragma: no cover - trivial; never logged (email is **S**)
+        return f"SignInChallenge({self.id})"
+
+
+class TOTPDevice(models.Model):
+    """One enrolled authenticator per user (foundation.md §3 "MFA"). The secret is
+    encrypted at rest (`ham.identity.crypto`, `HAM_FIELD_ENCRYPTION_KEY`)."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, primary_key=True, related_name="totp_device"
+    )
+    secret_encrypted = models.CharField(max_length=255)
+    created_at = models.DateTimeField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "identity_totp_device"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"TOTPDevice({self.user_id})"
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.confirmed_at is not None
+
+
+class RecoveryCode(models.Model):
+    """One single-use recovery code (foundation.md §3 "10 recovery codes"). Only the hash is
+    stored; codes are shown to the person once, at enrollment or regeneration."""
+
+    id = UUID7Field()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="recovery_codes")
+    code_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "identity_recovery_code"
+        indexes = [models.Index(fields=["user", "used_at"], name="recovery_code_user_used_idx")]
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"RecoveryCode({self.user_id})"
+
+
+class TrustedDevice(models.Model):
+    """ "Trust this device for 30 days" (PRD §60.1, Q-010): skips the authenticator challenge
+    (never step-up, foundation.md owner-decisions box) until `expires_at` or reset."""
+
+    id = UUID7Field()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trusted_devices")
+    token_hash = models.CharField(max_length=64, unique=True)
+    label = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "identity_trusted_device"
+        indexes = [models.Index(fields=["user"], name="trusted_device_user_idx")]
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"TrustedDevice({self.user_id})"
+
+
 class ImpersonationSession(models.Model):
     """foundation.md §3 "ImpersonationSession" (PRD §59)."""
 

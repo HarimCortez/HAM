@@ -97,16 +97,18 @@ forbidden_modules = [
 name = "domain modules never import ham.integrations directly"
 # foundation.md §1: only ham.integrations talks to third parties, only as an outbox
 # subscriber, with one documented exception — S3b's ham.identity calling
-# ham.integrations.email.service.send_transactional_email for sign-in codes/links. When
-# ham.identity lands, add it to `source_modules` here and add its one call site to
-# `ignore_imports` (e.g. "ham.identity.services -> ham.integrations.email.service"), rather
-# than removing this contract.
+# ham.integrations.email.service.send_transactional_email for sign-in codes/links.
 type = "forbidden"
 source_modules = [
   "ham.web",
   "ham.outbox",
   "ham.platform",
+  "ham.identity",
 ]
 forbidden_modules = [
   "ham.integrations",
+]
+ignore_imports = [
+  "ham.identity.authn -> ham.integrations.email.service",
+  "ham.identity.mfa -> ham.integrations.email.service",
 ]

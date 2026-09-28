@@ -87,14 +87,19 @@ def test_declared_view_allows_with_permission():
     assert mw.process_view(request, admin_users, (), {}) is None
 
 
-def test_missing_actor_defaults_to_anonymous_and_denies():
+def test_missing_actor_defaults_to_anonymous_and_redirects_to_sign_in():
+    # foundation.md §7: an unauthenticated request to a protected route redirects to
+    # /sign-in?next=, distinct from the neutral 404 a signed-in-but-unauthorized person gets
+    # (navigation.md §6) — this also covers "no request.actor set at all" (a bug in middleware
+    # ordering degrades to anonymous, not a crash).
     mw = _middleware()
-    request = _request_for("me")
-    # no request.actor set at all (simulates a bug in middleware ordering)
+    request = _request_for("me", path="/me")
 
     @requires_action("me.view")
     def me_view(req):
         return HttpResponse("ok")
 
     response = mw.process_view(request, me_view, (), {})
-    assert response.status_code == 404
+    assert response.status_code == 302
+    assert response.url.startswith("/sign-in")
+    assert "next=%2Fme" in response.url

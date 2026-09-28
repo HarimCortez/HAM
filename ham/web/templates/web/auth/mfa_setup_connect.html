@@ -1,0 +1,45 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Set up two-step sign-in · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Set up two-step sign-in</h1>
+  <p>
+    Your role needs two-step sign-in. After your email link, you'll type a code from an app
+    on your phone. This keeps requester and ministry information safe.
+  </p>
+  <p>
+    Any authenticator app works, for example Google Authenticator or Microsoft Authenticator.
+  </p>
+
+  {% if error %}
+    <p class="form-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <p>Didn't open an app automatically? Copy this key into your authenticator app:</p>
+  <p><code>{{ enrollment.secret }}</code></p>
+  {% if enrollment.qr_svg %}
+    <div aria-hidden="false" role="img"
+         aria-label="QR code for setting up HAM two-step sign-in. Can't scan? Use the key above.">
+      {{ enrollment.qr_svg|safe }}
+    </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'web:mfa_setup' %}" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="step" value="connect">
+    <div class="field">
+      <label class="field__label" for="id_code">Enter the 6-digit code the app shows</label>
+      <input class="field__input" type="text" name="code" id="id_code"
+             inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Continue</button>
+    </div>
+  </form>
+
+  <form method="post" action="{% url 'web:sign_out' %}">
+    {% csrf_token %}
+    <button class="btn btn--secondary" type="submit">Sign out</button>
+  </form>
+{% endblock %}

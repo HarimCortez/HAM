@@ -401,3 +401,80 @@ a:hover {
     animation-duration: 0.001ms !important;
   }
 }
+
+/* --- Forms (S3b auth screens; components.md-style basics, UI designer to polish) -------- */
+.field {
+  display: block;
+  text-align: left;
+  margin-block-end: var(--ham-space-4);
+}
+
+.field__label {
+  display: block;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  color: var(--ham-text-primary);
+  margin-block-end: var(--ham-space-2);
+}
+
+.field__input {
+  display: block;
+  width: 100%;
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-4);
+  border: 1.5px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  font: var(--ham-type-body-lg-weight) var(--ham-type-body-lg-size) /
+    var(--ham-type-body-lg-line-height) var(--ham-font-ui);
+  background: var(--ham-bg-surface);
+  color: var(--ham-text-primary);
+}
+
+.field__helper {
+  display: block;
+  margin-block-start: var(--ham-space-2);
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+.field__checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-2);
+  text-align: left;
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
+}
+
+.form-error {
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border: 1px solid var(--ham-tone-danger-border);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  margin-block-end: var(--ham-space-4);
+  text-align: left;
+}
+
+.form-actions {
+  margin-block-start: var(--ham-space-5);
+}
+
+.recovery-codes {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  text-align: left;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--ham-space-4);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--ham-space-2);
+}
+
+.recovery-codes li {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-2) var(--ham-space-3);
+}

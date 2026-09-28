@@ -49,6 +49,13 @@ class ActorContext:
     mfa_satisfied: bool = False
     impersonation_id: uuid.UUID | None = None
     step_up_at: dict[str, dt.datetime] = field(default_factory=dict)
+    # Populated by `ham.identity.middleware` only while impersonating, purely so the shell
+    # banner (`web/base.html`, docs/ux/auth-and-access.md I2) has what it needs without
+    # `ham.web` ever querying identity tables directly (foundation.md §1: "only ham.identity
+    # reads auth tables").
+    impersonation_reason: str = ""
+    target_display_name: str = ""
+    impersonation_last_activity_at: dt.datetime | None = None
 
     @classmethod
     def anonymous(cls) -> ActorContext:
@@ -80,3 +87,17 @@ class ActorContext:
         if last is None:
             return False
         return now - last <= freshness
+
+    @property
+    def impersonation_idle_minutes_left(self) -> int:
+        """Minutes before the impersonation session auto-ends (§59; `web/base.html` banner).
+        0 when not impersonating or the middleware hasn't supplied a last-activity time."""
+        if self.impersonation_last_activity_at is None:
+            return 0
+        from ham.platform.clock import now as clock_now
+        from ham.rules import RULES
+
+        remaining = RULES.auth.IMPERSONATION_IDLE_TIMEOUT - (
+            clock_now() - self.impersonation_last_activity_at
+        )
+        return max(0, int(remaining.total_seconds() // 60))

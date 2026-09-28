@@ -20,7 +20,9 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `leader.project.revoke` | Assistant Director, HAM Director | any |  | IB | §16, Q-031, Q-054 |
 | `leader.task.assign` | Assistant Director, HAM Director | any |  | IB | §17, Q-031, Q-054 |
 | `leader.task.revoke` | Assistant Director, HAM Director | any |  | IB | §17, Q-031, Q-054 |
+| `me.recovery_codes.regenerate` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self | SU | IB | §60.1, Q-046 |
 | `me.security.manage` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  | IB | §60 |
+| `me.sign_in_email.change` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self | SU | IB | §60.2, Q-051, Q-046 |
 | `me.update` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  |  | §67 |
 | `me.view` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  |  | §67 |
 | `outbox.retry` | Administrator | any |  | IB | §70.3 |

@@ -1,0 +1,32 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Check your email · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Check your email</h1>
+  <p>We sent a sign-in link and code to <strong>{{ email }}</strong>.</p>
+  <p><a href="{% url 'web:sign_in' %}">Wrong email? Change it</a></p>
+
+  {% if error %}
+    <p class="form-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="{% url 'web:sign_in_code' %}" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="id_code">Code from your email</label>
+      <input class="field__input" type="text" name="code" id="id_code"
+             inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus>
+      <span class="field__helper">The code works for {{ minutes|default:15 }} minutes.</span>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Sign in</button>
+    </div>
+  </form>
+
+  <form method="post" action="{% url 'web:sign_in_code' %}">
+    {% csrf_token %}
+    <input type="hidden" name="resend" value="1">
+    <button class="btn btn--secondary" type="submit">Resend email</button>
+  </form>
+{% endblock %}

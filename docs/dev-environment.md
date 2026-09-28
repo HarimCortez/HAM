@@ -19,7 +19,27 @@ DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
 # Console backend in dev: sign-in codes print to the terminal instead of sending real email.
 DJANGO_EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 DEFAULT_FROM_EMAIL=no-reply@example.org
+
+# S3b auth: encrypts TOTP secrets at rest (ham.identity.crypto). Optional in dev/test (falls
+# back to a key derived from DJANGO_SECRET_KEY); required in production. Generate a real one
+# with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+HAM_FIELD_ENCRYPTION_KEY=
 ```
+
+## Signing in locally (S3b)
+
+1. `make dev-db && make migrate && python manage.py seed_dev` (refuses if `HAM_ENV=production`).
+2. `make run`, go to `http://localhost:8000/sign-in`, enter a seeded persona's email
+   (e.g. `kevin@example.org`). With the console email backend, the sign-in email — code and
+   link — prints to the terminal running `make run`.
+3. Non-MFA personas (Kevin, Tom, Luis, Grace, Bayside Plumbing) land straight on Home.
+4. MFA personas (Nadia, Marcus, Andre, Ruth, Samuel — PRD §60.1) are asked for a code from an
+   authenticator app after the email step. `seed_dev` prints each persona's fixed dev-only
+   TOTP secret; get a current 6-digit code any time with:
+   ```
+   python manage.py dev_totp nadia@example.org
+   ```
+   (refuses outside development, same as `seed_dev`).
 
 ## Email in production (`ham.integrations`, foundation.md §8 S4)
 

@@ -1,0 +1,21 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Sign in · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  {% if valid %}
+    <h1>Continue signing in</h1>
+    <p>Tap the button below to finish signing in to HAM.</p>
+    <form method="post" action="{% url 'web:sign_in_link' token=token %}">
+      {% csrf_token %}
+      <button class="btn btn--primary" type="submit">Continue</button>
+    </form>
+  {% else %}
+    <h1>This sign-in link has expired</h1>
+    <p>
+      Sign-in links work once, for a limited time, to keep your account safe. We'll send you
+      a fresh one.
+    </p>
+    <p><a class="btn btn--primary" href="{% url 'web:sign_in' %}">Email me a new link</a></p>
+  {% endif %}
+{% endblock %}

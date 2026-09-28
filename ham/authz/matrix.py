@@ -59,6 +59,24 @@ MATRIX: dict[str, ActionRule] = {
     "me.security.manage": ActionRule(
         ANY_STANDING_ROLE, scope=Scope.SELF, blocked_while_impersonating=True, prd=("§60",)
     ),
+    "me.recovery_codes.regenerate": ActionRule(
+        ANY_STANDING_ROLE,
+        scope=Scope.SELF,
+        step_up=True,
+        blocked_while_impersonating=True,
+        prd=("§60.1", "Q-046"),
+    ),
+    # PRD-GAP Q-083: declared per foundation.md §4.11 owner-decisions box ("changing sign-in
+    # email" needs step-up), but S3b did not build the "verify the new address by code" flow
+    # (Q-051) in this slice — see docs/prd-open-questions.md Q-083. No route uses this action
+    # yet (like `requester_pii.reveal`/`audit.view_deleted_comment` above it lands later).
+    "me.sign_in_email.change": ActionRule(
+        ANY_STANDING_ROLE,
+        scope=Scope.SELF,
+        step_up=True,
+        blocked_while_impersonating=True,
+        prd=("§60.2", "Q-051", "Q-046"),
+    ),
     "church_profile.update": ActionRule(
         _ADM, blocked_while_impersonating=True, prd=("§4.11", "Q-007")
     ),
