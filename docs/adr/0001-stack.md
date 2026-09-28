@@ -154,3 +154,36 @@ Notes:
 - Django 6 tasks have no production worker: https://www.loopwerk.io/articles/2026/django-tasks-review/
 - Procrastinate: https://procrastinate.readthedocs.io/
 - Better Auth 2FA issue: https://github.com/better-auth/better-auth/issues/11287
+
+## Amendment 2026-09-28: two-step sign-in uses pyotp + HAM's own flow instead of allauth.mfa
+
+Status: Accepted (implemented by ham-backend-engineer, in response to the step-1
+privacy/security review).
+
+S3b's own build note (§6/§7 above; `docs/prd-open-questions.md` Q-085) already explains why
+`allauth`/`allauth.mfa` was never wired in as a Django app: doing so pulled the separate,
+legacy top-level `allauth` app's own `EmailAddress`/`EmailConfirmation` models into Django's
+unmigrated-app table sync, breaking test-database creation. The fallback at the time was to
+hand-implement RFC 6238 (HMAC-SHA1 over a 30-second time counter) directly against
+`hmac`/`hashlib`.
+
+The privacy/security review flagged that hand-written construction as exactly the kind of code
+CLAUDE.md/PRD §3.4-§3.5 want out of application code: real cryptographic-adjacent logic, with
+no independent security review, that happened to look small. This amendment replaces it with
+[`pyotp`](https://pypi.org/project/pyotp/), an independently maintained, widely used TOTP/HOTP
+library, while keeping HAM's own sign-in/enrollment/step-up flow (still not `allauth.mfa`'s
+pipeline, for the same reasons as before) and HAM's own tables (`TOTPDevice`, `RecoveryCode`,
+`TrustedDevice`).
+
+Because of this swap, `django-allauth` is no longer a project dependency at all (previously it
+was kept only for its `qrcode` transitive package); `qrcode` is now a direct dependency.
+
+Mitigations that shipped alongside the swap (also from the security review):
+- **Replay protection**: `TOTPDevice.last_used_step` records the highest 30-second counter
+  step already accepted; verification runs under `select_for_update()` and refuses to accept a
+  step at or before that value, so a captured/observed code can't be replayed.
+- **Attempt limits**: both the sign-in MFA challenge and the "Confirm it's you" step-up screen
+  now lock out after `RULES.auth.MFA_CODE_MAX_ATTEMPTS` wrong tries (Q-072), audited.
+- This change, and the review that motivated it, are recorded here rather than only in code
+  comments so a later slice doesn't re-attempt wiring the same allauth apps without re-reading
+  this note (Q-085 stays open for that reason).

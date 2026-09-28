@@ -1,0 +1,27 @@
+{% extends "web/base.html" %}
+
+{% block title %}Confirm role change · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Confirm role change{% endblock %}
+
+{% block content %}
+  <section class="sheet" aria-labelledby="resume-title" tabindex="-1" id="confirm-title">
+    <h2 id="resume-title">
+      Apply this change for {{ target.profile.full_name|default:target.email }}?
+    </h2>
+    {% if add %}
+      <p>Adding: {{ add|join:", " }}</p>
+    {% endif %}
+    {% if remove %}
+      <p>Removing: {{ remove|join:", " }}</p>
+    {% endif %}
+    <p class="text-secondary">You're confirmed — this applies the change you already reviewed.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit">Apply change</button>
+        <button class="btn btn--secondary" type="submit" name="cancel" value="1">Cancel — nothing changed</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -17,7 +17,11 @@ run:
 	$(VENV)/python manage.py runserver 0.0.0.0:8000
 
 worker:
-	$(VENV)/python manage.py procrastinate worker
+	# Security review C2: job args may (until the app-level Fernet encryption in
+	# ham.integrations.email.service) be sensitive; --delete-jobs=successful removes
+	# procrastinate_jobs rows for jobs that finished normally so nothing lingers at rest,
+	# in addition to (not instead of) encrypting the payload.
+	$(VENV)/python manage.py procrastinate worker --delete-jobs=successful
 
 tokens:
 	$(VENV)/python manage.py build_tokens --brand miami-temple --check

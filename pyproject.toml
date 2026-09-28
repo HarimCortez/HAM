@@ -6,7 +6,8 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
   "django>=5.2,<5.3",
   "psycopg[binary]>=3.2",
-  "django-allauth[mfa]>=65.3",
+  "pyotp>=2.9",
+  "qrcode>=8.0",
   "procrastinate[django]>=2.15",
   "django-anymail>=12.0",
   "django-stubs-ext>=5.1",

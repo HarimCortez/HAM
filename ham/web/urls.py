@@ -29,6 +29,7 @@ urlpatterns = [
     path("mfa/setup/codes", auth_views.mfa_setup_codes, name="mfa_setup_codes"),
     path("step-up", auth_views.step_up, name="step_up"),
     path("sign-out", auth_views.sign_out, name="sign_out"),
+    path("sign-in/cancel", auth_views.sign_in_cancel, name="sign_in_cancel"),
     path("me/security", auth_views.me_security, name="me_security"),
     path(
         "me/security/recovery-codes",
@@ -36,6 +37,11 @@ urlpatterns = [
         name="me_recovery_codes_regenerate",
     ),
     path("me/security/forget-devices", auth_views.me_forget_devices, name="me_forget_devices"),
+    path(
+        "me/security/sign-out-everywhere",
+        auth_views.me_sign_out_everywhere,
+        name="me_sign_out_everywhere",
+    ),
     path("admin/users/<uuid:user_id>/mfa-reset", auth_views.admin_mfa_reset, name="user_mfa_reset"),
     path(
         "admin/users/<uuid:user_id>/impersonate",
@@ -90,4 +96,9 @@ urlpatterns = [
     path("audit", views_audit.audit_log_list, name="audit_log"),
     path("audit/<uuid:event_id>", views_audit.audit_log_detail, name="audit_log_detail"),
     path("audit/export", views_audit.audit_export, name="audit_export"),
+    path(
+        "audit/export/download",
+        views_audit.audit_export_download,
+        name="audit_export_download",
+    ),
 ]

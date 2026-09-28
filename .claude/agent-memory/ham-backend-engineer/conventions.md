@@ -1,5 +1,96 @@
 # ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth)
 
+## Post-S3b security-review fixup (2026-09-28)
+- **"Re-check session flags against the DB every request"**: a session boolean/flag (like
+  `ham_mfa_satisfied`) only ever proves something was true *at the moment it was set*. If a
+  privileged fact can change later (an Admin resets someone's MFA, a person clicks "sign out
+  everywhere" from a different browser, an account gets disabled), the session flag alone goes
+  stale and a still-open browser tab keeps acting on the old fact. The fix isn't to trust the
+  flag less — it's to give it an **epoch**: store a `User.session_epoch`/`TOTPDevice.
+  last_used_step`-style counter in the DB, snapshot the current value into the session at the
+  moment the flag is set (`ham.identity.authn.complete_sign_in` does this for
+  `ham_session_epoch`), and compare the snapshot to the *live* DB value on every request
+  (`ham.identity.middleware.SessionLifetimeMiddleware._enforce_session_epoch`, which runs
+  before the route guard). Any code path that must invalidate every existing session for a
+  user bumps the counter — it never tries to delete Django sessions directly, since there's no
+  server-side "list every session for this user" index without a custom session backend.
+  `ActorContextMiddleware` already re-reads roles/`is_active` from the DB every request for the
+  same reason (Q-045 mid-session downgrade); the epoch pattern is the same idea applied to "was
+  MFA verified this session" instead of "which roles are active".
+- **TOTP replay protection needs a per-device high-water mark, not just time-window
+  tolerance**: accepting "current step ± 1" (clock drift) is not the same as accepting a code
+  only once. `TOTPDevice.last_used_step`, checked and updated under `select_for_update()`
+  inside `ham.identity.mfa.verify_totp`, is what actually prevents a captured/observed code
+  from being replayed a second time within its valid window.
+- **A "mid-sign-in" session (only the emailed code answered) must never be trusted to reach
+  enrollment for an *already-enrolled* account.** This was the step-1 MFA-bypass-via-
+  re-enrollment finding: `ham/web/auth_views.py::mfa_setup` now branches hard on `pending_user
+  is not None and mfa.is_enrolled(pending_user)` → redirect to the real TOTP/recovery
+  challenge, before anything else runs. A *replacement* of an existing authenticator (Q-093)
+  is a completely different, much narrower path: only reachable by someone already fully
+  signed in **with** two-step this session (`ctx.mfa_satisfied`, never merely "has a trusted
+  device cookie"), never while impersonating, and only after a fresh step-up
+  (`ctx.has_fresh_step_up(...)` checked directly in the view — no need to add a new action to
+  `ham/authz/matrix.py` for this; the generic `/step-up?kind=` screen accepts any kind string
+  and just stamps `session[SESSION_KEY_STEP_UP][kind]`, so a view-local freshness check against
+  an ad hoc kind name works without touching the matrix). `mfa.confirm_enrollment` itself has a
+  second, defense-in-depth guard: it refuses to overwrite a confirmed device unless the caller
+  explicitly passes `replace=True`.
+- **Prefer pyotp/qrcode over a hand-rolled RFC 6238 loop, even though the algorithm is "just
+  HMAC over a counter"**: CLAUDE.md's "safety/legal/privacy over convenience" and PRD §3.4-3.5
+  read on *code*, not just data handling — a security review correctly flagged unaudited
+  hand-written crypto-adjacent logic even though it composed only stdlib `hmac`/`hashlib`. If
+  `allauth.mfa` can't be wired in as a Django app (see the S3b note below for why), reach for a
+  small, independently maintained library (`pyotp`) instead of writing the construction again.
+  See `docs/adr/0001-stack.md`'s "Amendment 2026-09-28" for the full writeup.
+- **Encrypting background-job payloads to keep PII out of `procrastinate_jobs.args`**: when a
+  job's kwargs are themselves sensitive (an email address, a sign-in code, a TOTP-reset
+  notice), don't rely only on log scrubbing — Procrastinate persists `args` as a jsonb column
+  regardless of logging config, and a DB dump/backup would still have it in plaintext. Encrypt
+  the whole payload into one opaque string (`ham.integrations.email.service` does this with
+  `ham.platform.crypto`, the same Fernet/MultiFernet helper `ham.identity.crypto` re-exports)
+  and pass only that ciphertext (plus genuinely non-sensitive fields like a `category` label)
+  as job kwargs; decrypt only inside the job function, right before handing data to the real
+  adapter. This is also why the shared cipher helper lives in `ham.platform` (the bottom
+  layer) rather than `ham.identity`: `ham.integrations` must never import `ham.identity`
+  (import-linter contract "domain modules never import ham.integrations directly" is the
+  mirror image of this — either direction would be a layering violation), but both can import
+  `ham.platform`.
+- **`JSONFormatter` must recursively scrub *and* selectively drop `extra` values, not just
+  `record.msg`**: `ScrubPIIFilter` only ever rewrites the top-level message string. A
+  third-party logger (Procrastinate's own "Starting job ...(kwargs)" line) can attach a whole
+  nested structure as an `extra` (e.g. `record.job = {"task_kwargs": {...}}`) that never passes
+  through `scrub()` at all. Fix at the formatter, not the filter: drop known-risky whole keys
+  outright (`_DROPPED_EXTRA_KEYS = {"job"}`) and recursively scrub every string inside whatever
+  survives (`_scrub_value`). Also set noisy third-party loggers to WARNING in `LOGGING`
+  (`config/settings/base.py`) so routine per-job start/finish lines never reach a handler at
+  all — the scrubber is defense in depth, not a substitute for not logging the args in the
+  first place.
+- **A Postgres `BEFORE TRUNCATE` trigger on an append-only table breaks Django's
+  `TransactionTestCase`/`transaction=True` flush globally** (it issues one multi-table
+  `TRUNCATE ... CASCADE` statement; any one table's trigger raising rolls back the whole
+  statement, so *every* `transaction=True` test in the suite fails at teardown, not just tests
+  touching that table). There is no clean way to give Django's `flush` command the same
+  `SET LOCAL ham.audit_purge = 'on'` escape hatch the retention job uses, because `flush` runs
+  its own SQL directly. The real fix (a separate, lower-privilege DB role for the app that has
+  TRUNCATE revoked, distinct from a migrations/ops role) needs role separation this sandbox's
+  shared single-superuser Postgres setup doesn't have — don't add this trigger without that
+  separation in place; it will look fine in isolation and then break the whole test suite.
+- **`redirect_to_step_up`/`handle_command_errors` grew a stash-and-replay pattern for step-up
+  continuation** (UX finding "Confirm it's you sends people to POST-only URLs and loses what
+  they typed"): a view whose POST hits `StepUpRequired` stashes its own POST data (minus the
+  CSRF token) keyed by path in the session; the GET that comes back from a successful step-up
+  is replayed as if it were the original POST (`request.POST = QueryDict(...)`;
+  `request.method = "POST"` — both are plain instance attributes on `HttpRequest`, safe to
+  reassign) before calling the view again. This fixed MFA reset/impersonation-start/recovery-
+  code-regenerate "for free" since they already used `ham.identity.web.handle_command_errors`;
+  audit export needed its own version in `ham/web/views_audit.py` because it isn't
+  command-wrapped the same way (a GET `audit_export_download` view replays stashed *filters*,
+  not a full POST body, then streams the CSV directly rather than trying to redirect after
+  already writing a response body). `/step-up` also grew a real `cancel_url` (`?cancel=`,
+  falling back to a validated `HTTP_REFERER`, then Home) instead of blindly linking back to
+  `next` (which is the *protected* URL, not "where the person came from").
+
 ## S3b additions: passwordless sign-in, TOTP MFA, step-up, impersonation
 - **Don't install `allauth`/`allauth.mfa` in `INSTALLED_APPS`** just to reuse their pure
   algorithm/model code. `allauth.mfa.totp.internal.auth` (and anything importing

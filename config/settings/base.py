@@ -148,6 +148,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # church name anywhere else in the codebase.
 HAM_BRAND = env("HAM_BRAND")
 
+# PRD-guardian review B2: the emailed sign-in link must be a full, absolute URL — a relative
+# path would leave the person nowhere to go when they open the email in a different client
+# than the browser tab they started from (or an email client with no "base" context at all).
+# Dev default matches `make run`'s `runserver 0.0.0.0:8000`; every real deployment sets this.
+HAM_BASE_URL = env("HAM_BASE_URL", default="http://localhost:8000").rstrip("/")
+
 # Email adapter (ham.integrations.email, foundation.md §8 S4): dev = console, test = locmem
 # (overridden below/in test.py), prod = whichever Anymail ESP backend the environment names —
 # never a hard-coded provider (CLAUDE.md "Secrets come from environment variables").
@@ -204,5 +210,12 @@ LOGGING = {
     },
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        # Security review C2: Procrastinate logs "Starting job ...(kwargs)" at INFO, which
+        # would otherwise print full task args (e.g. an encrypted email payload's ciphertext
+        # is harmless, but this also caught other jobs' plain kwargs before they existed).
+        # WARNING+ only, so routine per-job start/finish lines never reach the log at all;
+        # failures still surface. Belt and suspenders with the encrypted job args themselves
+        # and `JSONFormatter`'s nested-extra scrubbing above.
+        "procrastinate": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

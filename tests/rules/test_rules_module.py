@@ -95,6 +95,8 @@ class SourcesAndLabelsTest(unittest.TestCase):
                 "auth.STEP_UP_ACTIONS": ("Q-076",),
                 "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": ("Q-070",),
                 "auth.SIGN_IN_RESEND_COOLDOWN": ("Q-070",),
+                "auth.SIGN_IN_REQUESTS_PER_IP_PER_HOUR": ("Q-070",),
+                "auth.SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY": ("Q-070",),
                 "auth.ACCOUNT_INVITATION_LIFETIME": ("Q-071",),
                 "auth.MFA_CODE_MAX_ATTEMPTS": ("Q-072",),
                 "operations.HEALTH_MAX_QUEUE_LAG": ("Q-056",),

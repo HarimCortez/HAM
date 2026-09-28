@@ -38,6 +38,11 @@ services:
         sync: false
       - key: ANYMAIL_RESEND_API_KEY
         sync: false
+      # PRD-guardian review B2: sign-in emails build an absolute link from this.
+      - key: HAM_BASE_URL
+        sync: false
+      - key: HAM_FIELD_ENCRYPTION_KEY
+        sync: false
     buildCommand: "python manage.py migrate --noinput"
 
   - type: worker
@@ -45,7 +50,7 @@ services:
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
-    dockerCommand: "python manage.py procrastinate worker"
+    dockerCommand: "python manage.py procrastinate worker --delete-jobs=successful"
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
@@ -68,4 +73,7 @@ services:
       - key: DEFAULT_FROM_EMAIL
         sync: false
       - key: ANYMAIL_RESEND_API_KEY
+        sync: false
+      # The worker decrypts job payloads (security review C2) — same key as ham-web.
+      - key: HAM_FIELD_ENCRYPTION_KEY
         sync: false

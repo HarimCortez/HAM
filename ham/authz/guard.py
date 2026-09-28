@@ -33,6 +33,11 @@ PUBLIC_ROUTES: frozenset[str] = frozenset(
         "sign_in_mfa",
         "mfa_setup",
         "mfa_setup_codes",
+        # Security review L5/UX M3: "Sign out" from a mid-sign-in/enrollment screen must work
+        # before `django_login()` has run, same reasoning as the other pending-login routes
+        # just above — it clears the pending session state itself rather than relying on the
+        # guard to already consider the person signed in.
+        "sign_in_cancel",
         "manifest",
         "service_worker",
         "offline",
