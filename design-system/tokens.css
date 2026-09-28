@@ -204,7 +204,10 @@
   --ham-size-step-rail: 240px;
   --ham-size-aside: 320px;
   --ham-size-wizard-max: 1264px;
+  --ham-size-icon-xl: 48px;
+  --ham-size-list-row-min: 72px;
   --ham-size-requester-wide-max: 960px;
+  --ham-breakpoint-short: 480px;
   --ham-breakpoint-sm: 390px;
   --ham-breakpoint-md: 768px;
   --ham-breakpoint-lg: 1024px;
