@@ -27,7 +27,6 @@ from collections.abc import Callable
 from django.contrib.auth import logout as django_logout
 from django.http import HttpRequest, HttpResponse
 
-from ham.audit.services import record as audit_record
 from ham.authz.context import (
     SESSION_KEY_IMPERSONATION_ID,
     SESSION_KEY_MFA_SATISFIED,
@@ -215,6 +214,8 @@ class SessionLifetimeMiddleware:
         request.session[SESSION_KEY_LAST_ACTIVITY] = now.isoformat()
 
     def _enforce_impersonation_idle(self, request: HttpRequest, actor: ActorContext) -> None:
+        from .impersonation import end_impersonation
+
         assert actor.impersonation_id is not None  # guaranteed by the `is_impersonating` caller
         now = clock_now()
         session = ImpersonationSession.objects.filter(
@@ -224,21 +225,11 @@ class SessionLifetimeMiddleware:
             request.session.pop(SESSION_KEY_IMPERSONATION_ID, None)
             return
         if now - session.last_activity_at > RULES.auth.IMPERSONATION_IDLE_TIMEOUT:
-            session.ended_at = now
-            session.end_reason = ImpersonationSession.END_REASON_IDLE_TIMEOUT
-            session.save(update_fields=["ended_at", "end_reason"])
+            # `end_impersonation` (Fix B) is the one funnel every end path goes through, so the
+            # `ImpersonationEnded` event/email (Q-049) fires exactly once no matter which path
+            # ended the session — don't duplicate the ending/audit logic here.
+            end_impersonation(session.id, reason=ImpersonationSession.END_REASON_IDLE_TIMEOUT)
             request.session.pop(SESSION_KEY_IMPERSONATION_ID, None)
-            audit_record(
-                ctx=None,
-                actor_type="system",
-                actor_user_id=session.admin_user_id,
-                acting_as_user_id=session.target_user_id,
-                impersonation_id=session.id,
-                action="impersonation.ended",
-                target_type="user",
-                target_id=str(session.target_user_id),
-                after={"end_reason": ImpersonationSession.END_REASON_IDLE_TIMEOUT},
-            )
             # PRD-guardian review Major 6(a) / security M1: rebuild `request.actor` right
             # away so the *rest of this same request* (the view that's about to run) sees the
             # real Admin, not the now-ended impersonation target — previously only the *next*

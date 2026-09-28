@@ -126,6 +126,23 @@ def _totp_code(secret: str) -> str:
     return current_code(secret)
 
 
+def _wait_for_a_fresh_totp_step() -> None:
+    """Security review H2 (TOTP replay protection): a code is only ever accepted once per
+    device. This smoke test authenticates with the *same* seeded secret twice in quick
+    succession (sign-in MFA, then the audit-export step-up) -- exactly what a real person
+    might also do, entering whatever their app currently shows for two different actions a
+    few seconds apart. A real authenticator app would have moved on to a new code by the time
+    they get to the second screen; this test has to wait for the same 30-second boundary
+    instead of pretending time passed."""
+    import time
+
+    from ham.identity.totp import current_step
+
+    step = current_step()
+    while current_step() == step:
+        time.sleep(1)
+
+
 def _visible_nav_labels(page, *, container: str) -> set[str]:
     links = page.locator(f"{container} .nav__link")
     return {links.nth(i).inner_text().strip() for i in range(links.count())}
@@ -167,19 +184,16 @@ def test_smoke_suite(live_server, viewport_name):
             page.goto(f"{live_server.url}/audit")
             page.click("button:has-text('Export')")
             assert "/step-up" in page.url, page.url
+            _wait_for_a_fresh_totp_step()
             page.fill("#id_code", _totp_code(DIRECTOR_TOTP_SECRET))
-            # KNOWN BUG (reported separately, tests/web/test_audit_export_stepup_redirect_bug.py):
-            # `views_audit.audit_export`'s StepUpRequired handler redirects back to
-            # `request.path` ("/audit/export" itself, a POST-only route) instead of a page a
-            # GET can land on, so this submit's follow-up redirect actually 405s in a real
-            # browser -- unlike `admin_impersonate`/`admin_mfa_reset`, whose `next` is a
-            # GET+POST confirm page. Clicking "Export" again afterwards (step-up is now fresh
-            # for this session) is the realistic recovery a person would take, and is what
-            # this smoke test does to still reach a successful CSV download.
-            page.click("button[type=submit]")
-            page.goto(f"{live_server.url}/audit")
+            # FIXED (security review UX C1 continuation, tests/web/test_audit_export_stepup_
+            # redirect_bug.py): `views_audit.audit_export`'s `StepUpRequired` handler now
+            # redirects to a GET-only `audit_export_download` view (the stashed filters are
+            # replayed there) instead of the POST-only `/audit/export` URL itself, so
+            # submitting the step-up form completes the download directly -- no second click
+            # on "Export" needed.
             with page.expect_download():
-                page.click("button:has-text('Export')")
+                page.click("button[type=submit]")
             context.close()
 
             # --- 4. Admin impersonates Kevin: banner shows; a blocked action is refused -----
@@ -195,12 +209,15 @@ def test_smoke_suite(live_server, viewport_name):
             page.click("text=Troubleshoot as")
             page.fill("#id_reason", "smoke test troubleshooting")
             page.click("button:has-text('Start troubleshooting')")
-            # Step-up required (first time this session) -> TOTP -> back to the confirm page.
+            # Step-up required (first time this session) -> TOTP -> completes directly.
+            # FIXED (security review UX C1 continuation): `admin_impersonate` stashes the
+            # reason across the step-up round trip (`ham.identity.web.handle_command_errors`),
+            # so entering the code finishes starting the session immediately -- no need to
+            # retype the reason and click "Start troubleshooting" a second time.
             if "/step-up" in page.url:
+                _wait_for_a_fresh_totp_step()
                 page.fill("#id_code", _totp_code(ADMIN_TOTP_SECRET))
                 page.click("button[type=submit]")
-                page.fill("#id_reason", "smoke test troubleshooting")
-                page.click("button:has-text('Start troubleshooting')")
             assert page.url == f"{live_server.url}/", page.url
             assert page.locator(".impersonation-banner").is_visible()
 

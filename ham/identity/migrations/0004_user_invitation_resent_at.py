@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("identity", "0002_totpdevice_signinchallenge_recoverycode_and_more"),
+        ("identity", "0003_totpdevice_last_used_step_user_session_epoch"),
     ]
 
     operations = [

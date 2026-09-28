@@ -153,7 +153,11 @@ def audit_export_download(request):
     resubmit the POST-only export form. Falls back to no filters (i.e. "show me the form
     again") if there's nothing to replay, so a stray GET here is harmless."""
     stashed = request.session.pop(_EXPORT_STASH_SESSION_KEY, None)
-    if not stashed:
+    if stashed is None:
+        # No filters at all (an empty `{}`, e.g. "no filters selected") is a real, valid stash
+        # to replay -- only *no stash at all* means "nothing to do", so this must not use a
+        # plain truthiness check (an empty dict is falsy but still means "replay with no
+        # filters").
         return redirect("web:audit_log")
     from django.http import QueryDict
 

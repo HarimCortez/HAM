@@ -165,6 +165,23 @@ def _after_email_verified(request: HttpRequest, *, email: str, next_url: str) ->
     if user is None or not user.is_active or user.is_disabled:
         return render(request, "web/auth/sign_in_no_account.html", {})
 
+    from ham.identity.services import invitation_is_valid
+
+    if not invitation_is_valid(user):
+        # This only ever differs from `sign_in_no_account` *after* the person has already
+        # proven they answered their own emailed code/link, so it doesn't reopen account
+        # enumeration (foundation.md §7: identical response for unknown emails, which this
+        # path is never reached for) — it just tells an actually-invited person, correctly,
+        # why they can't get in.
+        return render(
+            request,
+            "web/auth/sign_in_no_account.html",
+            {
+                "error": "This invitation has expired. Ask the person who invited you to "
+                "send a new one."
+            },
+        )
+
     if not mfa.mfa_required(user):
         authn.complete_sign_in(request, user=user)
         return redirect(next_url or reverse("web:home"))
@@ -609,11 +626,19 @@ def sign_in_cancel(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["POST"])
 @requires_action("shell.use")
 def sign_out(request: HttpRequest) -> HttpResponse:
-    from ham.identity.services import stop_impersonation
+    from ham.identity.impersonation import end_impersonation
+    from ham.identity.models import ImpersonationSession
 
-    if actor_of(request).is_impersonating:
+    actor = actor_of(request)
+    if actor.is_impersonating:
+        assert actor.impersonation_id is not None
         try:
-            stop_impersonation(actor_of(request), end_reason="signed_out")
+            # `end_impersonation` (not the `stop_impersonation` command) is the one funnel
+            # every non-manual end path uses, so `ImpersonationEnded`/the after-the-fact email
+            # (Q-049) fire from exactly one place.
+            end_impersonation(
+                actor.impersonation_id, reason=ImpersonationSession.END_REASON_SIGNED_OUT
+            )
         except Exception:  # noqa: BLE001 - never block sign-out on a cleanup failure
             pass
         request.session.pop("ham_impersonation_id", None)

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("identity", "0003_totpdevice_last_used_step_user_session_epoch"),
+        ("identity", "0004_user_invitation_resent_at"),
     ]
 
     operations = [

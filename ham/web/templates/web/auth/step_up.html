@@ -14,7 +14,6 @@
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next }}">
     <input type="hidden" name="kind" value="{{ kind }}">
-    <input type="hidden" name="cancel" value="{{ cancel_url }}">
     <div class="form-field">
       <label for="id_code">Code from your authenticator app</label>
       <input type="text" name="code" id="id_code"

@@ -62,15 +62,11 @@ def director_client(client, make_user):
 
 
 @pytest.mark.django_db
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG: audit_export's StepUpRequired redirect target is the POST-only /audit/export "
-        "URL itself; a real browser following the post-step-up GET redirect gets 405 Method "
-        "Not Allowed instead of the CSV. See this module's docstring for the fix."
-    ),
-)
 def test_following_the_step_up_redirect_actually_completes_the_export(director_client):
+    """FIXED (security review UX C1 continuation): `audit_export`'s `StepUpRequired` handler
+    now redirects to a GET-only `audit_export_download` view (stashing the filters in the
+    session) instead of the POST-only `/audit/export` URL itself, so a real browser's GET
+    after step-up streams the CSV instead of hitting 405."""
     response = director_client.post(reverse("web:audit_export"), {})
     assert response.status_code == 302
     assert response["Location"].startswith("/step-up")
