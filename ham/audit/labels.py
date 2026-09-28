@@ -88,6 +88,8 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             "request.cancelled",
             "request.created_assisted",
             "requester_pii.revealed",
+            "request.pii_purged",
+            "request.purged",
         ),
     ),
     ActionGroup(
@@ -171,6 +173,9 @@ ACTION_LABELS: dict[str, str] = {
     "intake_source.created": "Church-issued link created",
     "intake_source.deactivated": "Church-issued link deactivated",
     "notification.acknowledged": "Acknowledged an urgent notification",
+    # S2.2 (Q-127 retention sweep).
+    "request.pii_purged": "Requester personal details erased (retention)",
+    "request.purged": "Request erased (spam retention)",
 }
 
 

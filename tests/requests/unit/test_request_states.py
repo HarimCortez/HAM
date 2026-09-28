@@ -213,12 +213,31 @@ def test_intake_checks_must_have_finished() -> None:
 
 
 # --- Q-107: pre-decision close reasons -----------------------------------------------------
-def test_cancel_reasons_are_exactly_the_three() -> None:
+def test_cancel_reasons_are_exactly_the_four() -> None:
+    """Q-107's three plus Q-140's 'couldn't reach them' (NEEDS_PHONE_CHECK only)."""
     assert {r.value for r in CancelReason} == {
         "spam",
         "requester_withdrew",
         "duplicate_submission",
+        "couldnt_reach_them",
     }
+
+
+# --- Q-140: "couldn't reach them" is NEEDS_PHONE_CHECK-only ---------------------------------
+@pytest.mark.parametrize("current", [S.NEEDS_PHONE_CHECK, S.SUBMITTED, S.AWAITING_APPROVAL])
+def test_couldnt_reach_them_only_from_needs_phone_check(current: RequestStatus) -> None:
+    d = check_transition(A.CANCEL, current, actor_roles=DIR, reason=CancelReason.COULDNT_REACH_THEM)
+    if current is S.NEEDS_PHONE_CHECK:
+        assert d.allowed
+        assert d.target is S.CANCELLED
+    else:
+        assert not d.allowed
+        assert d.refusal is Refusal.REASON_NOT_ALLOWED
+
+
+def test_ordinary_reasons_still_allowed_from_needs_phone_check() -> None:
+    d = check_transition(A.CANCEL, S.NEEDS_PHONE_CHECK, actor_roles=DIR, reason="spam")
+    assert d.allowed
 
 
 @pytest.mark.parametrize(

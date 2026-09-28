@@ -733,3 +733,90 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   gap; don't invent a value") — intake.md's D4/Q-116 retention decision covers
   `AssistanceRequest`/`Requester`/`Property`, not this table; no `ham.rules` constant exists or
   was added for it. Don't backfill one without an owner decision.
+## S2.2 additions: requests core (models, submit/cancel/reveal/duplicate-check, retention)
+- **A "guarded, best-effort" call into a *higher* layer's stub does NOT satisfy import-linter,
+  even wrapped in try/except.** wave2-common.md's cross-slice coordination note said S2.2
+  should call `ham.requester_portal.services.issue_link` from inside `submit_request`,
+  "guarded, since it may still be a stub" (mirroring how S2.2 was told to fake its own
+  inputs). But `ham.requests` sits *below* `ham.requester_portal` in intake.md §2's layer
+  order, and `lint-imports`'s `layers` contract statically flags the import statement itself
+  — a lazy `from ham.requester_portal.services import issue_link` inside a function body,
+  guarded by `try/except ImportError`/`NotImplementedError`, still breaks the contract exactly
+  like a top-level import (import-linter does static analysis, not runtime tracing). Don't
+  trust a coordination doc's shortcut instruction over the architecture doc's own module
+  boundary rule when the two conflict — intake.md §2 itself already says the correct owner
+  ("The portal orchestrates submission: it verifies the draft, calls
+  `requests.services.submit_request`, then issues the link, all in one transaction"), i.e.
+  the *caller* (the higher layer) does both calls, never the callee reaching back up. Resolve
+  by keeping the lower-layer function self-contained and documenting the deviation loudly in
+  the module docstring (don't silently drop the instruction) rather than adding a same-slice
+  `ignore_imports` exception for something the plan already assigns to the other side.
+- **Two-way audit split for one duplicate-check run**: intake.md §4 wants both
+  `request.status_changed` *and* `request.duplicates_flagged` when the duplicate scan finds a
+  match, but `@command`'s wrapper only ever writes the ONE audit event named by the returned
+  `CommandResult`. Write the second event by hand with `ham.audit.services.record(...)`
+  directly from inside the wrapped function body — it's safe because the wrapper's own
+  `with transaction.atomic()` is already open while that body runs, so both rows land in the
+  same transaction as everything else.
+- **One `@command("action")` site, even for two different real-world outcomes**:
+  `tests/audit/test_command_registry.py::test_no_command_action_is_defined_twice_with_
+  different_wiring` fails if the SAME matrix action string appears in two separate
+  `@command(...)` decorator sites (e.g. "purge PII" vs "purge a spam request" both being
+  `system.intake.purge`). Write one function that branches internally
+  (`ham.requests.services.purge_expired_request`) and have the periodic job call that one
+  function for every eligible id from either eligibility list, instead of two decorated
+  functions.
+- **A reveal that is *sometimes not audited* (Q-024's non-impersonating-Director exemption)
+  can't be a plain `@command`** — the wrapper always writes exactly one audit event per call.
+  `ham.requests.services.reveal_requester_pii` is manually wired instead, same shape as
+  `ham.authz.audit_access.export_csv` (call `ham.authz.matrix.authorize` directly, hand-write
+  the `authz.denied` audit on denial, `ham.audit.services.record` only when not exempt). Add
+  the action to `tests/audit/test_command_registry.py`'s `MANUALLY_WIRED_ACTIONS`, not
+  `PLACEHOLDER_ACTIONS` — it *is* wired, just not through the decorator.
+- **A field whose NULL has a distinct business meaning needs `# noqa: DJ001`, not `blank=True,
+  default=""`**: ruff's Django plugin (DJ001) flags any nullable string field, but
+  `Requester.email` (Q-025: NULL means "chose 'I don't use email'", not "typed nothing") and
+  the HMAC match-key columns (NULL means "no reliable key could be computed" —
+  `ham.requests.matching.match_keys`/`find_matches` never treat `""` as a key, so an empty
+  string would wrongly equal every other un-keyable row) both need real NULL. Silence the
+  linter per-field with a comment explaining *why*, don't cave to the "no null on CharField"
+  default just to quiet ruff.
+- **`ham.requests.models.next_reference_number()`**: a raw `SELECT nextval('requests_
+  reference_number_seq')` via `django.db.connection.cursor()`, called once inside the
+  `@command`'s transaction, is how "HAM #047" (intake.md §3: "int, unique, from a Postgres
+  sequence") is generated — Django has no clean built-in for "a second, non-PK auto-increment
+  column"; a hand-created `migrations.RunSQL("CREATE SEQUENCE ...")` ahead of the
+  `CreateModel` operation, with a matching `PositiveIntegerField(unique=True, editable=False)`
+  and no DB-side `DEFAULT`, is the pattern (the app always supplies the value explicitly, so a
+  server default isn't needed and isn't fought by Django's migration autodetector on the next
+  `makemigrations`).
+- **`ham/authz/scopes.py` grew a second, action-keyed registry** (`register_queryset_scope_
+  provider(action, fn)` / used by `scope_queryset(ctx, action, queryset)`) alongside the
+  existing per-`Scope`-enum `register_scope_provider` — the existing one answers "is this ONE
+  resource in scope" for `authorize()`; list screens like `request.list` need to filter a
+  whole queryset (e.g. hiding NEEDS_PHONE_CHECK rows from everyone but Director/AD, Q-025) and
+  `Scope.ANY` (what `request.list` uses) has no per-resource meaning to check against. This
+  was anticipated but not built in S2.0's `scope_queryset` stub ("which will register a
+  provider here instead of overriding this function") — S2.2 is the first slice to actually
+  register one, from `RequestsConfig.ready()`.
+- **A registry a parallel slice might not have landed yet gets a guarded, try/except-ImportError
+  registration call from `ready()`, never a hard import at module scope** — this IS safe with
+  import-linter as long as the registry being reached into is in a LOWER or SIBLING layer
+  never imported statically elsewhere first; `ham.notifications` (attention-provider registry,
+  S2.5) sits below `ham.requests` in the layer order, so `ham.requests.apps.RequestsConfig.
+  ready()` importing `ham.notifications.registry` — even guarded — is fine (unlike the
+  `issue_link` case above, which was the *wrong direction*). Check which way the arrow points
+  before assuming "guarded import" is always a safe escape hatch.
+- **Retention (Q-127) needs the request row to *survive* an ordinary PII purge but be fully
+  *deleted* for a spam close** — `purge_expired_request` branches on
+  `cancel_reason_code == CancelReason.SPAM`: spam calls `request.delete()` (cascades to
+  `Requester`/`Property`/etc.); anything else blanks only the P fields on `Requester`/
+  `Property` and sets `Requester.anonymized_at`, leaving the `AssistanceRequest` row (status,
+  category, ZIP... it's on `Property`, so actually ZIP survives too since only
+  line1/line2/city/owner_name are blanked) intact for "families served"-style reporting.
+- **`SubmittedRequestPayload` (`ham.requests.services`)**: the concrete shape S2.3
+  (`ham.requester_portal`)'s orchestration must build from its decrypted `IntakeDraft` and
+  pass to `submit_request` as a new required `payload=` kwarg, on top of the S2.0 stub's
+  `draft_id`/`verification_id` (kept for traceability only, not dereferenced by this module —
+  see the layering note above for why). Check this dataclass's field list before S2.3 builds
+  its draft-to-payload mapping; it's additive, not a replacement contract.
