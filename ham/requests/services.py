@@ -129,7 +129,7 @@ def submit_request(
     ctx: RequesterContext,
     *,
     draft_id: UUID,
-    verification_id: UUID,
+    verification_id: UUID | None,
     payload: SubmittedRequestPayload,
 ) -> CommandResult:
     method = VerificationMethod(payload.verification_method)
@@ -225,7 +225,10 @@ def submit_request(
         target_id=str(request.id),
         project_id=request.id,
         after={"status": request.status, "source": request.source},
-        context={"draft_id": str(draft_id), "verification_id": str(verification_id)},
+        context={
+            "draft_id": str(draft_id),
+            "verification_id": str(verification_id) if verification_id is not None else None,
+        },
         outbox=OutboxSpec(
             transition.outbox_event,
             aggregate_type="request",

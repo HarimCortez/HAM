@@ -19,14 +19,9 @@ class RequestsConfig(AppConfig):
 
         register_queryset_scope_provider("request.list", scope_queryset_for_requests)
 
-        # ham.notifications owns the attention-provider registry (intake.md §2) but may
-        # still be an empty seam in this worktree (S2.5 runs in parallel) -- register only
-        # if it's actually there, same guarded pattern as `issue_link` (wave2-common.md).
-        try:
-            from ham.notifications.registry import register_attention_provider
-        except ImportError:
-            pass
-        else:
-            from . import attention
+        # ham.notifications sits below ham.requests in the layer order (web -> requester_
+        # portal -> media -> requests -> notifications -> ...), so this is an ordinary
+        # downward import (S2.5 has landed, intake-contracts.md §8.3).
+        from . import attention
 
-            attention.register(register_attention_provider)
+        attention.register()

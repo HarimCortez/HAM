@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+from ham.notifications.attention import attention_items_for
 from ham.requests.attention import attention_cards
 from ham.requests.services import complete_intake_checks, submit_request
 
@@ -67,3 +68,19 @@ class TestAttentionCards:
         for card in attention_cards(pastor_ctx):
             assert "jane@example.org" not in card.title
             assert "Jane Test" not in card.title
+
+    def test_registered_with_the_real_notifications_registry(
+        self, requester_ctx, system_ctx, pastor_ctx
+    ):
+        """`RequestsConfig.ready()` actually registered `provide_attention_items` with
+        `ham.notifications.attention` (intake-contracts.md §8.3) -- not just a same-module
+        function the app forgot to wire up."""
+        req = submit_request(
+            requester_ctx,
+            draft_id=uuid.uuid4(),
+            verification_id=uuid.uuid4(),
+            payload=make_payload(),
+        )
+        complete_intake_checks(system_ctx, request_id=req.id)
+        items = attention_items_for(pastor_ctx)
+        assert any(item.kind == "requests.awaiting_approval" for item in items)

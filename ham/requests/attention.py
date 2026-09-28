@@ -1,12 +1,17 @@
 """Home/Inbox attention cards for requests (intake.md §6 "Attention providers"; navigation.md
 §8.3 group 4).
 
-`ham.notifications` owns the attention-provider *registry* (intake.md §2), but is still an
-empty seam in this slice (S2.5 runs in parallel and may not have landed the registry yet in
-any given worktree) -- `ham.requests.apps.RequestsConfig.ready()` registers these functions
-with it **if it's there** (the same "guarded, since it may still be a stub" pattern
-wave2-common.md uses for `issue_link`). The functions themselves have no dependency on the
-registry existing, so `ham.requests`' own tests can call them directly.
+`ham.notifications.attention` owns the registry (S2.5, merged): `register_attention_provider`
+takes one `Callable[[ctx], list[AttentionItem]]`, keyed only by identity (no string key).
+`RequestsConfig.ready()` registers `provide_attention_items` below -- `ham.requests` sits
+*above* `ham.notifications` in the layer order, so this is an ordinary downward import, not
+the guarded pattern `issue_link` needed (that one pointed the wrong way; see this module's
+sibling `services.py` docstring for the full explanation of that distinction).
+
+`attention_cards`/`AttentionCard` are this module's own richer shape (kept for its own tests,
+e.g. `oldest_waiting_hours`); `provide_attention_items` adapts each `AttentionCard` to
+`ham.notifications.attention.AttentionItem` (`kind`/`title`/`url`/`count`/`urgent`/`muted`) at
+the registry boundary.
 
 Attention rows never carry P or C fields (intake.md §7 "ID + category only", Q-132) -- these
 are exactly `RequestListRow`, not the detail row.
@@ -18,6 +23,7 @@ import dataclasses
 from typing import TYPE_CHECKING
 
 from ham.authz import roles
+from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
 from .queries import (
@@ -96,7 +102,23 @@ def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     return [c for c in cards if c is not None]
 
 
-def register(register_attention_provider) -> None:
-    """Called by `RequestsConfig.ready()` with `ham.notifications`'s registration function,
-    if that module has actually landed one yet."""
-    register_attention_provider("requests", attention_cards)
+def provide_attention_items(ctx: ActorContext) -> list[AttentionItem]:
+    """The `AttentionProvider` callable registered with `ham.notifications.attention`."""
+    return [
+        AttentionItem(
+            kind=card.key,
+            title=card.title,
+            url=card.href,
+            count=card.count,
+            urgent=card.urgent,
+            muted=not card.actionable,
+        )
+        for card in attention_cards(ctx)
+    ]
+
+
+def register() -> None:
+    """Called once by `RequestsConfig.ready()`."""
+    from ham.notifications.attention import register_attention_provider
+
+    register_attention_provider(provide_attention_items)
