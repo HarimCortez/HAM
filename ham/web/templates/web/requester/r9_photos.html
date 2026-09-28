@@ -1,0 +1,43 @@
+{% extends "web/base_public.html" %}
+{% load static %}
+
+{% block title %}Add photos &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Add photos</h1>
+  <p>You can add up to {{ max_photos }} photos and {{ max_videos }} short videos (up to
+    {{ max_video_seconds }} seconds each).</p>
+  <p class="text-secondary">Try one photo from a distance and one up close.</p>
+
+  <div data-upload-root
+       data-reserve-url="{{ reserve_url }}"
+       data-max-photos="{{ max_photos }}"
+       data-max-videos="{{ max_videos }}"
+       data-photo-types="{{ photo_types }}"
+       data-video-types="{{ video_types }}">
+    <button class="btn btn--secondary" type="button" onclick="document.getElementById('camera-input').click();">
+      Take a photo
+    </button>
+    <input id="camera-input" type="file" accept="image/*" capture="environment" data-upload-input
+           class="visually-hidden">
+    <button class="btn btn--secondary" type="button" onclick="document.getElementById('file-input').click();">
+      Choose from my phone
+    </button>
+    <input id="file-input" type="file" accept="image/*,video/*" multiple data-upload-input
+           class="visually-hidden">
+
+    <p class="upload-summary" data-upload-summary>0 of {{ max_photos }} photos &middot; 0 of {{ max_videos }} videos</p>
+    <div class="visually-hidden" role="status" aria-live="polite" data-upload-live></div>
+    <ul class="upload-grid" data-upload-grid></ul>
+  </div>
+
+  <p class="text-secondary">&#x1F512; Only the people handling your request will see these.</p>
+
+  <div class="action-bar">
+    <div class="action-bar__inner">
+      <a class="btn btn--primary" href="{{ secure_page_url }}">Done</a>
+    </div>
+  </div>
+
+  <script src="{% static 'upload.js' %}"></script>
+{% endblock %}

@@ -107,3 +107,25 @@ WEEKDAY_LABELS: dict[int, str] = {
 AVAILABILITY_ANY_TIME = "any_time"
 AVAILABILITY_MORNINGS = "mornings"
 AVAILABILITY_AFTERNOONS = "afternoons"
+
+
+class UrgencyReason(StrEnum):
+    """docs/ux/intake.md R2 "Why is it urgent?" chips (§10). `ham.requester_portal.forms`
+    only validates the free-text `urgency_justification` it feeds into (required once urgent
+    is ticked); S2.7's step view folds the chosen chip's label into that text before saving,
+    so this vocabulary is UI-only, same reasoning as the rest of this module's docstring."""
+
+    SOMEONE_COULD_GET_HURT = "someone_could_get_hurt"
+    WATER_OR_DAMAGE = "water_or_damage"
+    NO_UTILITIES = "no_utilities"
+    CANT_GET_IN_OR_OUT = "cant_get_in_or_out"
+    SOMETHING_ELSE = "something_else"
+
+
+URGENCY_REASON_LABELS: dict[UrgencyReason, str] = {
+    UrgencyReason.SOMEONE_COULD_GET_HURT: "Someone could get hurt",
+    UrgencyReason.WATER_OR_DAMAGE: "Water is coming in or damage is getting worse",
+    UrgencyReason.NO_UTILITIES: "No power, water, heat or cooling",
+    UrgencyReason.CANT_GET_IN_OR_OUT: "Can't get in or out of the home safely",
+    UrgencyReason.SOMETHING_ELSE: "Something else",
+}

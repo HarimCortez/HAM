@@ -1,0 +1,24 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Confirm your request &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  {% if valid %}
+    <h1>Confirm your request</h1>
+    <p>Tap Continue to finish sending your request.</p>
+    <form method="post"
+          action="{% if kind == 'intake' %}{% url 'web:request_help_verify_link' token=token %}{% else %}{% url 'web:request_help_new_link' token=token %}{% endif %}">
+      {% csrf_token %}
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <button class="btn btn--primary" type="submit">Continue</button>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <h1>This link isn't available</h1>
+    <p>It may have already been used, or it's expired. Your answers are safe — please go back
+      to your email and try the code instead, or start again.</p>
+    <p><a href="{% url 'web:request_help_start' %}">Go to Ask for help</a></p>
+  {% endif %}
+{% endblock %}

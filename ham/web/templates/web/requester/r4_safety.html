@@ -1,0 +1,55 @@
+{% extends "web/base_public.html" %}
+{% load web_extras %}
+
+{% block title %}Safety at the home &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="Safety at the home" %}
+{% endblock %}
+
+{% block public_content %}
+  <h1>Is there anything at the home our volunteers should know about?</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+  <p>This keeps everyone safe, including you. It won't stop us from helping.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <fieldset class="form-field{% if errors.hazards %} form-field--error{% endif %}">
+      <legend class="visually-hidden">Hazards</legend>
+      {% if errors.hazards %}<p class="form-field__error" id="id_hazards">{{ errors.hazards }}</p>{% endif %}
+      <div class="choice-grid" id="hazard-grid">
+        {% for value in hazard_choices %}
+          <label class="choice-card">
+            <input type="checkbox" name="hazards" value="{{ value }}" class="hazard-checkbox"
+                   {% if value in payload.hazards %}checked{% endif %}
+                   onchange="document.getElementById('id_none_known').checked = false; document.getElementById('hazard-note-field').hidden = !document.querySelectorAll('.hazard-checkbox:checked').length;">
+            <span>{{ hazard_labels|get_item:value }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <p class="text-secondary">or</p>
+      <label class="choice-card choice-card--exclusive">
+        <input type="checkbox" name="hazards" value="none_known" id="id_none_known"
+               {% if "none_known" in payload.hazards %}checked{% endif %}
+               onchange="if (this.checked) { document.querySelectorAll('.hazard-checkbox').forEach(function(c){c.checked=false;}); document.getElementById('hazard-note-field').hidden = true; }">
+        <span>None that I know of</span>
+      </label>
+    </fieldset>
+
+    <div class="form-field{% if errors.hazard_note %} form-field--error{% endif %}" id="hazard-note-field"
+         {% if not payload.hazards or "none_known" in payload.hazards %}hidden{% endif %}>
+      <label for="id_hazard_note">Tell us more <span class="form-field__optional">(optional)</span></label>
+      <textarea id="id_hazard_note" name="hazard_note" rows="2">{{ payload.hazard_note|default:"" }}</textarea>
+      {% if errors.hazard_note %}<p class="form-field__error">{{ errors.hazard_note }}</p>{% endif %}
+    </div>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <button class="btn btn--primary" type="submit">Continue</button>
+      </div>
+    </div>
+  </form>
+{% endblock %}
