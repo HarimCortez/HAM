@@ -135,6 +135,7 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 | Q-148 | §6.1, Q-105 | Keep R5 "Anything else about reaching you or visiting?" (helper name, best time to call)? | Store and show on L2/L9 / remove | Store it; shown to leadership on detail and phone check; erased with other circumstances (Q-145) | Open — proposed default (step 2) |
 | Q-149 | §7.3, Q-117, §35 | One "new link" email for both link-expired and find-my-request, and what lifetime does it state? | One / two wordings; fixed "14 days" / real end | One email; the lifetime sentence states the link's real end | Open — proposed default (step 2) |
 | Q-150 | §46, §35 | In-app "new photos arrived" notice to the leader who asked for more photos (UX L-E4) | Build in step 2 / defer | Defer to step 3; the photo count on the request covers it meanwhile | Open — proposed default (deferred) |
+| Q-151 | §60.2, §68, Q-124, Q-048 | May an Administrator who is impersonating a Director/AD reveal requester contact details? | Allow (logged with both identities) / block when the real actor is an Administrator | Block — consistent with Q-124 "masked, no reveal"; troubleshooting never needs the real contact details | Open — proposed default in use (step 2) |
 
 ## UX backlog (not PRD gaps — implementation/framework choices, not open product questions)
 - **Q-086–Q-089**: never allocated (no row was ever drafted for these ids in any slice) — the id sequence skips straight from Q-085 to Q-090. Noting this here so the gap isn't mistaken for a lost row later.
