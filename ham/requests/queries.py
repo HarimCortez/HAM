@@ -20,8 +20,10 @@ from django.db.models import QuerySet
 
 from ham.authz import roles
 from ham.authz.matrix import authorize
+from ham.platform import otp
 
-from .models import AssistanceRequest
+from .matching import normalize_email
+from .models import AssistanceRequest, Requester
 from .states import RequestStatus
 
 if TYPE_CHECKING:
@@ -228,3 +230,53 @@ def outcome_summary(request: AssistanceRequest) -> list[PriorRequestOutcome]:
         )
         for m in matches
     ]
+
+
+# --------------------------------------------------------------------------------------
+# Requester-portal lookups (intake-contracts.md §8.3): the three callables
+# `ham.requester_portal.services` needs but may not import this app's models to build
+# itself, since `ham.requester_portal` sits *above* `ham.requests` in the layer order
+# (`web -> requester_portal -> media -> requests -> ...`). `ham.requests` may not import
+# `ham.requester_portal` either (the same layers contract forbids the upward direction), so
+# these return plain values only -- `ham.requester_portal.apps.RequesterPortalConfig.ready()`
+# imports *this* module (a legal downward import) and wraps the plain values into its own
+# `RequestLinkFacts` dataclass before calling `register_request_facts_lookup` etc.
+# --------------------------------------------------------------------------------------
+@dataclasses.dataclass(frozen=True, slots=True)
+class PortalRequestFacts:
+    """Plain-value twin of `ham.requester_portal.services.RequestLinkFacts` -- this module
+    cannot import that dataclass (upward import, forbidden by the layers contract)."""
+
+    status: str
+    closed_at: dt.datetime | None
+
+
+def request_facts_for_portal(request_id: UUID) -> PortalRequestFacts:
+    """`register_request_facts_lookup`: `AssistanceRequest.status`/`closed_at` (this app has
+    no `completed_at` yet -- a later step's field, left `None` by the caller). Raises
+    `ValueError` for an unknown id, matching the registration docstring."""
+    row = AssistanceRequest.objects.filter(id=request_id).values("status", "closed_at").first()
+    if row is None:
+        raise ValueError(f"unknown request {request_id}")
+    return PortalRequestFacts(status=row["status"], closed_at=row["closed_at"])
+
+
+def request_contact_for_portal(request_id: UUID) -> str | None:
+    """`register_request_contact_lookup`: the normalized email on file for ``request_id``, or
+    `None` for a no-email (`NEEDS_PHONE_CHECK`) request or an unknown id -- never the caller's
+    claimed email, only what's actually on file (intake-contracts.md §8.3, "no enumeration")."""
+    email = Requester.objects.filter(request_id=request_id).values_list("email", flat=True).first()
+    return normalize_email(email) if email else None
+
+
+def request_ids_for_portal_email(email: str) -> list[UUID]:
+    """`register_email_to_request_ids_lookup`: every request id with ``email`` (already
+    normalized by the caller) on file, open or not -- matched by the same keyed HMAC used for
+    duplicate matching (`Requester.email_key`), tried against every configured key
+    (`ham.platform.otp.hash_candidates`) so a rotated key doesn't silently stop matching."""
+    if not email:
+        return []
+    candidates = otp.hash_candidates(email)
+    return list(
+        Requester.objects.filter(email_key__in=candidates).values_list("request_id", flat=True)
+    )

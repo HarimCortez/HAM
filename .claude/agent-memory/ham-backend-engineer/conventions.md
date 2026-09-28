@@ -1001,3 +1001,84 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   gap; don't invent a value") — intake.md's D4/Q-116 retention decision covers
   `AssistanceRequest`/`Requester`/`Property`, not this table; no `ham.rules` constant exists or
   was added for it. Don't backfill one without an owner decision.
+
+## Step-2 "known loose ends" fixup (2026-09-28, wave-3 close-out)
+- **Cross-app lookup registration must be wired from the *importing* side, not the *owned*
+  side, when the layers contract only allows one direction.** The step-2 handoff doc said
+  `RequestsConfig.ready()` should register `ham.requester_portal`'s three portal lookups
+  (`register_request_facts_lookup` etc.) — that's backwards: `ham.requests` sits *below*
+  `ham.requester_portal` in the `web -> requester_portal -> media -> requests -> ...` layers
+  contract, so `ham.requests` may never import `ham.requester_portal.services` to call
+  `register_*` on it (import-linter flags it even from inside `AppConfig.ready()`, and even
+  from a `TYPE_CHECKING` block — it's a static-analysis check, not a runtime one). The
+  registrations belong in **`RequesterPortalConfig.ready()`** instead, which legally imports
+  `ham.requests.queries` (downward) and wraps its plain-value return types (this slice added
+  `ham.requests.queries.request_facts_for_portal`/`.request_contact_for_portal`/
+  `.request_ids_for_portal_email`, all returning plain str/UUID/a local `PortalRequestFacts`
+  dataclass, never a type from the app above) into the portal's own `RequestLinkFacts`. If a
+  handoff doc's literal instruction on *which app's `ready()`* conflicts with the layers
+  direction, trust the layers contract (`lint-imports`) over the doc's wording.
+- **Two independently-built parallel slices reusing "the same" fixed vocabulary/wording will
+  drift unless one side imports the other's constants.** S2.2 (`ham.requests.models`/
+  `.certifications`, what's actually persisted/checked) and S2.3
+  (`ham.requester_portal.choices`/`.attestation`, the public form's own vocabulary) each
+  independently invented different string codes for need category, property type, and the
+  certification statements (e.g. portal `"roof_or_ceiling"` vs. persisted `"roof"`; portal's
+  2-tick `owner_authority`/`responsibility` vs. persisted 3-code
+  `true_to_knowledge`/`owner_permission`/`hoa_responsibility`). Passing the portal's codes
+  straight into `SubmittedRequestPayload` wouldn't raise (Django's `choices=` isn't enforced at
+  `.create()`), it would just quietly corrupt the stored value or make
+  `certifications.statements_satisfy_relationship` refuse every submission. Fixed by adding
+  translation tables (`_NEED_CATEGORY_TRANSLATION`/`_PROPERTY_TYPE_TRANSLATION`) and a direct
+  `certifications.required_statements(relationship)` call in
+  `ham.requester_portal.services._payload_from_cleaned` — the one place that already imports
+  both vocabularies to cross the seam — rather than touching either module's own (already
+  green-tested) vocabulary. When two slices each own "the same" fixed choice list, check their
+  actual string values match before wiring the seam between them; don't assume matching English
+  labels means matching codes.
+- **A plain orchestration function that calls two-plus `@command`s in one transaction (not
+  itself a `@command`) must still hand-write any audit event the individual commands don't
+  cover.** `ham.requester_portal.services.submit_and_issue_link` calls `submit_request`
+  (audits `request.submitted`) then `issue_link` (a plain function, "does not itself audit or
+  email; the caller does" per its own docstring) — nothing wrote `requester_link.issued` even
+  though the label existed in `ham/audit/labels.py`. Fixed with a hand-written
+  `ham.audit.services.record(...)` call inside the same `transaction.atomic()` block, same
+  pattern `complete_intake_checks` already uses for its second `request.duplicates_flagged`
+  event. When auditing a multi-command orchestration, check every label the module docstring/
+  contracts doc promises actually gets written somewhere, not just that each individual
+  `@command` fires its own.
+- **A "the initial container open isn't audited" design flag from a previous slice is usually
+  correct, not a bug** — confirmed for `ham.media._get_or_open_initial_batch`: opening a
+  requester's own batch #1 is a side effect of their own (already-unaudited, per that module's
+  own docstring) `reserve_uploads` call, not a distinct actor decision, unlike `reopen_batch`'s
+  audited `request_media.batch_opened` (a deliberate staff decision on an already-closed
+  request). Documented the reasoning directly in `_get_or_open_initial_batch`'s docstring and
+  added a regression test (`test_opening_the_initial_batch_is_not_audited`) instead of changing
+  behaviour — CLAUDE.md priority 3 doesn't require auditing every DB write, only consequential
+  *actions* by an actor.
+- **The one flaky/real pytest warning left over from a previous wave** ("Error when trying to
+  teardown test databases: ... database is being accessed by other users") came from
+  `tests/e2e/test_smoke.py`'s `live_server` (pytest-django, session-scoped): a real
+  `ThreadedWSGIServer` handling Playwright's HTTP/1.1 keep-alive traffic in per-request worker
+  threads, each with its own Postgres backend session, with no hard guarantee every one of
+  those sessions is closed by the time pytest-django's own session-scoped `django_db_setup`
+  fixture tears down and runs `DROP DATABASE`. Root-caused by reproducing it standalone
+  (`pytest tests/e2e/test_smoke.py -p no:randomly`, ~100s, much faster to iterate on than the
+  full ~150s suite) and bisecting with `--deselect`; ruled out `CONN_MAX_AGE` (already tried
+  forcing it to 0 in `config/settings/test.py` — didn't help, so don't re-try that) and a
+  `LiveServerThread.terminate()`-doesn't-`.join()` theory (Django's `terminate()` already calls
+  `self.join()` — checked the installed Django's source directly rather than assuming). Fixed
+  defensively rather than by chasing the exact leaking thread: a `tests/conftest.py` session-
+  scoped `autouse` fixture (`_terminate_stray_backends_before_db_teardown`) that requests
+  `django_db_setup`/`django_db_blocker` as dependencies (so pytest's LIFO teardown order runs
+  it *right before* `django_db_setup`'s own teardown) and runs `pg_terminate_backend` on every
+  *other* backend still connected to `current_database()`. No-op on a clean run; removes the
+  warning unconditionally regardless of which test (if any) is the actual culprit next time.
+- **When two `Bash` tool calls against the same Postgres-backed pytest suite overlap (e.g. a
+  timed-out call auto-moved to background, then another blocking call issued before checking
+  the first one's result), you get spurious "database is being accessed by other users"
+  noise that has nothing to do with the code under test.** Burned real time here chasing a
+  ghost before noticing two concurrent `pytest -q` processes via `ps -ef`. Before treating a
+  DB-teardown warning as reproducible, confirm there is exactly one pytest process running
+  (`pgrep -af pytest`) — and don't fire off a second full-suite run without first reading the
+  previous one's completion notification/output.

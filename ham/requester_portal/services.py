@@ -21,6 +21,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from ham.audit.services import record as audit_record
 from ham.authz.commands import CommandResult, OutboxSpec, command
 from ham.authz.context import RequesterContext
 from ham.platform import otp
@@ -28,7 +29,7 @@ from ham.platform.clock import now as clock_now
 from ham.platform.crypto import encrypt
 from ham.requests.matching import normalize_email
 
-from . import drafts
+from . import drafts, forms
 from .models import RequesterAccessLink
 from .validity import fixed_expiry, link_validity, normal_access_ends_at
 from .verification import ChallengeRequestResult, request_link_regeneration_code
@@ -266,35 +267,161 @@ class SubmissionResult:
     issued_link: IssuedLink | None  # None for a Q-025 no-email (NEEDS_PHONE_CHECK) submission
 
 
+# Coordination note (found while wiring `submit_and_issue_link`, not a PRD-policy question):
+# `ham.requester_portal.choices`/`.attestation` (this app's own public-form vocabulary, S2.3)
+# and `ham.requests.models`/`.certifications` (what's actually persisted, S2.2) were built in
+# parallel worktrees and independently invented *different* string codes for the same three
+# choices (need category, property type, and the certification statements) -- e.g. the portal
+# form offers `"roof_or_ceiling"` but `AssistanceRequest.need_category`'s `choices=` only
+# lists `"roof"`. Passing the portal's codes straight through would silently store a value
+# outside the model's `choices=` (Django doesn't enforce `choices=` at the DB/`.create()`
+# level, so this would not raise -- it would just quietly break every screen that renders the
+# category/type by its label) or, for certifications, make `submit_request`'s
+# `certifications.statements_satisfy_relationship` check refuse every submission. Translated
+# here rather than in either module, since this is the one place that already imports both
+# vocabularies together for the sole purpose of crossing that seam.
+_NEED_CATEGORY_TRANSLATION: dict[str, str] = {
+    "roof_or_ceiling": "roof",
+    "plumbing_or_water": "plumbing",
+    "electrical": "electrical",
+    "doors_windows_locks": "carpentry",
+    "floors_or_stairs": "carpentry",
+    "ramps_rails_grab_bars": "accessibility",
+    "painting_or_walls": "painting",
+    "yard_or_outside": "yard_outdoor",
+    "something_else": "other",
+}
+
+_PROPERTY_TYPE_TRANSLATION: dict[str, str] = {
+    "house": "single_family_home",
+    "townhouse": "townhome_condo",
+    "apartment_or_condo": "apartment",
+    "mobile_or_manufactured_home": "mobile_manufactured_home",
+    "other": "other",
+}
+
+
+def _payload_from_cleaned(cleaned: dict, *, no_email: bool) -> Any:
+    """Builds `ham.requests.services.SubmittedRequestPayload` from
+    `ham.requester_portal.forms.validate_intake_payload`'s ``cleaned`` dict. Free-text C
+    fields (`known_hazards`/`preferred_availability`) are stored as the human-readable
+    comma-joined answers; nothing here re-derives what `validate_intake_payload` already
+    decided (this function only reshapes, never re-validates) except translating the two
+    vocabularies documented above."""
+    from ham.requests import certifications
+    from ham.requests.services import SubmittedRequestPayload
+    from ham.requests.states import VerificationMethod
+
+    hazards = ", ".join(cleaned["hazards"])
+    if cleaned.get("hazard_note"):
+        hazards = f"{hazards} ({cleaned['hazard_note']})" if hazards else cleaned["hazard_note"]
+
+    # The portal's own `attestation.statements_satisfied` (called by `validate_intake_payload`
+    # before we ever get here) already confirmed both required ticks were accepted for this
+    # relationship, under the portal's own (differently-coded but content-equivalent) two-tick
+    # wording -- so it's safe to record the corresponding *certifications*-vocabulary codes
+    # `ham.requests.services.submit_request` actually checks and stores.
+    attested_statements = certifications.required_statements(cleaned["relationship_to_property"])
+
+    return SubmittedRequestPayload(
+        full_name=cleaned["full_name"],
+        phone=cleaned["phone"] or "",
+        email=cleaned["email"],
+        email_opt_out=no_email,
+        line1=cleaned["line1"],
+        line2=cleaned["line2"],
+        city=cleaned["city"],
+        state=cleaned["state"],
+        postal_code=cleaned["postal_code"] or "",
+        property_type=_PROPERTY_TYPE_TRANSLATION.get(
+            cleaned["property_type"], cleaned["property_type"]
+        ),
+        owner_name=cleaned["owner_name"],
+        relationship_to_property=cleaned["relationship_to_property"],
+        need_category=_NEED_CATEGORY_TRANSLATION.get(
+            cleaned["need_category"], cleaned["need_category"]
+        ),
+        description=cleaned["description"],
+        preferred_contact_method=cleaned["contact_preference"],
+        attested_statements=attested_statements,
+        urgent_requested=cleaned["urgent_requested"],
+        urgency_justification=cleaned["urgency_justification"],
+        known_hazards=hazards,
+        preferred_availability=", ".join(cleaned["preferred_availability"]),
+        # Both a typed code and a clicked link satisfy `EMAIL_VERIFICATION_METHODS`
+        # (ham.requests.states) identically; neither challenge type is distinguished once
+        # consumed (`RequesterVerificationChallenge` has no such field), so `EMAIL_CODE` is
+        # recorded either way -- cosmetic only, never read by the state machine itself.
+        verification_method=(
+            VerificationMethod.STAFF_PHONE_CALL if no_email else VerificationMethod.EMAIL_CODE
+        ),
+        verified_value="" if no_email else (cleaned["email"] or ""),
+        # PRD-GAP: `intake_source_code` -> `IntakeSource.id` resolution isn't wired yet
+        # (intake-contracts.md §8.6 -- the model itself still needs merging into one app);
+        # left `None` here, not a product-policy question.
+        intake_source_id=None,
+        source="public_form",
+    )
+
+
 def submit_and_issue_link(*, draft_id: UUID, verification_id: UUID | None) -> SubmissionResult:
     """intake.md §2: "The portal orchestrates submission: it verifies the draft, calls
     `requests.services.submit_request`, then issues the link, all in one transaction."
 
     `verification_id` is `None` only for the Q-025 "I don't use email" path (no challenge was
-    ever created; `ham.requests.services.submit_request` must accept that and route the
-    request to `NEEDS_PHONE_CHECK` — see this slice's handback for the exact coordination note
-    with S2.2 on that signature).
+    ever created; `ham.requests.services.submit_request` routes that request to
+    `NEEDS_PHONE_CHECK`). Re-validates the draft's merged answers one last time before
+    building `SubmittedRequestPayload` (CLAUDE.md's "AI suggestion -> user accepts -> HAM
+    validates permissions/rules -> transaction" -- the caller's own pre-code-send validation
+    is not trusted as the only gate).
     """
+    from ham.platform.church import church_profile
     from ham.requests.services import submit_request  # S2.2's `@command`-wrapped service
+
+    raw = drafts.load_payload(draft_id)
+    if raw is None:
+        raise ValueError("submit_and_issue_link: unknown, consumed or expired draft")
+    cleaned, errors = forms.validate_intake_payload(raw, church=church_profile())
+    if cleaned is None:
+        raise ValueError(
+            f"submit_and_issue_link: draft answers no longer validate: {sorted(errors)}"
+        )
+
+    no_email = bool(cleaned["no_email"])
+    if no_email != (verification_id is None):
+        raise ValueError(
+            "submit_and_issue_link: verification_id must be set iff the draft has an email"
+        )
+    payload = _payload_from_cleaned(cleaned, no_email=no_email)
 
     ctx = RequesterContext(request_id=None)
     with transaction.atomic():
-        # PRD-GAP coordination note (see handback): S2.2's committed `submit_request` stub
-        # signature types `verification_id` as required (`UUID`); the Q-025 no-email path has
-        # no challenge to reference at all. `type: ignore` until S2.2/the merge relaxes it.
         request = submit_request(
             ctx,
             draft_id=draft_id,
-            verification_id=verification_id,  # type: ignore[arg-type]
+            verification_id=verification_id,
+            payload=payload,
         )
         drafts.mark_consumed(draft_id, request_id=request.id)
-        no_email = getattr(request, "status", "") == "NEEDS_PHONE_CHECK"
         issued: IssuedLink | None = None
         if not no_email:
             issued = issue_link(
                 request_id=request.id,
                 kind=RequesterAccessLink.KIND_INITIAL,
                 verification_id=verification_id,
+            )
+            # `issue_link` deliberately never audits itself (its own docstring: "Does not
+            # itself audit or email; the caller does") -- this is that caller, same shape as
+            # `regenerate_link_for_own_request`'s `@command`-driven "requester_link.regenerated"
+            # audit, written by hand here since this whole function is a plain orchestration,
+            # not a single `@command` (intake.md §2: it calls two commands in one transaction).
+            audit_record(
+                ctx=ctx,
+                action="requester_link.issued",
+                target_type="request",
+                target_id=str(request.id),
+                project_id=request.id,
+                context={"link_id": str(issued.link.id), "kind": RequesterAccessLink.KIND_INITIAL},
             )
     return SubmissionResult(request=request, issued_link=issued)
 

@@ -64,6 +64,20 @@ def test_reserve_uploads_returns_presigned_urls(open_request):
     assert reserved[0].upload.url
 
 
+def test_opening_the_initial_batch_is_not_audited(open_request):
+    """S2.4's own flag, resolved (see `_get_or_open_initial_batch`'s docstring): opening
+    batch #1 is a side effect of the requester's own (already unaudited) `reserve_uploads`
+    call, not a distinct audited action -- unlike `reopen_batch`'s `request_media.batch_opened`."""
+    from ham.audit.models import AuditEvent
+
+    ctx = _requester_ctx(open_request.id)
+    services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])
+    batch = RequestMediaBatch.objects.get(request=open_request, number=1)
+    assert batch.kind == "initial"
+    assert not AuditEvent.objects.filter(target_id=str(batch.id)).exists()
+    assert not AuditEvent.objects.filter(action="request_media.batch_opened").exists()
+
+
 def test_reserve_uploads_rejects_unsupported_type(open_request):
     ctx = _requester_ctx(open_request.id)
     with pytest.raises(MediaValidationError):

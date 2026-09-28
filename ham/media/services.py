@@ -106,7 +106,18 @@ def _validate_intent(intent: UploadIntent) -> None:
 
 def _get_or_open_initial_batch(request_id: uuid.UUID) -> RequestMediaBatch:
     """Row-locked get-or-create of request #1's batch (intake.md §3 "enforced under
-    select_for_update() on the batch"). Must be called inside an open transaction."""
+    select_for_update() on the batch"). Must be called inside an open transaction.
+
+    **Deliberately not audited** (CLAUDE.md priority 3, considered and left this way): opening
+    batch #1 is a side effect of the requester's own `reserve_uploads` call for their own
+    request -- itself already excluded from intake.md §6's audit-action list per this module's
+    own docstring, since it is a technical pre-step, not a distinct decision by any actor. The
+    consequential, audited event for requester media is the per-item `request_media.uploaded`
+    (once a file actually lands), not the container being created. This is not the same as
+    `reopen_batch` below (`request_media.batch_opened`, audited): that one is a deliberate
+    staff decision to reopen media collection on an already-closed request, with its own
+    reason -- a discrete leadership action worth a record, unlike a requester's first upload
+    on their own still-open request opening their own batch #1."""
     batch = (
         RequestMediaBatch.objects.select_for_update()
         .filter(request_id=request_id, closed_at__isnull=True)
