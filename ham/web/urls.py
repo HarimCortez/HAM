@@ -2,6 +2,9 @@ from django.urls import path
 
 from . import (
     auth_views,
+    urls_inbox,
+    urls_requester,
+    urls_requests,
     views,
     views_admin_settings,
     views_admin_users,
@@ -124,4 +127,8 @@ urlpatterns = [
         views_audit.audit_export_download,
         name="audit_export_download",
     ),
+    # --- Step 2 (Intake), S2.0 seams: real routes land in S2.7/S2.8 --------------------------
+    *urls_requests.urlpatterns,
+    *urls_requester.urlpatterns,
+    *urls_inbox.urlpatterns,
 ]

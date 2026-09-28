@@ -30,6 +30,10 @@ class Scope(Enum):
     INVITED_PROJECT = "invited_project"
     # Special-cased in `authorize()`: only the Administrator currently impersonating.
     IMPERSONATING_ADMIN = "impersonating_admin"
+    # S2.0 (intake.md §5): a `RequesterContext`'s own request only — compares
+    # `ctx.request_id` to `resource.request_id`, never to a `user_id` (a requester has no
+    # `User` row, intake.md §3 `Requester`).
+    OWN_REQUEST = "own_request"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +55,21 @@ _ADM = frozenset({roles.ADMINISTRATOR})
 _ADM_DIR = frozenset({roles.ADMINISTRATOR, roles.HAM_DIRECTOR})
 _ADM_DIR_AD = frozenset({roles.ADMINISTRATOR, roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})
 _DIR_AD = frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})  # Q-054: not Administrator
+
+# S2.0 pseudo-roles (intake.md §5): never in `roles.GLOBAL_ROLES`/`ANY_STANDING_ROLE`, so they
+# never reach `shell.use`/`me.*` by accident; declared here only for the handful of actions
+# below that name them explicitly.
+_REQUESTER = frozenset({"REQUESTER"})
+_SYSTEM = frozenset({"SYSTEM"})
+
+# intake.md §1/§5: Director, Assistant Director, Pastor, Board representative see every
+# request awaiting approval (§4.3, §8; Q-106/Q-125). Q-124 (decided): the Administrator gets
+# view-only access to requests/media with contact details masked and no reveal, alongside this
+# set but NOT `requester_pii.reveal` (a separate action below).
+_DIR_AD_PAS_BRD = frozenset(
+    {roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR, roles.PASTOR, roles.BOARD_REPRESENTATIVE}
+)
+_ADM_DIR_AD_PAS_BRD = _DIR_AD_PAS_BRD | _ADM
 
 MATRIX: dict[str, ActionRule] = {
     "shell.use": ActionRule(ANY_STANDING_ROLE, prd=("§67",)),
@@ -153,11 +172,74 @@ MATRIX: dict[str, ActionRule] = {
     "integrations.view_status": ActionRule(_ADM, prd=("§4.11",)),
     "rules.view": ActionRule(_ADM_DIR, prd=("§4.11",)),
     "outbox.retry": ActionRule(_ADM, blocked_while_impersonating=True, prd=("§70.3",)),
-    # Declared for step 2 (Q-009); no requester/project data model exists yet in step 1, so
-    # this always denies until the scope-provider registry and requester module land.
-    # PRD-GAP Q-081: exact scope wiring (LEADS_PROJECT / LEADS_TASK / role-specific route)
-    # lands with the requests module.
-    "requester_pii.reveal": ActionRule(frozenset(), prd=("§67", "§68", "Q-009", "Q-024")),
+    # --- S2.0 (intake.md §5, §10 "S2.0 contents"): step-2 (Intake) actions ------------------
+    # Requester (public) actions: `RequesterContext`, `Scope.OWN_REQUEST`. `request.submit`
+    # itself has no request yet to scope to (the draft becomes the request inside the
+    # service), so it stays `Scope.ANY` — the service layer is what actually checks the draft
+    # carries a consumed verification challenge (intake.md §4 "REQUESTER after a verified code
+    # or link").
+    "request.submit": ActionRule(_REQUESTER, prd=("§6", "§7.1", "Q-100")),
+    "requester.request.view": ActionRule(
+        _REQUESTER, scope=Scope.OWN_REQUEST, prd=("§7.2", "§67", "Q-101")
+    ),
+    "requester.media.upload": ActionRule(
+        _REQUESTER, scope=Scope.OWN_REQUEST, prd=("§7.1", "§45", "Q-118")
+    ),
+    "requester.media.remove": ActionRule(_REQUESTER, scope=Scope.OWN_REQUEST, prd=("§45", "Q-118")),
+    "requester_link.regenerate": ActionRule(
+        _REQUESTER, scope=Scope.OWN_REQUEST, prd=("§7.3", "§58", "Q-116", "Q-117")
+    ),
+    # Leadership actions: Director, Assistant Director, Pastor, Board representative see every
+    # request (intake.md §5, Q-106/Q-125); the Administrator is added to the view-only rows
+    # only (Q-124 decided: masked contact details, no reveal).
+    "request.list": ActionRule(_ADM_DIR_AD_PAS_BRD, prd=("§8", "§64", "Q-106")),
+    "request.view": ActionRule(_ADM_DIR_AD_PAS_BRD, prd=("§8", "§67", "Q-124")),
+    # Kept separate from `request.view` so a later Project/Task Leader `request.view` grant
+    # (steps 4-5, via `LEADS_PROJECT`/`LEADS_TASK`) never implicitly includes the duplicate
+    # panel (intake.md §5 "kept separate so later PL/TL request.view never includes it"). Not
+    # granted to the Administrator: Q-124 is "requests", not the duplicate-history detail.
+    "request.history.view": ActionRule(_DIR_AD_PAS_BRD, prd=("§5", "§9")),
+    # Q-081/Q-122/Q-125 (closed for step 2): Director, Assistant Director, Pastor and Board
+    # representative may reveal on any request; every reveal is logged except a *non*-
+    # impersonating Director's (Q-024) — that exemption is applied in
+    # `ham.requests.services.reveal_requester_pii`, not here (the matrix only decides who may
+    # ask; §68's "was it logged" nuance is finer-grained than a matrix flag). Denied attempts
+    # are always audited (`_AUDITED_ON_DENIAL` below) regardless of who denies.
+    "requester_pii.reveal": ActionRule(
+        _DIR_AD_PAS_BRD, prd=("§67", "§68", "Q-009", "Q-024", "Q-081", "Q-122", "Q-125")
+    ),
+    "request_media.view": ActionRule(_ADM_DIR_AD_PAS_BRD, prd=("§69", "Q-124")),
+    "request_media.reopen": ActionRule(_DIR_AD_PAS_BRD, prd=("§46",)),
+    "request.cancel": ActionRule(
+        _DIR_AD, blocked_while_impersonating=True, prd=("§52", "Q-107", "Q-111")
+    ),
+    # Q-025 (decided): a Director, Assistant Director or pastor may enter a request on behalf
+    # of someone with no email at all, over the phone. Blocked while impersonating: the actor
+    # is vouching, by their own account, for a phone call that happened — the same "the
+    # target's own ... decisions" pattern Q-048 blocks for accepting agreements/consents on
+    # someone else's behalf.
+    "request.create_assisted": ActionRule(
+        frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR, roles.PASTOR}),
+        blocked_while_impersonating=True,
+        prd=("Q-025",),
+    ),
+    # intake.md owner-decisions box: no-email requests wait in a Director/AD-only "Needs a
+    # phone check" list until verified by phone.
+    "request.needs_phone_check.list": ActionRule(_DIR_AD, prd=("Q-025",)),
+    # The consequential "verified by phone call" action itself (intake.md owner-decisions box:
+    # "audited, blocked while impersonating").
+    "request.contact_verify_phone": ActionRule(
+        _DIR_AD, blocked_while_impersonating=True, prd=("Q-025",)
+    ),
+    "intake_source.manage": ActionRule(_DIR_AD, prd=("§6", "Q-106")),
+    "notification.acknowledge": ActionRule(
+        ANY_STANDING_ROLE, scope=Scope.SELF, blocked_while_impersonating=True, prd=("§10", "§35")
+    ),
+    # System (background job) actions: `SystemContext`, no human behind them.
+    "system.request.complete_intake_checks": ActionRule(_SYSTEM, prd=("§9",)),
+    "system.media.process": ActionRule(_SYSTEM, prd=("§45",)),
+    "system.media.purge": ActionRule(_SYSTEM, prd=("§47",)),
+    "system.intake.purge": ActionRule(_SYSTEM, prd=("§76",)),
 }
 
 
@@ -199,6 +281,11 @@ def _check_scope(scope: Scope, ctx, resource) -> bool:
         return check_scope_provider(scope, ctx, resource)
     if scope is Scope.IMPERSONATING_ADMIN:
         return ctx.is_impersonating
+    if scope is Scope.OWN_REQUEST:
+        if resource is None:
+            return False
+        target = getattr(resource, "request_id", resource)
+        return target == getattr(ctx, "request_id", None)
     return False  # pragma: no cover - exhaustive over Scope
 
 

@@ -75,10 +75,14 @@ root_package = "ham"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "web -> domain modules -> {authz, audit, outbox, rules, platform} (foundation.md §1)"
+name = "web -> domain modules -> {authz, audit, outbox, rules, platform} (foundation.md §1, intake.md §2)"
 type = "layers"
 layers = [
   "ham.web",
+  "ham.requester_portal",
+  "ham.media",
+  "ham.requests",
+  "ham.notifications",
   "ham.identity",
   "ham.authz",
   "ham.audit",
@@ -103,13 +107,18 @@ forbidden_modules = [
 name = "domain modules never import ham.integrations directly"
 # foundation.md §1: only ham.integrations talks to third parties, only as an outbox
 # subscriber, with one documented exception — S3b's ham.identity calling
-# ham.integrations.email.service.send_transactional_email for sign-in codes/links.
+# ham.integrations.email.service.send_transactional_email for sign-in codes/links. intake.md
+# §2 extends the same rule (and the same kind of documented exception) to the step-2 modules.
 type = "forbidden"
 source_modules = [
   "ham.web",
   "ham.outbox",
   "ham.platform",
   "ham.identity",
+  "ham.requester_portal",
+  "ham.media",
+  "ham.requests",
+  "ham.notifications",
 ]
 forbidden_modules = [
   "ham.integrations",
@@ -121,4 +130,11 @@ ignore_imports = [
   # role-change, impersonation-ended notices, Q-055/Q-049/Q-084) the same way authn/mfa do for
   # sign-in codes; it is the one place identity registers builders with the email subscriber.
   "ham.identity.notifications -> ham.integrations.email.notifications",
+  # intake.md §2 pre-approves the same documented exception for step 2's own modules
+  # (ham.requester_portal.verification -> ham.integrations.email.service;
+  # ham.requester_portal.notifications / ham.requests.notifications / ham.media.notifications
+  # -> ham.integrations.email.notifications). NOT listed here yet: import-linter's own
+  # `ignore_imports` errors ("No matches for ignored import") if the named import doesn't
+  # exist anywhere in the tree yet, and none of those files exist before S2.3/S2.6. Add the
+  # exact entry when the file importing ham.integrations actually lands.
 ]

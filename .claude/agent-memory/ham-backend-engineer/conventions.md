@@ -526,3 +526,76 @@ service, `build_tokens --check`, pip-audit (non-blocking).
 - `.env.example` **cannot be created**: `.claude/settings.json` denies Read/Write on any
   `.env*` path (including `.env.example`) as a secrets guardrail, even via Bash heredoc.
   Document required env vars in a regular doc instead (see `docs/dev-environment.md`).
+
+## S2.0 additions: step 2 (Intake) seams and contracts
+- **Full contract reference**: `docs/architecture/intake-contracts.md` — exact signatures,
+  matrix actions, session/context shapes for S2.1-S2.5 to build against in parallel. Read it
+  (and `docs/architecture/intake.md`'s owner-decisions box, which overrides the plan body)
+  before touching any `ham.requests`/`ham.requester_portal`/`ham.media`/`ham.notifications`
+  code.
+- **Pseudo-principals are duck-typed siblings of `ActorContext`, not subclasses**:
+  `ham.authz.context.RequesterContext`/`SystemContext` implement the same attribute/property
+  surface (`user_id`, `roles`, `effective_roles`, `is_authenticated`, `is_impersonating`,
+  `has_fresh_step_up`, ...) so `ham.authz.matrix.authorize()` and `ham.audit.services.record()`
+  work on them unmodified. `ham.audit` must never import `ham.authz` (layering), so
+  `record()` branches on `"REQUESTER"`/`"SYSTEM"` being *in* `ctx.roles` rather than
+  `isinstance` — if you add a third pseudo-principal, follow the same duck-type pattern, don't
+  add an import to break the cycle.
+- **`Scope.OWN_REQUEST`** compares `resource.request_id` to `ctx.request_id` (never a
+  `user_id` — a requester has no `User` row). Any action using it needs a `resource_from`
+  returning something with a `.request_id` attribute (usually the `AssistanceRequest` row
+  itself, or a 1:1 row exposing that attribute).
+- **`ham.platform.otp`/`ham.platform.net`**: moved out of `ham.identity.authn`/
+  `ham.web.auth_views` respectively so `ham.requester_portal`'s own code (own-code
+  verification, public-form rate limiting) can reuse the exact reviewed logic without one
+  domain module importing another. Both old call sites kept as thin re-exports (`_hash`/
+  `_generate_code` in `authn.py`; `_client_ip = net.client_ip` in `auth_views.py`) because an
+  existing test imports the old name directly — check for that pattern before renaming a
+  "moved" helper's call sites away entirely.
+- **`ham.platform.storage`**: a `Protocol`, not an ABC — `get_object_store()` does
+  `import_string(settings.HAM_OBJECT_STORE_BACKEND)` and instantiates with no args, uncached
+  (so `override_settings` swaps backends per-test cleanly once S2.4a lands a real
+  implementation). Raises `RuntimeError` naming the setting if unconfigured, not an import
+  error — there is no default backend in S2.0, this is a seam only.
+- **import-linter `ignore_imports` entries must name an import that already exists somewhere
+  in the tree**, or `lint-imports` fails with "No matches for ignored import ..." (exit 1, not
+  a warning). Don't pre-declare an `ignore_imports` line for a file a *later* slice will
+  create — add the exact entry in the same commit that adds the importing file. (The
+  `pyproject.toml` layers/forbidden-modules contracts themselves are fine to extend early,
+  since they key off packages that already exist once the empty `AppConfig` lands.)
+- **A new `NavItem` with `built=False` still shows up in `ham.authz.nav.nav_for()`** (and
+  therefore in every test that calls it directly, e.g. `tests/authz/test_nav_personas.py`'s
+  exact-set assertions and `tests/authz/test_nav_mobile.py`'s "every full-nav item is
+  reachable on mobile" check) — only `ham.web.nav`'s template-facing wrappers filter on
+  `.built`. Update those tests' expected sets in the same change (add the new key to the
+  personas that get the action; for the mobile reachability test, intersect `nav_for()`'s
+  result with the *built* keys before asserting reachability, don't just add the new key to
+  every mobile grouping — it isn't actually reachable yet, on purpose).
+- **`tests/audit/test_command_registry.py`'s `READ_ONLY_ACTIONS`/`PLACEHOLDER_ACTIONS`
+  frozensets need a new matrix row added to one of them the same time the row lands**, if the
+  real `@command`-wrapped service isn't written yet in this slice — otherwise the static
+  registry-coverage test fails immediately. Pure `.view`/`.list` actions go in
+  `READ_ONLY_ACTIONS`; a mutating action whose service is a `NotImplementedError` stub goes in
+  `PLACEHOLDER_ACTIONS` with a comment naming which later slice wires it.
+- **`tests/authz/generate_expected_matrix.py`'s existing `_rows()` machinery (MFA gating,
+  role-union, SELF scope in/out-of-bounds) assumes a human, multi-role-capable actor** — it
+  doesn't fit `RequesterContext`/`SystemContext` (never more than one pseudo-role, no MFA, no
+  impersonation). Added a **separate** `PSEUDO_ORACLE` dict + `_pseudo_rows()` generator
+  instead of forcing pseudo-actions through `_rows()`; new CSV `scope_case` values
+  `"own_request"`/`"other_request"`. `tests/authz/test_expected_matrix.py`'s `_ctx_for` builds
+  a real `RequesterContext`/`SystemContext` (not a plain `ActorContext` with a made-up role
+  string) whenever `row["role"]` is `"REQUESTER"`/`"SYSTEM"`, checked *before* the
+  zero-role/disabled/mfa branches (those don't apply to pseudo-roles).
+- **`ham.integrations.email.notifications.register_notification` now appends to a
+  `dict[str, list[Builder]]`**, not a single-slot `dict[str, Builder]` — multiple modules can
+  register a builder for the same `event_type` (e.g. one `RequestSubmitted` event eventually
+  drives both a requester-facing email, from `ham.requester_portal.notifications`, and a
+  leadership one, from a different module) and `handle_email_event` runs all of them.
+  `unregister_notification(event_type)` still clears the whole list for that type (test-only
+  helper; existing tests using it were unaffected by the shape change).
+- **App label collisions**: the new step-2 apps use short Django `label=`s
+  (`requests`, `requester_portal`, `ham_media`, `ham_notifications`) distinct from their
+  `name=` (`ham.requests`, etc.) — `ham.media`'s default label would've been `media`, which is
+  fine, but `ham_media`/`ham_notifications` were chosen defensively since `media`/
+  `notifications` are common third-party app names elsewhere; keep an eye out if a future
+  dependency wants the plain name.

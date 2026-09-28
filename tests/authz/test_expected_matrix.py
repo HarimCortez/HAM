@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from ham.authz.context import ActorContext
+from ham.authz.context import ActorContext, RequesterContext, SystemContext
 from ham.authz.matrix import MATRIX, authorize
 
 CSV_PATH = Path(__file__).resolve().parent / "expected_matrix.csv"
@@ -39,12 +39,30 @@ class _Resource:
         self.user_id = user_id
 
 
-def _ctx_for(row: dict[str, str]) -> tuple[ActorContext, object | None]:
+class _RequestResource:
+    def __init__(self, request_id: object) -> None:
+        self.request_id = request_id
+
+
+def _ctx_for(row: dict[str, str]) -> tuple[object, object | None]:
     case = row["case"]
     self_user_id = uuid.uuid4()
 
     if case == "unauthenticated":
         return ActorContext.anonymous(), None
+
+    # S2.0 (intake.md §5): RequesterContext/SystemContext pseudo-principals.
+    if row["role"] == "REQUESTER":
+        request_id = uuid.uuid4()
+        requester_ctx = RequesterContext(request_id=request_id)
+        if row["scope_case"] == "own_request":
+            return requester_ctx, _RequestResource(request_id)
+        if row["scope_case"] == "other_request":
+            return requester_ctx, _RequestResource(uuid.uuid4())
+        return requester_ctx, None
+
+    if row["role"] == "SYSTEM":
+        return SystemContext(), None
 
     if case == "zero_role":
         ctx = ActorContext(

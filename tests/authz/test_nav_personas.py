@@ -20,13 +20,19 @@ from ham.identity.management.commands.seed_dev import PERSONAS
 # action table cross-referenced with navigation.md §3.1/§3.3 (only Home/Inbox/Me/Admin
 # group/Audit log exist yet): a role's item shows only if the matrix grants that item's action.
 _BASE = {"home", "inbox", "me"}
+# S2.0 (intake.md §5, §7 "Nav"): `request.list` (Director, Assistant Director, Pastor, Board
+# representative, plus the Administrator per Q-124's view-only access) puts `nav_for`'s
+# `requests` item (still `built=False`, intake.md §10) in the *full* nav_for() result even
+# though nothing renders it yet — see `test_nav_mobile.py`'s reachability test, which only
+# checks *built* destinations.
 _EXPECTED_BY_ROLE: dict[str, set[str]] = {
     "ADMINISTRATOR": _BASE
-    | {"admin_users", "admin_church", "admin_integrations", "admin_rules", "audit_log"},
-    "HAM_DIRECTOR": _BASE | {"admin_users", "admin_rules", "audit_log"},
-    "ASSISTANT_DIRECTOR": set(_BASE),
-    "PASTOR": set(_BASE),
-    "BOARD_REPRESENTATIVE": set(_BASE),
+    | {"admin_users", "admin_church", "admin_integrations", "admin_rules", "audit_log"}
+    | {"requests"},
+    "HAM_DIRECTOR": _BASE | {"admin_users", "admin_rules", "audit_log"} | {"requests"},
+    "ASSISTANT_DIRECTOR": set(_BASE) | {"requests"},
+    "PASTOR": set(_BASE) | {"requests"},
+    "BOARD_REPRESENTATIVE": set(_BASE) | {"requests"},
     "SOCIAL_MEDIA_SPECIALIST": set(_BASE),
     "VOLUNTEER": set(_BASE),
     "CONTRACTOR": set(_BASE),

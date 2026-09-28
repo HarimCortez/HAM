@@ -37,6 +37,13 @@ READ_ONLY_ACTIONS = frozenset(
         "audit.view_deleted_comment",
         "integrations.view_status",
         "rules.view",
+        # S2.0 (intake.md §5, §7): query-only leadership/requester screens.
+        "request.list",
+        "request.view",
+        "request.history.view",
+        "request_media.view",
+        "requester.request.view",
+        "request.needs_phone_check.list",
     }
 )
 
@@ -44,8 +51,25 @@ READ_ONLY_ACTIONS = frozenset(
 # action yet"), per docs/prd-open-questions.md.
 PLACEHOLDER_ACTIONS = frozenset(
     {
-        "requester_pii.reveal",  # Q-081: always denies until requests/projects land
+        "requester_pii.reveal",  # Q-081/Q-122/Q-125: wired by S2.2's reveal_requester_pii
         "me.sign_in_email.change",  # Q-083: matrix entry declared, flow not built this slice
+        # S2.0 (intake.md §10 "S2.0 contents"): matrix rows + stub service signatures land
+        # now; the real `@command`-wrapped services land in S2.2 (ham.requests),
+        # S2.3 (ham.requester_portal), S2.4b (ham.media), S2.5 (ham.notifications).
+        "request.submit",
+        "requester.media.upload",
+        "requester.media.remove",
+        "requester_link.regenerate",
+        "request_media.reopen",
+        "request.cancel",
+        "request.create_assisted",
+        "request.contact_verify_phone",
+        "intake_source.manage",
+        "notification.acknowledge",
+        "system.request.complete_intake_checks",
+        "system.media.process",
+        "system.media.purge",
+        "system.intake.purge",
     }
 )
 
