@@ -64,20 +64,34 @@ def test_leadership_screenshots(live_server):
             RequesterContext(request_id=None),
             draft_id=uuid.uuid4(),
             verification_id=uuid.uuid4(),
-            payload=make_payload(full_name=f"Fictional Requester {uuid.uuid4().hex[:6]}"),
+            payload=make_payload(
+                full_name=f"Fictional Requester {uuid.uuid4().hex[:6]}",
+                description="Kitchen sink leaks under the cabinet (fictional seed data).",
+            ),
         )
         complete_intake_checks(SystemContext(), request_id=req.id)
     phone_check_req = submit_request(
         RequesterContext(request_id=None),
         draft_id=uuid.uuid4(),
         verification_id=None,
-        payload=no_email_payload(full_name="Ruth Hall", phone="+13055550177"),
+        payload=no_email_payload(
+            full_name="Ruth Hall",
+            phone="+13055550177",
+            description="Front steps are loose and wobble (fictional seed data).",
+        ),
     )
     selected = submit_request(
         RequesterContext(request_id=None),
         draft_id=uuid.uuid4(),
         verification_id=uuid.uuid4(),
-        payload=make_payload(full_name="Doris Pennington", email="doris@example.org"),
+        payload=make_payload(
+            full_name="Doris Pennington",
+            email="doris@example.org",
+            description=(
+                "The bathroom pipe drips all the time and the floor under it is getting "
+                "soft. It has been like this about two months (fictional seed data)."
+            ),
+        ),
     )
     selected = complete_intake_checks(SystemContext(), request_id=selected.id)
     assert selected.status == RequestStatus.AWAITING_APPROVAL.value
