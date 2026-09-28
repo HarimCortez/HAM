@@ -32,21 +32,35 @@ _VISIBLE_SUBSCRIBERS = frozenset({"email"})
 def admin_church_settings(request):
     church = church_profile()
     errors: dict[str, str] = {}
-    values = {
+    values: dict[str, object] = {
         "ham_phone": church.phone,
         "ham_email": church.email,
         "time_zone": church.time_zone,
         "website_url": church.website_url,
+        "serves_days": list(church.serves_days),
     }
     if request.method == "POST":
+        # Q-112: a form that doesn't render the (later, S2.7) serves-days control at all never
+        # sends the key — leave the setting unchanged rather than forcing every caller of this
+        # endpoint to resend it. A form that *does* render it must send at least one day.
+        if "serves_days" in request.POST:
+            serves_days_raw = request.POST.getlist("serves_days")
+            serves_days = [int(d) for d in serves_days_raw if d.strip().lstrip("-").isdigit()]
+        else:
+            serves_days = list(church.serves_days)
         values = {
             "ham_phone": request.POST.get("ham_phone", "").strip(),
             "ham_email": request.POST.get("ham_email", "").strip(),
             "time_zone": request.POST.get("time_zone", "").strip(),
             "website_url": request.POST.get("website_url", "").strip(),
+            "serves_days": serves_days,
         }
         if not values["time_zone"]:
             errors["time_zone"] = "Enter an IANA time zone, e.g. America/New_York."
+        if not values["serves_days"]:
+            # Q-112: at least one day HAM serves is required (the intake form's availability
+            # question needs at least one option).
+            errors["serves_days"] = "Choose at least one day HAM serves requesters."
         if not errors:
             try:
                 update_church_profile(request.actor, **values)
@@ -56,7 +70,7 @@ def admin_church_settings(request):
                     "Church settings can't be changed while acting as someone else.",
                 )
             except ValueError as exc:
-                # Q-030/§70.5: an unrecognized IANA time zone name.
+                # Q-030/§70.5: an unrecognized IANA time zone name, or Q-112 bad serves_days.
                 errors["time_zone"] = str(exc)
             else:
                 messages.success(request, "Church settings updated.")

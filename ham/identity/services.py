@@ -761,12 +761,18 @@ def update_church_profile(
     ham_email: str | None = None,
     time_zone: str | None = None,
     website_url: str | None = None,
+    serves_days: list[int] | None = None,
 ) -> CommandResult:
     from ham.platform.models import ChurchProfile
 
     if time_zone is not None and not is_valid_time_zone(time_zone):
         # Q-030/§70.5: must be a real IANA zone name (`zoneinfo.available_timezones()`).
         raise ValueError(f"{time_zone!r} is not a recognized time zone (e.g. America/New_York).")
+    if serves_days is not None:
+        # Q-112 (intake.md §8): ISO weekday numbers only (1=Monday..7=Sunday), no duplicates.
+        if not serves_days or any(d not in range(1, 8) for d in serves_days):
+            raise ValueError("serves_days must be a non-empty list of weekdays 1-7.")
+        serves_days = sorted(set(serves_days))
 
     profile = ChurchProfile.objects.select_for_update().get(pk=ChurchProfile.get_solo().pk)
     changed: list[str] = []
@@ -775,6 +781,7 @@ def update_church_profile(
         ("ham_email", ham_email),
         ("time_zone", time_zone),
         ("website_url", website_url),
+        ("serves_days", serves_days),
     ):
         if value is not None and getattr(profile, field) != value:
             setattr(profile, field, value)

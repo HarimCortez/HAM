@@ -19,6 +19,17 @@ CHURCH_PROFILE_SINGLETON_ID = uuid.UUID("00000000-0000-7000-8000-000000000001")
 # (that audited command lands with S3a/S5; this app only owns the row and the read service).
 DEFAULT_TIME_ZONE = "America/New_York"
 
+# Q-112 (intake.md §8): "Days offered come from a church-profile 'days HAM serves' setting,
+# default Sunday-Friday." Stored as ISO weekday numbers (1=Monday..7=Sunday) so the public
+# intake form's availability question (`ham.requester_portal.forms`) can render church-local
+# weekday choices without hard-coding them a second time anywhere (CLAUDE.md "no magic
+# numbers"). Default is Sunday(7)-Friday(1-5): every day except Saturday(6).
+DEFAULT_SERVES_DAYS: tuple[int, ...] = (1, 2, 3, 4, 5, 7)
+
+
+def default_serves_days() -> list[int]:
+    return list(DEFAULT_SERVES_DAYS)
+
 
 class ChurchProfile(models.Model):
     id = UUID7Field()
@@ -26,6 +37,10 @@ class ChurchProfile(models.Model):
     ham_email = models.EmailField(blank=True, default="")
     time_zone = models.CharField(max_length=64, default=DEFAULT_TIME_ZONE)
     website_url = models.URLField(blank=True, default="")
+    # Q-112: ISO weekday numbers (1=Monday..7=Sunday) HAM serves requesters on. Used only to
+    # populate the public intake form's availability choices — never an authorization or
+    # staffing/scheduling rule.
+    serves_days = models.JSONField(default=default_serves_days)
     updated_at = models.DateTimeField(auto_now=True)
     # Not a ForeignKey yet: ham.identity.User (S3a) doesn't exist in this slice. The audited
     # `church_profile.update` command (S3a's @command pipeline) will populate this from

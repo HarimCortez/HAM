@@ -55,6 +55,15 @@ def hash_matches(value: str, expected_hash: str) -> bool:
     return False
 
 
+def hash_candidates(value: str) -> list[str]:
+    """Every configured key's HMAC of ``value`` (S2.3, intake.md §3 ``RequesterAccessLink``
+    "Lookups try every key"). Unlike ``hash_matches`` (which checks against one already-known
+    hash), a *lookup by token* needs a set of candidate hashes to filter a table on —
+    ``RequesterAccessLink.objects.filter(token_hash__in=hash_candidates(token))`` — since the
+    caller doesn't know in advance which key originally hashed a given stored row."""
+    return [hmac.new(key, value.encode(), hashlib.sha256).hexdigest() for key in _keys()]
+
+
 def generate_code(length: int) -> str:
     """A cryptographically random decimal code of ``length`` digits (e.g. a 6-digit sign-in
     or requester-verification code); each digit drawn independently via ``secrets``."""
@@ -67,4 +76,4 @@ def generate_token(nbytes: int = 32) -> str:
     return secrets.token_urlsafe(nbytes)
 
 
-__all__ = ["generate_code", "generate_token", "hash_matches", "hash_value"]
+__all__ = ["generate_code", "generate_token", "hash_candidates", "hash_matches", "hash_value"]

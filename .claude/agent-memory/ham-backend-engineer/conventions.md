@@ -593,6 +593,80 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   leadership one, from a different module) and `handle_email_event` runs all of them.
   `unregister_notification(event_type)` still clears the whole list for that type (test-only
   helper; existing tests using it were unaffected by the shape change).
+## S2.3 additions: requester portal (draft, verification, links, anti-abuse)
+- **Parallel-worktree cross-app data without a model class to import**: when your slice's app
+  sits above a sibling app that's being built concurrently in a different worktree (no models
+  in your checkout yet), don't hand-import the not-yet-existing model or hit the DB table by
+  name. Register a plain callable at the *other* app's `AppConfig.ready()` time, mirroring
+  `ham.authz.commands`'s own `_register_audit_recorder`/`_register_outbox_emitter` pattern:
+  `ham.requester_portal.services.register_request_facts_lookup(fn)` /
+  `register_request_contact_lookup(fn)` / `register_email_to_request_ids_lookup(fn)` are the
+  three seams S2.2 (`ham.requests`) must wire from `RequestsConfig.ready()` once merged. Each
+  raises a loud `RuntimeError` if used before registration; tests register a fake directly.
+  Document the exact callable shape in the module docstring AND in `intake-contracts.md` so
+  the other slice's engineer doesn't have to read your source to find the seam.
+- **A stub service signature committed by a parallel slice can be wrong for an edge case your
+  slice needs** (S2.2's `submit_request(ctx, *, draft_id, verification_id: UUID)` has no way
+  to express Q-025's "no email at all, no challenge exists" path, which needs
+  `verification_id=None`). Don't silently paper over it by inventing a different call shape —
+  call it as close to the documented contract as possible with a `# type: ignore[arg-type]` +
+  a comment naming the mismatch, and flag it explicitly in both the contracts doc and your
+  handback as a coordination item for the other slice's owner / the merge, rather than
+  guessing which side should change.
+- **A per-address resend cooldown and "send N emails to N different requests for the same
+  address in one request" are different rules that can collide**: `find_my_request` (Q-117
+  "one email per matching request") calling the same code-sending helper once per request id
+  for one email address will immediately hit that helper's own per-address cooldown on the
+  second call. Give the helper an explicit `bypass_cooldown=` escape hatch for exactly this
+  internal fan-out, while leaving the hourly per-address cap in place — don't weaken the
+  cooldown itself, since it still needs to block a person mashing "resend" for one request.
+- **Building a route's confirm/redemption URL before the route exists**: `ham.identity.authn`
+  gets away with `django.urls.reverse()` for its sign-in link because that URL already exists.
+  A parallel/later slice's not-yet-built public route (here, S2.7's `/request-help/verify/
+  link/<token>`) can't be `reverse()`d yet (`NoReverseMatch` would break every test touching
+  the emailing code). Hard-code the literal path string instead (matching the architecture
+  plan's route table exactly), in one small `dict`/constant, with a comment pointing at who
+  owns building the real route and where the contract doc says so — swap to `reverse()` once
+  the URL exists, in whichever slice lands second.
+- **A resume/continue cookie only needs to be a signed cookie holding an opaque id** — Q-139
+  "resume in the same browser only, no details shown" doesn't need any device-fingerprinting
+  or session-binding logic: a cookie is inherently sent only by the browser that received it,
+  and never decrypting/echoing the draft's payload back into any response is what actually
+  keeps "no details shown" true. `django.core.signing.dumps/loads(..., max_age=...)` (not a
+  bespoke HMAC scheme) is enough; mirror the draft's own `expires_at` as the cookie's `max_age`
+  so a stale cookie and an actually-expired draft go stale at the same time.
+- **A multi-step public wizard's field validation doesn't fit one `django.forms.Form`
+  cleanly** when answers accumulate into one encrypted draft across several requests/pages:
+  validate the *whole* merged payload once, in a plain function over a dict
+  (`ham.requester_portal.forms.validate_intake_payload(data, *, church) -> (cleaned | None,
+  errors)`), called right before the verification code is sent — not per-step. Keep per-field
+  fixed vocabularies (category/property-type/hazard/relationship enums) in a sibling
+  `choices.py`, not inline in the validator, so a later screen-building slice can import the
+  exact same value strings for its `<select>`/radio options.
+- **`ham.platform.otp` needed one more primitive for token-based *lookup* (not just
+  verify-against-a-known-hash)**: `hash_candidates(value) -> list[str]` (HMAC under every
+  configured `HAM_TOKEN_HMAC_KEYS`, not just the first) lets a caller do
+  `Model.objects.filter(token_hash__in=hash_candidates(token))` when it doesn't yet know which
+  key originally hashed a given stored row — `hash_matches` alone can't do this since it takes
+  the expected hash as an input, not a thing to search for.
+- **A church-profile "days served" setting used only by a public form** (`ChurchProfile.
+  serves_days`, Q-112, ISO weekday ints 1=Mon..7=Sun, default Sun-Fri = `[1,2,3,4,5,7]`) is a
+  content/config field, not a `ham.rules` value (no timedelta/limit/weight) — it lives on the
+  existing `platform_church_profile` row/migration like `time_zone`, exposed via
+  `ChurchProfileView.serves_days`. When extending an existing admin settings POST handler
+  (`views_admin_settings.admin_church_settings`) with a new field a screen doesn't render yet,
+  make the handler treat the key's *absence* from `request.POST` as "leave unchanged" (not
+  "clear it to empty and fail validation") — otherwise every existing caller/test of that
+  endpoint breaks the moment you add a required-when-present field.
+- **Two engineers both owning a model the architecture plan assigned to one specific app**:
+  intake.md's data-model section put `IntakeSource` under `ham.requests` (a sibling app being
+  built in a different worktree, in parallel, with no such model yet in this checkout). Rather
+  than block on that slice landing first, define it locally in the app that actually needs the
+  lookup now (`ham.requester_portal.models.IntakeSource`, distinct `db_table`), with a loud
+  comment on the model **and** in the contracts doc naming the collision and saying "keep
+  exactly one of these at merge." Silently working around a plan's file-ownership assignment
+  without flagging it is worse than flagging it and building the pragmatic version.
+
 - **App label collisions**: the new step-2 apps use short Django `label=`s
   (`requests`, `requester_portal`, `ham_media`, `ham_notifications`) distinct from their
   `name=` (`ham.requests`, etc.) — `ham.media`'s default label would've been `media`, which is

@@ -28,6 +28,9 @@ class ChurchProfileView:
     email: str
     time_zone: str
     website_url: str
+    # Q-112 (intake.md §8): ISO weekday numbers (1=Monday..7=Sunday) HAM serves requesters on;
+    # read by `ham.requester_portal.forms` for the public intake form's availability choices.
+    serves_days: tuple[int, ...]
 
 
 def church_profile() -> ChurchProfileView:
@@ -49,6 +52,7 @@ def church_profile() -> ChurchProfileView:
         email=row.ham_email,
         time_zone=row.time_zone,
         website_url=row.website_url,
+        serves_days=tuple(row.serves_days),
     )
 
 
