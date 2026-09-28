@@ -12,6 +12,14 @@
       call <a href="tel:911">911</a> first.</p>
   </div>
 
+  {% comment %}
+  FIX-H M2: below 1280 the "Good to know" aside used to render after the sticky bar, so it
+  scrolled up underneath it. Moved above the form(s) so it's always before the bar in DOM/
+  reading order; the >=1280 grid (shell.css, keyed off `.wizard-aside`) still puts it in its
+  own side column regardless of this position.
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" %}
+
   {% if has_resume %}
     <div class="inline-alert inline-alert--info" role="status">
       <p>You started a request on this browser.</p>
@@ -43,6 +51,4 @@
       </div>
     </form>
   {% endif %}
-
-  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

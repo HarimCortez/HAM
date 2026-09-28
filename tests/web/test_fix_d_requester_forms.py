@@ -182,10 +182,14 @@ class TestWizardAside:
         assert 'aria-label="Good to know"' in html
 
     def test_r2_r3_r4_r5_r9_have_the_aside(self, client: Client):
+        # FIX-H M2: R3 (home) carries a second modifier class,
+        # `wizard-aside--repeats-intro`, since its aside repeats the page's own intro line and
+        # is hidden below 1280 (still present in the DOM -- still available at >=1280 in its
+        # own side column, so this stays a substring check rather than an exact class match).
         _begin(client)
         for step in ["need", "home", "safety", "reaching-you"]:
             resp = client.get(reverse("web:request_help_step", kwargs={"step": step}))
-            assert 'class="wizard-aside"' in resp.content.decode(), step
+            assert 'class="wizard-aside' in resp.content.decode(), step
 
     def test_r6_has_no_aside_but_is_wide(self, client: Client):
         _begin(client)

@@ -108,13 +108,24 @@
       </div>
     </fieldset>
 
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Back.
+    {% endcomment %}
+    <p class="wizard-back-link"><a href="{% url 'web:request_help_step' step=prev_step %}">&larr; Back</a></p>
+
     <div class="action-bar">
       <div class="action-bar__inner">
-        <a class="btn btn--ghost" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
         <button class="btn btn--primary" type="submit">Continue</button>
       </div>
     </div>
   </form>
 
-  {% include "web/requester/_wizard_aside.html" %}
+  {% comment %}
+  FIX-H M2: this step's aside repeats the intro line above ("Filling this in for someone
+  else? Answer for them.") -- hide it below 1280, where it would sit right under that same
+  sentence; it still earns its keep in the >=1280 side column (a separate reading context).
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" with aside_repeats_intro=True %}
 {% endblock %}

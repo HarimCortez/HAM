@@ -582,6 +582,12 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
+/* FIX-H polish: a formatted phone number ((305) 555-0177) is short and bounded -- unlike the
+   arbitrary long values `.u-wrap-anywhere` guards against, it should never break mid-number. */
+.u-nowrap {
+  white-space: nowrap;
+}
+
 /* M8: requester metadata (kv-list labels, field helpers, field errors) never drops below
    type-body -- these were inheriting the app-wide type-small size meant for the leadership
    side. */
@@ -1707,6 +1713,14 @@ input[type="radio"] {
   margin-bottom: var(--ham-space-4);
 }
 
+/* N7: icon cards (R3/R4/R5) need more room than plain-text cards (R2 categories) -- the icon
+   + radio + gaps + padding left as little as ~70px of text width at 10.5em, which is why
+   "Townhouse"/"Apartment"/"manufactured" split mid-word. Icon-less grids keep the tighter
+   10.5em (they already read fine at 2 columns / 390). */
+.choice-grid:has(.choice-card__icon) {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr));
+}
+
 .choice-grid--single {
   grid-template-columns: 1fr;
 }
@@ -1729,9 +1743,15 @@ input[type="radio"] {
      of it doubled the spacing there. Cards used standalone (L9/L10, outside `.choice-grid`)
      still want space between them, added back below. */
   margin-bottom: 0;
-  /* B2: a long unbroken word could spill past the card border at 195px. Let it break
-     anywhere as a last resort, rather than overflow. */
-  overflow-wrap: anywhere;
+  /* N7: `overflow-wrap: anywhere` (kept for B2's long-unbroken-value protection at 195px)
+     applies to ordinary words too, so a plain label like "Townhouse" could break mid-word in
+     the narrower icon-card columns even with room to spare. `break-word` only breaks a word
+     that would otherwise overflow (same overflow protection as `anywhere` in practice, since
+     the grid column has a hard minimum width), and `hyphens: auto` (with `lang="en"` on
+     `<html>`, base_public.html/base.html) lets the browser hyphenate instead of breaking raw
+     when it does need to. */
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 label.choice-card + label.choice-card {
@@ -1759,6 +1779,15 @@ label.choice-card + label.choice-card {
   flex: none;
 }
 
+/* N7: a flex item's default `min-width` is `auto` (its content's min-content size), which for
+   `overflow-wrap: break-word` (unlike `anywhere`) stays the full unbroken word width -- the
+   label span never actually got to shrink to the space left by the icon/radio, so it just
+   overflowed past the card instead of wrapping/hyphenating. `min-width: 0` lets it shrink and
+   wrap normally. */
+.choice-card > span:last-child {
+  min-width: 0;
+}
+
 .choice-card:has(:checked) {
   background: var(--ham-bg-selected);
   border-color: var(--ham-border-selected);
@@ -1772,6 +1801,12 @@ label.choice-card + label.choice-card {
 
 .choice-card--exclusive {
   margin-top: var(--ham-space-2);
+}
+
+/* M3/N7: "Something else or not sure" (R2) always sits last, full width, inside the same
+   grid as the other category cards. */
+.choice-card--full {
+  grid-column: 1 / -1;
 }
 
 /* Certification tick (C§19): a sentence, not a title -- 400 weight, top-aligned since it
@@ -1886,6 +1921,15 @@ label.choice-card + label.choice-card {
     flex: 1 1 auto;
     width: 100%;
   }
+
+  /* FIX-H N6: stacking BOTH buttons (Back above Primary) took up to a third of a short
+     viewport at 200% text/zoom and still covered fields while typing. Per the B1 spec, under
+     this width the bar holds the primary only -- `.action-bar__back` (Back / Start over, see
+     `.wizard-back-link` below) drops out of the bar entirely; its in-flow twin above the bar
+     takes over. */
+  .action-bar__inner .action-bar__back {
+    display: none;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -1903,6 +1947,57 @@ label.choice-card + label.choice-card {
 
   .action-bar__inner .btn--primary {
     flex: none;
+  }
+}
+
+/* FIX-H N6: Back/Start over's in-flow twin, shown only under the 22em bar-width threshold
+   above (a plain text link in the page, above the sticky bar -- not inside `.action-bar`
+   itself, so it never adds to the sticky band's own height). `form:has(> .action-bar)` gets
+   its own size container: it isn't a descendant of `.action-bar`, so it needs one to react to
+   the same threshold (its width tracks the form's content column, same as the bar's own
+   content -- only the bar's full-bleed background differs, which doesn't move this
+   threshold at the tested widths). */
+form:has(> .action-bar) {
+  container-type: inline-size;
+}
+
+.wizard-back-link {
+  display: none;
+  margin: 0 0 var(--ham-space-3);
+}
+
+@container (max-width: 22em) {
+  .wizard-back-link {
+    display: block;
+  }
+}
+
+/* FIX-H M2: on short public pages (R8, R11b, R12...) the sticky action bar used to sit
+   mid-screen with empty canvas below it, because `.public-shell__content` only ever sizes the
+   card to its own content (`align-items: flex-start`). Below 1024 (where the bar is sticky
+   anyway; >=1024 is already static, non-floating), stretch the card -- and whichever box
+   directly wraps the action bar, the card itself or its <form> -- to the full available
+   height, and let the bar's own top margin become the flexible space: it settles at the
+   bottom on a short page, and is a no-op (bar simply follows the content, as before) once
+   real content already fills or exceeds that height. */
+@media (max-width: 1023.98px) {
+  .public-shell__content:has(.action-bar) {
+    align-items: stretch;
+  }
+
+  .public-card:has(.action-bar) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .public-card > form:has(.action-bar) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .public-card:has(.action-bar) .action-bar {
+    margin-top: auto;
   }
 }
 
@@ -2002,13 +2097,17 @@ label.choice-card + label.choice-card {
   padding: var(--ham-space-1) var(--ham-space-1);
 }
 
-/* M10: 48x48 target (size.target-min), not 32x32 -- the icon inside stays visually small. */
+/* M10: a real 48x48 tap target (size.target-min) -- FIX-H polish: on the small (~6.5rem)
+   tile, a visually-48px solid circle still covered a good chunk of the photo's centre-top.
+   The visible circle now sits at 32px (still with its own solid backing so it stays legible
+   over any photo); a `::before` pseudo-element restores the full 48px tap target without
+   enlarging what you actually see. */
 .upload-tile__remove {
   position: absolute;
   top: var(--ham-space-1);
   right: var(--ham-space-1);
-  width: var(--ham-size-target-min, 48px);
-  height: var(--ham-size-target-min, 48px);
+  width: 32px;
+  height: 32px;
   min-height: 0;
   display: flex;
   align-items: center;
@@ -2020,9 +2119,15 @@ label.choice-card + label.choice-card {
   cursor: pointer;
 }
 
+.upload-tile__remove::before {
+  content: "";
+  position: absolute;
+  inset: calc((32px - var(--ham-size-target-min, 48px)) / 2);
+}
+
 .upload-tile__remove svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 /* M10: the rejected tile ("bad.txt" + "That file type isn't supported.") used to be one run
@@ -2121,6 +2226,12 @@ label.choice-card + label.choice-card {
   margin: var(--ham-space-4) 0;
 }
 
+/* FIX-H polish (R7N): a paragraph's own default top margin stacked on top of the block's own
+   padding, reading as extra top padding. */
+.quiet-block p {
+  margin: 0;
+}
+
 /* --- Error summary (C30) ---------------------------------------------------------------------- */
 .error-summary ul {
   padding-left: var(--ham-space-5);
@@ -2206,6 +2317,14 @@ label.choice-card + label.choice-card {
 /* Gallery item 4: a section gap before Photos, so it doesn't sit flush under the hazard row
    at 390. */
 .media-gallery {
+  margin-top: var(--ham-space-8);
+}
+
+/* FIX-H polish (L2): "The home" section used to sit right under the gallery with only the
+   browser's default heading margin (~space-2) between them; give it the same space-8 section
+   rhythm as the gap above the gallery. Scoped to the gallery's very next sibling so it doesn't
+   change spacing anywhere the gallery isn't rendered. */
+.media-gallery + section {
   margin-top: var(--ham-space-8);
 }
 
@@ -2304,6 +2423,16 @@ fieldset:has(
   )
   + #owner-name-field {
   display: block;
+}
+
+/* FIX-H M2: R3's aside repeats its own intro line ("Filling this in for someone else? Answer
+   for them.") -- rather than show the same sentence twice in one reading column below 1280,
+   hide it there; the >=1280 side column (below) is a separate reading context, so it keeps
+   showing there. */
+@media (max-width: 1279.98px) {
+  .wizard-aside--repeats-intro {
+    display: none;
+  }
 }
 
 /* M9 (visual QA): the wizard's "Good to know" aside (R1-R6, R9) at >=1280 -- the step rail is

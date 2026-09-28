@@ -418,3 +418,98 @@
   first "banner height < 140px" threshold, N1's "processing" count of 1 with only one item) —
   worth budgeting time for this "does it actually fail" step, not just writing an
   assertion that looks plausible.
+
+## Step 2 (Intake) fix round FIX-H (final visual pass, step2-ui-visual-qa.md "Final re-check
+   at f1d4fb9")
+- **N6 (Back/Start over drops out of the sticky bar under `@container(max-width:22em)`):** the
+  in-bar Back/Start-over button gets an `.action-bar__back` class and is hidden by that
+  container query; its "in-flow" twin is a plain `<p class="wizard-back-link"><a>...</a></p>`
+  (or a `.link-button` for R2's Start-over, since that's a same-page confirm-submit, not a
+  link) placed as a sibling *before* `.action-bar`, inside the same `<form>` — never inside
+  `.action-bar` itself, or it would still add to the sticky band's own height. The toggle needs
+  its own size container: `form:has(> .action-bar) { container-type: inline-size; }` — the link
+  isn't a descendant of `.action-bar` (which already has its own, separate `container-type` for
+  the primary/ghost stacking rule), so it can't react to that container's query. Two different
+  containers (form's un-bled width vs. the bar's own full-bleed width) measuring "the same"
+  22em threshold slightly differently was a known simplification, not a bug — confirmed they
+  agree at every width this actually gets tested at (390+200% text, 195px).
+- **N7 (mid-word breaks in icon choice-cards) has two independent causes, not one:**
+  1. `overflow-wrap: anywhere` on `.choice-card` (which also shrinks a flex item's min-content
+     contribution, letting it collapse arbitrarily small) became `break-word` + `hyphens: auto`
+     (`lang="en"` was already on both `base.html`/`base_public.html`) so a label breaks only at
+     real word/hyphenation boundaries, not anywhere.
+  2. That alone *reintroduced text overflowing past the card* (a real regression, caught by a
+     test only after writing it): `break-word`, unlike `anywhere`, does **not** shrink a flex
+     item's automatic min-content size — the label `<span>`'s default `min-width: auto` kept it
+     sized to its *unbroken* content width, so the flex row just overflowed instead of
+     wrapping. Fix: `.choice-card > span:last-child { min-width: 0; }`, so the label can
+     actually shrink to the space the icon/radio leave, and only then does break-word/hyphens
+     get a chance to wrap it.
+  3. Icon-bearing grids (`.choice-grid:has(.choice-card__icon)`) also got a wider minimum
+     column (15em, vs. 10.5em for icon-less grids) — deliberately **1 column at 390, 2 columns
+     in the 640px wizard main column at >=1280** for icon cards. This is an intentional
+     regression against the old B3 test (`tests/e2e/test_fix_f1_choice_grid.py`), which
+     asserted the *old* narrower grid was 2 columns at 390 — updated it to assert 1 column at
+     390 / 2 at 1280 instead of deleting the coverage.
+  4. **Proof-test gotcha:** neither "does the word appear intact in `innerText`" nor "does the
+     label's own `scrollWidth <= clientWidth`" actually detects a mid-word wrap — the DOM text
+     node is never split, and a wrapped-but-not-overflowing box passes both checks. The only
+     check that actually catches it is geometric: `document.createRange()` over just that
+     word's substring, then `range.getClientRects().length` — more than 1 means the word itself
+     painted across more than one line (raw split or hyphenated), regardless of whether the box
+     around it overflowed.
+- **M2 (short-page bar, R8/R11b/R12) is a stretch-and-push-to-bottom trick, not `min-height:
+  100dvh` alone:** `min-height` on the card doesn't move a normal-flow, non-sticky-triggered
+  element to the bottom of a taller-than-content box by itself. Below 1024 (`.action-bar` is
+  already `position: static` at >=1024, so this doesn't apply there):
+  `.public-shell__content:has(.action-bar) { align-items: stretch }` (was `flex-start`) lets
+  `.public-card` fill the available height; `.public-card:has(.action-bar) { display:flex;
+  flex-direction:column }` plus (for form-wrapped bars) `.public-card > form:has(.action-bar)
+  { flex:1; display:flex; flex-direction:column }` propagates that height down to whichever box
+  directly wraps the bar; `.public-card:has(.action-bar) .action-bar { margin-top: auto }`
+  (scoped to <1024 only — doesn't touch the desktop static layout) is what actually pushes it
+  to the bottom. On a page whose real content already exceeds the available height, the free
+  space is zero and this is a no-op (bar just follows the content as before, same as pre-fix).
+  Every existing public-card+action-bar template (R2-R6, R8, R9, R11b, R12, phone-check) uses
+  the same two building blocks (card, and optionally a wrapping `<form>`) so this needed zero
+  template changes — pure `shell.css`.
+- **M2 (wizard aside before the bar):** moved each step's `{% include "_wizard_aside.html" %}`
+  from after `</form>` to right after the intro copy, before `<form>` (R1, R2, R4, R5, R9) — a
+  direct child either way, so the >=1280 `.public-card:has(> .wizard-aside)` grid (explicit
+  `grid-column`/`grid-row` on every child) is unaffected by DOM order. R3's aside is a special
+  case: it repeats the page's own intro line ("Filling this in for someone else?..."), so
+  instead of moving it, `_wizard_aside.html` grew an `aside_repeats_intro` context var (passed
+  via `{% include ... with aside_repeats_intro=True %}` **from the template**, not the view —
+  `views_requester.py` is a parallel fix's file this round) that adds a
+  `wizard-aside--repeats-intro` modifier class, hidden below 1280 only (still in the DOM, still
+  shows in the >=1280 side column, a different-enough reading context that the repeat is fine
+  there).
+- **M3 (R2 category icons):** `ham.requests.models.NeedCategory`'s enum values (not the old,
+  now-deleted `ham.requester_portal.choices` copy) map to icons inline in `r2_need.html`, same
+  `{% if value == ... %}` chain pattern as R3/R4's icon selection. Added `droplet`/`plug-zap`/
+  `door-closed`/`layers`/`accessibility`/`paint-roller`/`trees` to `icons.svg` (house/circle-help
+  already existed). New `.choice-card--full { grid-column: 1 / -1 }` modifier keeps "Something
+  else or not sure" full width and last, inside the same grid as the other 8 cards (not a
+  separate element outside the grid, unlike R4's "None known" exclusion card).
+- **Polish, worth remembering:**
+  - A formatted phone number is short/bounded, unlike the arbitrary long values
+    `.u-wrap-anywhere` guards against — new `.u-nowrap { white-space: nowrap }` utility for
+    those (R7N's phone line).
+  - "Waiting under 1 h" (`ham.requests.attention._waiting_words`/`_oldest_waiting_words`) is a
+    plain Python string, not a template — the non-breaking-space fix
+    (`f"waiting {round(hours)} h"`) lives there, not as CSS, since CSS `white-space:nowrap`
+    on the whole title would also stop a long title from wrapping at all.
+  - `.upload-tile__remove`: shrunk the *visible* circle to 32px (was a 48px solid circle
+    nearly reaching a small thumb's centre) while keeping a real 48px tap target via a
+    `::before` pseudo-element with a negative `inset` — never shrink the actual accessible
+    target size to fix a visual-only complaint.
+  - The L9 "What to say" disclosure chevron/stray-glyph/padding items in the last QA re-check
+    turned out to already be fixed on this branch (verified by rendering it — `.disclosure
+    summary::marker { content: ""; display: none }` plus `display: flex` on the summary, from
+    an earlier round, does suppress the native marker in Chromium 141) — re-verify visually
+    before assuming a stale QA note still applies; don't "fix" something that isn't broken.
+  - `git checkout <old-commit> -- <paths>` (restore just the touched files to the prior commit,
+    run the new tests, then `git checkout HEAD -- <paths>` to restore) is a clean way to get a
+    real fail-before/pass-after proof across *many* files at once in one shot, instead of
+    reverting one CSS rule at a time — as long as you commit your in-progress work first so
+    `HEAD`/`HEAD~1` are meaningful anchors, and restore before continuing.

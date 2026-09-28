@@ -9,6 +9,13 @@
     {{ max_video_seconds }} seconds each).</p>
   <p class="text-secondary">Try one photo from a distance and one up close.</p>
 
+  {% comment %}
+  FIX-H M2: below 1280 the "Good to know" aside used to render after the sticky bar; moved
+  above the upload area so it's always before the bar. The >=1280 grid still places it in its
+  own side column regardless of this position.
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" %}
+
   <div data-upload-root
        data-reserve-url="{{ reserve_url }}"
        data-icons-url="{% static 'web/icons.svg' %}"
@@ -47,8 +54,6 @@
       <a class="btn btn--primary" href="{{ secure_page_url }}">Done</a>
     </div>
   </div>
-
-  {% include "web/requester/_wizard_aside.html" %}
 
   <script src="{% static 'upload.js' %}"></script>
 {% endblock %}
