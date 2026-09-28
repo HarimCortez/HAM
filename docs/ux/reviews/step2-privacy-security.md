@@ -125,3 +125,20 @@ New findings, all addressed in FIX-E:
 - **N5 (Low):** Q-151 isn't applied to the gallery.
 - **N6 (Low):** media purge hook edge cases.
 - **N7 (Low):** `notification_open` issues on GET.
+
+## Final re-check at `f1d4fb9`
+
+All earlier proofs of concept were re-run and none reproduce.
+
+| Item | Status |
+|---|---|
+| L6, N1–N7, L8 | Fixed |
+| N7 | Small leftover accepted: a GET marks your own notification read when not impersonating |
+
+New findings, fixed in FIX-G:
+- **NH1 (High):** the "already received" screen showed the HAM # and the live secure-page token to any browser whose session held a used draft, without a code.
+- **NM1 (Medium):** anyone could trigger find-my-request, which revoked the requester's working link and could flood their inbox. It overlaps PRD NEW-2.
+- **Lows:**
+  - a find-path timing difference;
+  - the intake cooldown is keyed by email only;
+  - one flaky test file.
