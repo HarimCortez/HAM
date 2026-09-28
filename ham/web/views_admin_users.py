@@ -92,7 +92,10 @@ def admin_users_invite(request):
                 )
             except StepUpRequired:
                 return redirect_to_step_up(
-                    request, reverse("web:admin_users_invite"), _ROLE_CHANGE_KIND
+                    request,
+                    reverse("web:admin_users_invite"),
+                    _ROLE_CHANGE_KIND,
+                    cancel_url=reverse("web:admin_users"),
                 )
             except ImpersonationBlocked:
                 errors["email"] = "Inviting people isn't allowed while acting as someone else."
@@ -264,21 +267,57 @@ def admin_user_roles_confirm(request, user_id: uuid.UUID):
     return ok
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "POST"])
 @requires_action("role.grant_global")
 def admin_user_roles_resume(request, user_id: uuid.UUID):
-    """Landed here after the step-up stub (S3b's real step-up screen will redirect to
-    `next=` the same way). Re-applies the diff stashed in the session by
-    `_apply_role_changes` before the step-up redirect."""
-    pending = request.session.pop(_PENDING_SESSION_KEY, None)
+    """Landed here after step-up. Security review L4: applying a stashed role change on a
+    bare GET meant a stale bookmark/browser-history GET (or a Cancel link that used to point
+    here) silently re-applied it, and the stash never expired. Now GET only *shows* a confirm
+    page (UX C1: "the pending action completes without re-entering data") and POST applies it;
+    the stash also expires after `RULES.auth.STEP_UP_WINDOW` (the same freshness the step-up
+    itself just proved), matching "a fresh confirmation, not a permanent bookmark"."""
+    pending = request.session.get(_PENDING_SESSION_KEY)
     if not pending or pending.get("user_id") != str(user_id):
         return redirect("web:admin_user_detail", user_id=user_id)
-    ok, redirect_response = _apply_role_changes(
-        request, user_id, pending["add"], pending["remove"], pending["reason"]
+
+    from ham.platform.clock import now as clock_now
+
+    created_at = pending.get("created_at")
+    if created_at:
+        import datetime as dt
+
+        try:
+            age = clock_now() - dt.datetime.fromisoformat(created_at)
+        except ValueError:  # pragma: no cover - defensive against a malformed stash
+            age = None
+        if age is not None and age > RULES.auth.STEP_UP_WINDOW:
+            request.session.pop(_PENDING_SESSION_KEY, None)
+            messages.error(request, "That confirmation expired. Please review the change again.")
+            return redirect("web:admin_user_detail", user_id=user_id)
+
+    if request.method == "POST":
+        if request.POST.get("cancel"):
+            request.session.pop(_PENDING_SESSION_KEY, None)
+            messages.info(request, "Nothing changed.")
+            return redirect("web:admin_user_detail", user_id=user_id)
+        request.session.pop(_PENDING_SESSION_KEY, None)
+        ok, redirect_response = _apply_role_changes(
+            request, user_id, pending["add"], pending["remove"], pending["reason"]
+        )
+        if redirect_response is not None:
+            return redirect_response
+        return ok
+
+    user = get_object_or_404(User, pk=user_id)
+    return render(
+        request,
+        "web/admin_user_roles_resume_confirm.html",
+        {
+            "target": user,
+            "add": [roles.ROLE_LABELS.get(r, r) for r in pending["add"]],
+            "remove": [roles.ROLE_LABELS.get(r, r) for r in pending["remove"]],
+        },
     )
-    if redirect_response is not None:
-        return redirect_response
-    return ok
 
 
 def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
@@ -301,14 +340,20 @@ def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
                 if assignment is not None:
                     revoke_global_role(ctx, assignment_id=assignment.id, reason=reason)
     except StepUpRequired:
+        from ham.platform.clock import now as clock_now
+
         request.session[_PENDING_SESSION_KEY] = {
             "user_id": str(user_id),
             "add": list(to_add),
             "remove": list(to_remove),
             "reason": reason,
+            "created_at": clock_now().isoformat(),
         }
         next_url = reverse("web:admin_user_roles_resume", args=[user_id])
-        return None, redirect_to_step_up(request, next_url, _ROLE_CHANGE_KIND)
+        cancel_url = reverse("web:admin_user_detail", args=[user_id])
+        return None, redirect_to_step_up(
+            request, next_url, _ROLE_CHANGE_KIND, cancel_url=cancel_url
+        )
     except ImpersonationBlocked:
         messages.error(
             request,

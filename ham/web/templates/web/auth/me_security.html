@@ -8,11 +8,12 @@
     <h3>Two-step sign-in</h3>
     {% if mfa_required %}
       {% if is_enrolled %}
-        <p>On · {{ recovery_codes_left }} of 10 recovery codes left.</p>
+        <p>On · {{ recovery_codes_left }} of {{ recovery_codes_total }} recovery codes left.</p>
         <form method="post" action="{% url 'web:me_recovery_codes_regenerate' %}">
           {% csrf_token %}
           <button class="btn btn--secondary" type="submit">Make new recovery codes</button>
         </form>
+        <a class="btn btn--secondary" href="{% url 'web:mfa_setup' %}?replace=1">Set up a new phone</a>
       {% else %}
         <p>Not set up yet.</p>
         <a class="btn btn--primary" href="{% url 'web:mfa_setup' %}">Set up two-step sign-in</a>
@@ -32,7 +33,8 @@
           {% endfor %}
         </ul>
       {% else %}
-        <p>No trusted devices.</p>
+        <p>No trusted devices. Trusting a device skips the authenticator step for up to
+          {{ trusted_device_days }} days.</p>
       {% endif %}
       <form method="post" action="{% url 'web:me_forget_devices' %}">
         {% csrf_token %}
@@ -43,6 +45,15 @@
 
   <section class="card">
     <h3>Sign out everywhere</h3>
+    <p>Signs you out on every phone and computer, including this one.</p>
+    <form method="post" action="{% url 'web:me_sign_out_everywhere' %}">
+      {% csrf_token %}
+      <button class="btn btn--secondary" type="submit">Sign out everywhere</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h3>Sign out of this device</h3>
     <form method="post" action="{% url 'web:sign_out' %}">
       {% csrf_token %}
       <button class="btn btn--secondary" type="submit">Sign out</button>

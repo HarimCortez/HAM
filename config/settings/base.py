@@ -151,6 +151,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # church name anywhere else in the codebase.
 HAM_BRAND = env("HAM_BRAND")
 
+# PRD-guardian review B2: the emailed sign-in link must be a full, absolute URL — a relative
+# path would leave the person nowhere to go when they open the email in a different client
+# than the browser tab they started from (or an email client with no "base" context at all).
+# Also used to build the invitation email's absolute sign-in link (Q-037/Q-071/Q-084) since a
+# background job has no request to build one from. Dev default matches `make run`'s
+# `runserver 0.0.0.0:8000`; every real deployment sets this. `.rstrip("/")` so callers can
+# always do `f"{settings.HAM_BASE_URL}{path}"` without checking for a double slash.
+HAM_BASE_URL = env("HAM_BASE_URL", default="http://localhost:8000").rstrip("/")
+
 # Email adapter (ham.integrations.email, foundation.md §8 S4): dev = console, test = locmem
 # (overridden below/in test.py), prod = whichever Anymail ESP backend the environment names —
 # never a hard-coded provider (CLAUDE.md "Secrets come from environment variables").
@@ -170,11 +179,6 @@ ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
 # HAM_ENV=production). Never a fixed business *rule* (CLAUDE.md "no magic numbers") — it's a
 # secret, so it belongs here, not in `ham.rules`.
 HAM_FIELD_ENCRYPTION_KEY = env("HAM_FIELD_ENCRYPTION_KEY", default="")
-
-# The externally-reachable origin for this deployment (Q-037/Q-071/Q-084, PRD §60.2): used to
-# build absolute links in emails (invitations, sign-in links) since a background job has no
-# request to build one from. Never hard-code a scheme+host anywhere else.
-HAM_BASE_URL = env("HAM_BASE_URL", default="http://localhost:8000")
 
 # Session cookie ceiling: the *longest* possible HAM session (Q-032's standard/passwordless
 # lifetime). `ham.identity.middleware.SessionLifetimeMiddleware` enforces the shorter
@@ -212,5 +216,12 @@ LOGGING = {
     },
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        # Security review C2: Procrastinate logs "Starting job ...(kwargs)" at INFO, which
+        # would otherwise print full task args (e.g. an encrypted email payload's ciphertext
+        # is harmless, but this also caught other jobs' plain kwargs before they existed).
+        # WARNING+ only, so routine per-job start/finish lines never reach the log at all;
+        # failures still surface. Belt and suspenders with the encrypted job args themselves
+        # and `JSONFormatter`'s nested-extra scrubbing above.
+        "procrastinate": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

@@ -187,7 +187,12 @@ def test_grant_role_requires_step_up_then_succeeds(admin_client, volunteer_user)
         {"next": confirm["Location"], "kind": "role_change", "code": _current_totp_code()},
     )
     assert step_up.status_code == 302
-    resumed = admin_client.get(step_up["Location"])
+    # Security review L4: GET only shows a confirm page now (never re-applies on a bare GET);
+    # POST is what actually applies the stashed change.
+    resumed_confirm = admin_client.get(step_up["Location"])
+    assert resumed_confirm.status_code == 200
+    assert b"Apply change" in resumed_confirm.content
+    resumed = admin_client.post(step_up["Location"])
     assert resumed.status_code == 302  # roles/resume -> detail page
 
     detail = admin_client.get(detail_url)

@@ -3,14 +3,19 @@
 {% block title %}Set up two-step sign-in · {{ church.short_name }} HAM{% endblock %}
 
 {% block public_content %}
-  <h1>Set up two-step sign-in</h1>
-  <p>
-    Your role needs two-step sign-in. After your email link, you'll type a code from an app
-    on your phone. This keeps requester and ministry information safe.
-  </p>
-  <p>
-    Any authenticator app works, for example Google Authenticator or Microsoft Authenticator.
-  </p>
+  <h1>{% if replacing %}Set up your new authenticator{% else %}Set up two-step sign-in{% endif %}</h1>
+  {% if replacing %}
+    <p>This replaces the authenticator currently connected to your account. We'll email you to
+      confirm the change.</p>
+  {% else %}
+    <p>
+      Your role needs two-step sign-in. After your email link, you'll type a code from an app
+      on your phone. This keeps requester and ministry information safe.
+    </p>
+    <p>
+      Any authenticator app works, for example Google Authenticator or Microsoft Authenticator.
+    </p>
+  {% endif %}
 
   {% if error %}
     <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
@@ -25,7 +30,7 @@
     </div>
   {% endif %}
 
-  <form method="post" action="{% url 'web:mfa_setup' %}" novalidate>
+  <form method="post" action="{% url 'web:mfa_setup' %}{% if replacing %}?replace=1{% endif %}" novalidate>
     {% csrf_token %}
     <input type="hidden" name="step" value="connect">
     <div class="form-field">
@@ -38,7 +43,15 @@
     </div>
   </form>
 
-  <form method="post" action="{% url 'web:sign_out' %}">
+  {% if can_continue_without_mfa %}
+    <form method="post" action="{% url 'web:mfa_setup' %}">
+      {% csrf_token %}
+      <input type="hidden" name="step" value="continue">
+      <button class="btn btn--secondary" type="submit">Continue for now</button>
+    </form>
+  {% endif %}
+
+  <form method="post" action="{% url 'web:sign_in_cancel' %}">
     {% csrf_token %}
     <button class="btn btn--secondary" type="submit">Sign out</button>
   </form>

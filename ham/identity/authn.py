@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.contrib.auth import login as django_login
+from django.db import transaction
 
 from ham.audit.services import record as audit_record
 from ham.integrations.email.service import send_transactional_email
@@ -38,13 +41,20 @@ from ham.rules import RULES
 from .models import SignInChallenge, User
 
 # PRD-GAP Q-070: proposed default in use; owner may change. The limit and cooldown live in
-# ham.rules (RULES.auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR / SIGN_IN_RESEND_COOLDOWN).
-# "Per hour" is part of that rule's definition, so the rolling window is fixed here as its unit.
+# ham.rules (RULES.auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR / SIGN_IN_RESEND_COOLDOWN /
+# SIGN_IN_REQUESTS_PER_IP_PER_HOUR / SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY).
+# "Per hour"/"per day" are part of those rules' own definitions, so the rolling windows are
+# fixed here as their units.
 _SIGN_IN_RATE_WINDOW = dt.timedelta(hours=1)
+_FAILED_ATTEMPT_WINDOW = dt.timedelta(days=1)
 
 
 def _hash(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
+    """HMAC-SHA256 with a server-side secret (security review L1): a plain unsalted SHA-256
+    of a 6-digit code or a random-but-fixed-format link token is fast enough to brute-force
+    offline from a leaked `identity_sign_in_challenge` row alone; HMAC with `SECRET_KEY` means
+    the secret itself would also have to leak."""
+    return hmac.new(settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
 def _generate_code() -> str:
@@ -58,8 +68,13 @@ class SignInRequestResult:
     retry_at: dt.datetime | None = None
 
 
-def request_sign_in(*, email: str, next_url: str = "") -> SignInRequestResult:
-    """Always looks and behaves the same whether or not `email` has an account."""
+def request_sign_in(*, email: str, next_url: str = "", ip_address: str = "") -> SignInRequestResult:
+    """Always looks and behaves the same whether or not `email` has an account.
+
+    Security review M3: `ip_address` (best-effort; the view supplies it, this module never
+    inspects request internals) throttles independently of the per-address limit, so one
+    visitor can't route around the address limit by trying many addresses.
+    """
     email = email.strip().lower()
     now = clock_now()
 
@@ -73,6 +88,13 @@ def request_sign_in(*, email: str, next_url: str = "") -> SignInRequestResult:
     if recent_count >= RULES.auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR:
         return SignInRequestResult("rate_limited", window_start + _SIGN_IN_RATE_WINDOW)
 
+    if ip_address:
+        recent_from_ip = SignInChallenge.objects.filter(
+            ip_address=ip_address, created_at__gte=window_start
+        ).count()
+        if recent_from_ip >= RULES.auth.SIGN_IN_REQUESTS_PER_IP_PER_HOUR:
+            return SignInRequestResult("rate_limited", window_start + _SIGN_IN_RATE_WINDOW)
+
     code = _generate_code()
     link_token = secrets.token_urlsafe(32)
     SignInChallenge.objects.create(
@@ -82,6 +104,7 @@ def request_sign_in(*, email: str, next_url: str = "") -> SignInRequestResult:
         created_at=now,
         expires_at=now + RULES.auth.SIGN_IN_CODE_LIFETIME,
         next_url=next_url,
+        ip_address=ip_address or None,
     )
 
     user = User.objects.filter(email=email).first()
@@ -120,11 +143,14 @@ def request_sign_in(*, email: str, next_url: str = "") -> SignInRequestResult:
 
 
 def _sign_in_link_url(token: str) -> str:
-    # Absolute-ish path; templates/emails compose the scheme+host (dev/test have no fixed
-    # canonical host, so we only build the path here and let the caller prefix it).
+    # PRD-guardian review B2: the emailed link must be a full, absolute URL (a relative path
+    # is meaningless in an email client) — built from `HAM_BASE_URL` (env, `config/settings/
+    # base.py`), never guessed from the current request (this runs from a background job with
+    # no request in scope).
     from django.urls import reverse
 
-    return reverse("web:sign_in_link", kwargs={"token": token})
+    path = reverse("web:sign_in_link", kwargs={"token": token})
+    return f"{settings.HAM_BASE_URL}{path}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,34 +179,61 @@ def _record_lockout(challenge: SignInChallenge) -> None:
     )
 
 
+def _recent_failed_attempts(email: str, *, now: dt.datetime) -> int:
+    """Security review M3: total wrong-code attempts across *every* challenge for `email` in
+    the last 24 hours — a fresh challenge (e.g. from Resend) resets its own `attempts` column,
+    so without this a person could keep asking for new codes to keep guessing indefinitely."""
+    window_start = now - _FAILED_ATTEMPT_WINDOW
+    total = SignInChallenge.objects.filter(email=email, created_at__gte=window_start).aggregate(
+        total=_models_sum("attempts")
+    )["total"]
+    return total or 0
+
+
+def _models_sum(field: str):
+    from django.db.models import Sum
+
+    return Sum(field)
+
+
 def verify_code(*, email: str, code: str) -> VerifyResult:
     email = email.strip().lower()
-    challenge = (
-        SignInChallenge.objects.filter(email=email, consumed_at__isnull=True)
-        .order_by("-created_at")
-        .first()
-    )
-    if challenge is None:
-        return VerifyResult(ok=False, reason="no_challenge")
     now = clock_now()
-    if now > challenge.expires_at:
-        return VerifyResult(ok=False, reason="expired")
-    max_attempts = RULES.auth.SIGN_IN_CODE_MAX_ATTEMPTS
-    if challenge.attempts >= max_attempts:
+
+    daily_cap = RULES.auth.SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY
+    if _recent_failed_attempts(email, now=now) >= daily_cap:
         return VerifyResult(ok=False, reason="locked")
 
-    normalized = code.strip().replace(" ", "").replace("-", "")
-    if not secrets.compare_digest(_hash(normalized), challenge.code_hash):
-        challenge.attempts += 1
-        challenge.save(update_fields=["attempts"])
-        if challenge.attempts >= max_attempts:
-            _record_lockout(challenge)
-            return VerifyResult(ok=False, reason="locked")
-        return VerifyResult(
-            ok=False, reason="wrong", attempts_left=max_attempts - challenge.attempts
+    # Security review M2: two concurrent guesses against the same challenge must not both
+    # read `attempts` before either write lands (a race that could let more than
+    # `SIGN_IN_CODE_MAX_ATTEMPTS` guesses through). `select_for_update()` serializes them.
+    with transaction.atomic():
+        challenge = (
+            SignInChallenge.objects.select_for_update()
+            .filter(email=email, consumed_at__isnull=True)
+            .order_by("-created_at")
+            .first()
         )
+        if challenge is None:
+            return VerifyResult(ok=False, reason="no_challenge")
+        if now > challenge.expires_at:
+            return VerifyResult(ok=False, reason="expired")
+        max_attempts = RULES.auth.SIGN_IN_CODE_MAX_ATTEMPTS
+        if challenge.attempts >= max_attempts:
+            return VerifyResult(ok=False, reason="locked")
 
-    return _consume(challenge)
+        normalized = code.strip().replace(" ", "").replace("-", "")
+        if not secrets.compare_digest(_hash(normalized), challenge.code_hash):
+            challenge.attempts += 1
+            challenge.save(update_fields=["attempts"])
+            if challenge.attempts >= max_attempts:
+                _record_lockout(challenge)
+                return VerifyResult(ok=False, reason="locked")
+            return VerifyResult(
+                ok=False, reason="wrong", attempts_left=max_attempts - challenge.attempts
+            )
+
+        return _consume(challenge)
 
 
 def consume_link(*, token: str) -> VerifyResult:
@@ -188,15 +241,21 @@ def consume_link(*, token: str) -> VerifyResult:
     email link scanners can't use it up" — the GET view only *displays* the Continue page and
     never calls this)."""
     token_hash = _hash(token)
-    challenge = SignInChallenge.objects.filter(
-        link_token_hash=token_hash, consumed_at__isnull=True
-    ).first()
-    if challenge is None:
-        return VerifyResult(ok=False, reason="no_challenge")
-    now = clock_now()
-    if now > challenge.expires_at:
-        return VerifyResult(ok=False, reason="expired")
-    return _consume(challenge)
+    # Security review M2: `select_for_update()` so two concurrent POSTs of the same link can't
+    # both observe `consumed_at IS NULL` before either writes it (the credential is meant to
+    # be single-use even under a race).
+    with transaction.atomic():
+        challenge = (
+            SignInChallenge.objects.select_for_update()
+            .filter(link_token_hash=token_hash, consumed_at__isnull=True)
+            .first()
+        )
+        if challenge is None:
+            return VerifyResult(ok=False, reason="no_challenge")
+        now = clock_now()
+        if now > challenge.expires_at:
+            return VerifyResult(ok=False, reason="expired")
+        return _consume(challenge)
 
 
 def link_is_valid(*, token: str) -> bool:
@@ -206,6 +265,23 @@ def link_is_valid(*, token: str) -> bool:
     return SignInChallenge.objects.filter(
         link_token_hash=token_hash, consumed_at__isnull=True, expires_at__gt=now
     ).exists()
+
+
+from ham import jobs as _jobs  # noqa: E402 - kept near the job it defines, not the top imports
+
+
+@_jobs.job(name="identity.purge_sign_in_challenges")
+def purge_expired_sign_in_challenges() -> int:
+    """Security review L5: `identity_sign_in_challenge` rows are rate-limit/lockout
+    bookkeeping, not a record worth keeping — deletes rows older than
+    `RULES.auth.SIGN_IN_CHALLENGE_RETENTION`. Nothing schedules this periodically yet (no
+    periodic-task convention exists in `ham.jobs` as of this slice); until one does, run it
+    manually (`manage.py shell -c "from ham.identity.authn import
+    purge_expired_sign_in_challenges as f; f.defer()"`) or wire a cron-triggered management
+    command alongside it."""
+    cutoff = clock_now() - RULES.auth.SIGN_IN_CHALLENGE_RETENTION
+    deleted, _ = SignInChallenge.objects.filter(created_at__lt=cutoff).delete()
+    return deleted
 
 
 def complete_sign_in(request, *, user: User) -> None:
@@ -224,6 +300,11 @@ def complete_sign_in(request, *, user: User) -> None:
     django_login(request, user)
     request.session["ham_session_started_at"] = now.isoformat()
     request.session["ham_last_activity"] = now.isoformat()
+    # Security review H3: captured once, at sign-in, so `ham.identity.middleware` can compare
+    # it to the user's *current* `session_epoch` on every later request and force a fresh
+    # sign-in the moment an Administrator resets/replaces this session's MFA, or the person
+    # uses "Sign out everywhere" (UX M8) from some other browser.
+    request.session["ham_session_epoch"] = user.session_epoch
 
     audit_record(
         ctx=None,

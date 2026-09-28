@@ -92,12 +92,15 @@ EXPECTED = {
     # Proposed defaults in use (owner, 2026-09-28)
     "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": 5,  # Q-070
     "auth.SIGN_IN_RESEND_COOLDOWN": timedelta(seconds=30),  # Q-070
+    "auth.SIGN_IN_REQUESTS_PER_IP_PER_HOUR": 20,  # Q-070
+    "auth.SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY": 20,  # Q-070
     "auth.ACCOUNT_INVITATION_LIFETIME": D(7),  # Q-071
     "auth.MFA_CODE_MAX_ATTEMPTS": 5,  # Q-072
     "auth.SESSION_IDLE_LIFETIME_STANDARD": D(30),
     "auth.SESSION_IDLE_LIFETIME_MFA_ROLES": H(8),
     "auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES": D(7),
     "auth.IMPERSONATION_IDLE_TIMEOUT": M(15),  # §59
+    "auth.SIGN_IN_CHALLENGE_RETENTION": D(7),
     # Reporting
     "reporting.PUBLIC_EMBED_MIN_GROUP_SIZE": Pending("Q-027", ""),
     # Outbox (engineering, foundation.md §5)
