@@ -119,6 +119,13 @@ its own page, h2 inside the list page).
     {% endif %}
   </section>
 
+  {% if detail.contact_note %}
+  <section aria-labelledby="request-detail-contact-note-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-contact-note-{{ detail.id }}">Reaching them</{{ heading_tag }}>
+    <p class="u-wrap-anywhere">{{ detail.contact_note }}</p>
+  </section>
+  {% endif %}
+
   {% include "web/_request_media_gallery.html" %}
 
   <section aria-labelledby="request-detail-home-{{ detail.id }}">

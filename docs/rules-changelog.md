@@ -172,10 +172,6 @@ previously in the rules module:
 These are engineering values (intake.md §9), not Q-numbered open product questions, so they
 carry no `provisional=` tag.
 
-New invariant: the presigned upload URL must not outlive the reservation it belongs to
-(`PRESIGNED_UPLOAD_URL_LIFETIME <= MEDIA_UPLOAD_INTENT_LIFETIME`); the view URL lifetime must
-be positive.
-
 ## 2026.09.28-6 — step 2 fix round (FIX-B: media security)
 
 Content hash: `sha256:da176a0734d061ccc65edf97000c4cf458fe4c76b4d4c0f8de241d6c22d455e5`
@@ -187,3 +183,21 @@ free up"). Not a Q-numbered open question -- same engineering-value category as 
 `media.*` lifetimes above.
 
 New invariant: the processing timeout must be positive.
+
+## 2026.09.28-7 — step 2 fix round (FIX-A: intake abuse limits)
+
+Content hash: `sha256:83e16dbc64c47bd4991c89843fe32949154818f9f6d91a9aac6807319bd3f756`
+
+Two new `intake` values, closing gaps the step-2 fix round's security/PRD reviews found:
+- `intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR` = 20: a per-internet-address cap on
+  verification codes/links sent (any address), on top of the existing per-email-address cap —
+  Q-121 (proposed default in use).
+- `intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY` = 3: **Q-146** (proposed default in use), the abuse limit for
+  Q-025's "I don't use email" submissions, which the per-email daily cap
+  (`INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY`) cannot reach since there is no email on that path —
+  3 per phone number per rolling 24 hours. The existing per-IP form-start cap
+  (`INTAKE_FORMS_PER_IP_PER_HOUR`) already applies to this path too.
+
+New invariant: the presigned upload URL must not outlive the reservation it belongs to
+(`PRESIGNED_UPLOAD_URL_LIFETIME <= MEDIA_UPLOAD_INTENT_LIFETIME`); the view URL lifetime must
+be positive.

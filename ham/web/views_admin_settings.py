@@ -36,6 +36,7 @@ def admin_church_settings(request):
     values: dict[str, object] = {
         "ham_phone": church.phone,
         "ham_email": church.email,
+        "state": church.state,
         "time_zone": church.time_zone,
         "website_url": church.website_url,
         "serves_days": list(church.serves_days),
@@ -52,6 +53,10 @@ def admin_church_settings(request):
         values = {
             "ham_phone": request.POST.get("ham_phone", "").strip(),
             "ham_email": request.POST.get("ham_email", "").strip(),
+            # Q-147: same "absent key means leave unchanged" convention as serves_days above
+            # -- the settings screen doesn't render this field yet (S2.7's job); until it
+            # does, an unrelated settings save must not silently clear it.
+            "state": request.POST.get("state", church.state).strip().upper(),
             "time_zone": request.POST.get("time_zone", "").strip(),
             "website_url": request.POST.get("website_url", "").strip(),
             "serves_days": serves_days,
@@ -71,8 +76,9 @@ def admin_church_settings(request):
                     "Church settings can't be changed while acting as someone else.",
                 )
             except ValueError as exc:
-                # Q-030/§70.5: an unrecognized IANA time zone name, or Q-112 bad serves_days.
-                errors["time_zone"] = str(exc)
+                # Q-030/§70.5: an unrecognized IANA time zone name, or Q-112 bad serves_days,
+                # or Q-147 a bad state code.
+                errors["state" if "state code" in str(exc) else "time_zone"] = str(exc)
             else:
                 messages.success(request, "Church settings updated.")
                 return redirect("web:admin_church_settings")

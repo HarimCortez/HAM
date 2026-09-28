@@ -78,34 +78,33 @@
     <p class="text-secondary">Filling this in for someone? Please read these to them. They're the one agreeing.</p>
     {% if errors.attested_statements %}<p class="form-field__error"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-alert"></use></svg> {{ errors.attested_statements }}</p>{% endif %}
 
+    {# B1: wording comes from the one canonical module (ham.requests.certifications), never
+       hard-coded here — `statement_text` (set by _review_summary) maps each code this
+       relationship requires to its exact, versioned wording. #}
     {% if review.relationship == "owner" %}
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="attested_statements" value="owner_authority"
                {% if "owner_authority" in payload.attested_statements %}checked{% endif %}>
-        <span>I own this home, and I give HAM permission to do the work we agree on.</span>
+        <span>{{ review.statement_text.owner_authority }}</span>
       </label>
     {% elif review.relationship == "tenant" %}
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="attested_statements" value="tenant_authority"
                {% if "tenant_authority" in payload.attested_statements %}checked{% endif %}>
-        <span>I rent this home. Before any work begins, I'll get written permission from my
-          landlord or property owner.</span>
+        <span>{{ review.statement_text.tenant_authority }}</span>
       </label>
     {% elif review.relationship == "authorized_family_member" %}
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="attested_statements" value="family_authority"
                {% if "family_authority" in payload.attested_statements %}checked{% endif %}>
-        <span><strong>{{ payload.owner_name|default:"The owner" }}</strong> owns this home and
-          has asked me to request this help for them.</span>
+        <span>{{ review.statement_text.family_authority }}</span>
       </label>
     {% endif %}
 
     <label class="choice-card choice-card--statement">
       <input type="checkbox" name="attested_statements" value="responsibility"
              {% if "responsibility" in payload.attested_statements %}checked{% endif %}>
-      <span>If a homeowners' association, condominium association, landlord or property manager
-        needs to approve work, I'll get their OK. What I've shared is true to the best of my
-        knowledge.</span>
+      <span>{{ review.statement_text.responsibility }}</span>
     </label>
 
     </fieldset>

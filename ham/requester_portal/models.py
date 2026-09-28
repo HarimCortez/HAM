@@ -131,6 +131,24 @@ class RequesterAccessLink(models.Model):
         return f"RequesterAccessLink({self.id}, {self.kind})"
 
 
+class FindRequestAttempt(models.Model):
+    """M1: one row per "Check on your request" (R11b) submission, regardless of whether the
+    email matched anything -- `RULES.intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR` has to count
+    every try from an internet address, not just the ones that happened to find a match
+    (`find_my_request` creates a `RequesterVerificationChallenge` row only when it does)."""
+
+    id = UUID7Field()
+    ip_address = models.GenericIPAddressField(null=True, blank=True)  # **S**
+    created_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "requester_portal_find_attempt"
+        indexes = [models.Index(fields=["ip_address", "created_at"], name="rp_find_ip_idx")]
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"FindRequestAttempt({self.id})"
+
+
 class IntakeSource(models.Model):
     """Church-issued source codes recording where a public-form visitor came from (Q-114:
     "Same form with an optional short code (link/QR) recording the source; grants nothing

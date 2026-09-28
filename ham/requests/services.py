@@ -99,6 +99,7 @@ class SubmittedRequestPayload:
     urgency_justification: str = ""
     known_hazards: str = ""
     preferred_availability: str = ""
+    contact_note: str = ""  # Q-148
     verification_method: VerificationMethod | str = VerificationMethod.EMAIL_CODE
     verified_value: str = ""  # the email/phone actually verified, for the audit trail's S key
     intake_source_id: UUID | None = None
@@ -187,9 +188,10 @@ def submit_request(
         urgency_status=initial_urgency_status(payload.urgent_requested).value,
         known_hazards=payload.known_hazards,
         preferred_availability=payload.preferred_availability,
+        contact_note=payload.contact_note,
         preferred_contact_method=payload.preferred_contact_method,
         relationship_to_property=payload.relationship_to_property,
-        attestation_version=certifications.CURRENT_ATTESTATION_VERSION,
+        attestation_version=certifications.ATTESTATION_VERSION,
         attested_statements=list(payload.attested_statements),
         attested_at=now,
         submitted_at=now,
@@ -318,7 +320,11 @@ def complete_intake_checks(ctx: SystemContext, *, request_id: UUID) -> CommandRe
 
     request.status = decision.target.value
     request.status_changed_at = now
-    request.save(update_fields=["status", "status_changed_at"])
+    update_fields = ["status", "status_changed_at"]
+    if decision.target is RequestStatus.AWAITING_APPROVAL and request.awaiting_approval_at is None:
+        request.awaiting_approval_at = now
+        update_fields.append("awaiting_approval_at")
+    request.save(update_fields=update_fields)
 
     transition = decision.transition
     assert transition is not None
@@ -434,6 +440,7 @@ def cancel_request(
     request.status = decision.target.value
     request.status_changed_at = now
     request.closed_at = now
+    request.closed_by_user_id = ctx.user_id
     request.cancel_reason_code = CancelReason(reason_code).value
     request.cancel_note = note
     request.requester_access_ends_at = now + RULES.requester_access.REQUESTER_ACCESS_AFTER_CLOSE
@@ -442,6 +449,7 @@ def cancel_request(
             "status",
             "status_changed_at",
             "closed_at",
+            "closed_by_user_id",
             "cancel_reason_code",
             "cancel_note",
             "requester_access_ends_at",
@@ -499,8 +507,43 @@ def reveal_requester_pii(
     """
     from django.db import transaction
 
-    request = AssistanceRequest.objects.get(pk=request_id)
+    from .queries import get_request_by_id
+
+    # L2: scope the lookup *before* touching authorize()/audit at all -- the unscoped
+    # `AssistanceRequest.objects.get(pk=request_id)` this replaces (a) raised `DoesNotExist`
+    # straight through for an unknown id (a 500, not a clean 404) and (b) let a Pastor/Board
+    # rep "reveal" a request that's still `NEEDS_PHONE_CHECK` (Q-025: visible to Director/AD
+    # only) by guessing its UUID directly, bypassing the list-level scoping that normally
+    # hides those rows. `get_request_by_id` applies the same `scope_queryset_for_requests`
+    # every list screen already uses, so an out-of-scope or unknown id looks identical: denied,
+    # same as any other unauthorized attempt.
+    request = get_request_by_id(ctx, request_id)
+    if request is None:
+        audit_record(
+            ctx=ctx,
+            action="authz.denied",
+            target_type="action",
+            target_id="requester_pii.reveal",
+            reason="not_found_or_out_of_scope",
+        )
+        raise PermissionDenied("requester_pii.reveal: not found")
     decision = authorize(ctx, "requester_pii.reveal", request)
+    # L7/Q-151: block the reveal outright when the *real* signed-in actor is an
+    # Administrator, even while impersonating a role that would otherwise be allowed to
+    # reveal (Director/AD/Pastor/Board). Q-124's "Administrator: view only, masked, no
+    # reveal" is a rule about the *person*, not the *effective role* -- letting an
+    # Administrator start impersonating a Director specifically to see unmasked contact
+    # details would make that masking rule meaningless. `ctx.roles`/`effective_roles` while
+    # impersonating already hold the *target's* roles, not the real actor's, so this needs
+    # `ham.identity.services.user_holds_global_role` on `ctx.real_user_id` -- not a matrix
+    # change (the matrix has no notion of "the real actor while impersonating").
+    if decision.allowed and ctx.is_impersonating:
+        from ham.identity.services import user_holds_global_role
+
+        if user_holds_global_role(ctx.real_user_id, roles.ADMINISTRATOR):
+            decision = dataclasses.replace(
+                decision, allowed=False, reason="administrator_impersonating"
+            )
     if not decision.allowed:
         audit_record(
             ctx=ctx,
@@ -553,11 +596,14 @@ def reveal_requester_pii(
 # branch below decides "erase everything" (spam) vs "erase only the P fields" (everyone else).
 @command("system.intake.purge")
 def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandResult:
-    """7 years after an ordinary close, erase name/email/phone/street (keep ZIP, category and
-    outcome so "families served" reporting still works); a request closed as spam/test is
-    erased entirely 90 days after closing instead -- nothing about it is worth keeping
-    (Q-127, decided). Skips a request already anonymized (idempotent: the sweep may see the
-    same row twice in a slow run)."""
+    """7 years after an ordinary close, erase name/email/phone/street and every free-text
+    circumstance field (description, urgency justification, hazards note, R5's contact note,
+    close note, owner name -- Q-145) plus the append-only verification rows' hashed value
+    (Q-145's own "value_key" for `RequestContactVerification`, L8); keep ZIP, category,
+    outcome, and dates so "families served" reporting still works. A request closed as
+    spam/test is erased entirely 90 days after closing instead -- nothing about it is worth
+    keeping (Q-127, decided). Skips a request already anonymized (idempotent: the sweep may
+    see the same row twice in a slow run)."""
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
 
     if request.cancel_reason_code == CancelReason.SPAM.value:
@@ -574,6 +620,18 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
             target_type="request",
             target_id=str(request_id),
             context={"reference_number": reference_number},
+            # L4: `ham.requester_portal`'s `RequesterAccessLink`/`RequesterVerificationChallenge`
+            # rows reference `request_id` as a plain UUID, not a real FK (intake.md §2 layering
+            # -- `ham.requests` may not import `ham.requester_portal` to delete them directly),
+            # so deleting this row here does not cascade-delete them; they would otherwise sit
+            # orphaned, and an old link token for them would blow up with a 500 the next time
+            # someone used it. `ham.requester_portal`'s own outbox subscriber purges them.
+            outbox=OutboxSpec(
+                "RequestPurged",
+                aggregate_type="request",
+                aggregate_id=request_id,
+                payload={"request_id": str(request_id)},
+            ),
         )
 
     requester = Requester.objects.select_for_update().get(request=request)
@@ -596,6 +654,31 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
     property_.owner_name = ""
     property_.address_key = None
     property_.save()
+
+    # Q-145: every free-text circumstance field, not just P-field identity/contact. Keep ZIP,
+    # category, status/outcome, and every date -- only the human-written text goes.
+    request.description = ""
+    request.urgency_justification = ""
+    request.known_hazards = ""
+    request.contact_note = ""
+    request.cancel_note = ""
+    request.save(
+        update_fields=[
+            "description",
+            "urgency_justification",
+            "known_hazards",
+            "contact_note",
+            "cancel_note",
+        ]
+    )
+
+    # L8: `RequestContactVerification` is append-only at the Python level (its own `save()`
+    # refuses any update) -- a queryset `.update()` bypasses `Model.save()` entirely (Django
+    # never calls it for a bulk update), which is exactly what a system-level erasure sweep
+    # needs: it is not "editing" any individual row's history, it is retiring the hashed value
+    # every such row carries, the same way the requester's own contact fields are blanked
+    # above rather than deleted.
+    RequestContactVerification.objects.filter(request=request).update(value_key="")
 
     return CommandResult(
         value=request,

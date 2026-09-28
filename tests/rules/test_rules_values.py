@@ -71,6 +71,8 @@ EXPECTED = {
     "intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY": 3,  # Q-121
     "intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR": 20,  # Q-121
     "intake.INTAKE_MIN_FILL_TIME": timedelta(seconds=3),  # Q-121 (number from plan §9)
+    "intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR": 20,  # Q-121
+    "intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY": 3,  # Q-146
     # Media (§45–§47)
     "media.REQUESTER_MEDIA_BATCH_MAX_PHOTOS": 10,
     "media.REQUESTER_MEDIA_BATCH_MAX_VIDEOS": 3,

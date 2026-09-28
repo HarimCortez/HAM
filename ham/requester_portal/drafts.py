@@ -22,7 +22,7 @@ from ham.platform.clock import now as clock_now
 from ham.platform.crypto import decrypt, encrypt
 from ham.rules import RULES
 
-from .models import IntakeDraft
+from .models import IntakeDraft, RequesterVerificationChallenge
 
 _RATE_WINDOW = dt.timedelta(hours=1)
 
@@ -96,6 +96,18 @@ def save_step(draft_id: UUID, step_data: dict, *, email: str | None = None) -> I
             if new_key != draft.email_key:
                 draft.email_key = new_key
                 update_fields.append("email_key")
+                # H1: a code already sent for the *old* email must not still work once the
+                # draft's email has changed -- close the window even before
+                # `submit_and_issue_link`'s own email_key check would catch a replay (e.g. if
+                # the email were later edited back to the original value). Only unconsumed
+                # challenges: one already redeemed (code/link used) keeps its own record of
+                # what it verified; `submit_and_issue_link` checks that value against the
+                # email actually being submitted, not against the draft's current value.
+                RequesterVerificationChallenge.objects.filter(
+                    draft_id=draft_id,
+                    purpose=RequesterVerificationChallenge.PURPOSE_INTAKE,
+                    consumed_at__isnull=True,
+                ).update(expires_at=now - dt.timedelta(seconds=1))
         draft.save(update_fields=update_fields)
     return draft
 

@@ -28,11 +28,21 @@ from ham.platform import otp
 from ham.platform.clock import now as clock_now
 from ham.platform.crypto import encrypt
 from ham.requests.matching import normalize_email
+from ham.rules import RULES
 
 from . import drafts, forms
-from .models import RequesterAccessLink
+from .models import IntakeSource, RequesterAccessLink, RequesterVerificationChallenge
 from .validity import fixed_expiry, link_validity, normal_access_ends_at
 from .verification import ChallengeRequestResult, request_link_regeneration_code
+
+
+class IntakeSubmissionRateLimited(Exception):
+    """M1/Q-146: raised by `submit_and_issue_link` when the daily submission cap for this
+    email (`RULES.intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY`) or, for the no-email path,
+    this phone number (`RULES.intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY`, Q-146) is
+    already reached. Caught by `ham.web.views_requester`, which shows the same "answers are
+    saved, try later" wording every other cap uses (H2: identical UI, never a hint about
+    which specific limit tripped)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +176,13 @@ def resolve_token(token: str, *, now: dt.datetime | None = None) -> RequesterCon
     link = RequesterAccessLink.objects.filter(token_hash__in=candidates).first()
     if link is None:
         return None
-    facts = _facts(link.request_id)
+    # L4: an orphaned link row (its request was purged, e.g. a spam delete before the
+    # `RequestPurged` subscriber has caught up) is invalid, not a 500 -- same outcome as an
+    # unknown token (intake.md §7: "unknown and invalid tokens get the same page").
+    try:
+        facts = _facts(link.request_id)
+    except ValueError:
+        return None
     validity = link_validity(
         kind=link.kind,
         issued_at=link.issued_at,
@@ -257,8 +273,25 @@ def link_owner_contact(*, token: str) -> tuple[UUID, str | None] | None:
 def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResult:
     """R11b "Check on your request" (Q-117): one link-only email per matching request; an
     address with no request gets none at all. The HTTP-visible response is identical
-    regardless (intake.md §9); only whether/how many emails go out differs."""
+    regardless (intake.md §9); only whether/how many emails go out differs.
+
+    M1: also enforces `RULES.intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR` -- counted from
+    `FindRequestAttempt`, which logs every try (matched or not), not just the ones that
+    happen to send an email (an unmatched address would otherwise never count against this
+    cap at all)."""
     from .antiabuse import HONEYPOT_FIELD_NAME  # noqa: F401 - documents the caller's own check
+    from .models import FindRequestAttempt
+
+    now = clock_now()
+    if ip_address:
+        window_start = now - dt.timedelta(hours=1)
+        recent = FindRequestAttempt.objects.filter(
+            ip_address=ip_address, created_at__gte=window_start
+        ).count()
+        if recent >= RULES.intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR:
+            # H2: identical-looking response either way; nothing is sent this time.
+            return ChallengeRequestResult("sent")
+    FindRequestAttempt.objects.create(ip_address=ip_address or None, created_at=now)
 
     normalized = normalize_email(email)
     if normalized is not None:
@@ -281,48 +314,37 @@ class SubmissionResult:
     issued_link: IssuedLink | None  # None for a Q-025 no-email (NEEDS_PHONE_CHECK) submission
 
 
-# Coordination note (found while wiring `submit_and_issue_link`, not a PRD-policy question):
-# `ham.requester_portal.choices`/`.attestation` (this app's own public-form vocabulary, S2.3)
-# and `ham.requests.models`/`.certifications` (what's actually persisted, S2.2) were built in
-# parallel worktrees and independently invented *different* string codes for the same three
-# choices (need category, property type, and the certification statements) -- e.g. the portal
-# form offers `"roof_or_ceiling"` but `AssistanceRequest.need_category`'s `choices=` only
-# lists `"roof"`. Passing the portal's codes straight through would silently store a value
-# outside the model's `choices=` (Django doesn't enforce `choices=` at the DB/`.create()`
-# level, so this would not raise -- it would just quietly break every screen that renders the
-# category/type by its label) or, for certifications, make `submit_request`'s
-# `certifications.statements_satisfy_relationship` check refuse every submission. Translated
-# here rather than in either module, since this is the one place that already imports both
-# vocabularies together for the sole purpose of crossing that seam.
-_NEED_CATEGORY_TRANSLATION: dict[str, str] = {
-    "roof_or_ceiling": "roof",
-    "plumbing_or_water": "plumbing",
-    "electrical": "electrical",
-    "doors_windows_locks": "carpentry",
-    "floors_or_stairs": "carpentry",
-    "ramps_rails_grab_bars": "accessibility",
-    "painting_or_walls": "painting",
-    "yard_or_outside": "yard_outdoor",
-    "something_else": "other",
-}
-
-_PROPERTY_TYPE_TRANSLATION: dict[str, str] = {
-    "house": "single_family_home",
-    "townhouse": "townhome_condo",
-    "apartment_or_condo": "apartment",
-    "mobile_or_manufactured_home": "mobile_manufactured_home",
-    "other": "other",
-}
+def _resolve_intake_source(code: str) -> tuple[UUID | None, str]:
+    """PRD-GAP Q-114 / PRD-guardian M9: resolve an optional ``?c=`` church-issued code (Q-114
+    "same form with an optional short code (link/QR) recording the source") to an active
+    `IntakeSource` row. An unknown or deactivated code is not an error — it just falls back to
+    the plain public-form source, same as no code at all (Q-114: "grants nothing extra").
+    Code resolution is wired in this slice; the Director/AD create/deactivate management
+    screen is a later slice's (see this module's own `IntakeSource` docstring)."""
+    if not code:
+        return None, "public_form"
+    source = IntakeSource.objects.filter(code=code, deactivated_at__isnull=True).first()
+    if source is None:
+        return None, "public_form"
+    return source.id, "church_link"
 
 
-def _payload_from_cleaned(cleaned: dict, *, no_email: bool) -> Any:
+def _payload_from_cleaned(cleaned: dict, *, no_email: bool, method: str = "email_code") -> Any:
     """Builds `ham.requests.services.SubmittedRequestPayload` from
     `ham.requester_portal.forms.validate_intake_payload`'s ``cleaned`` dict. Free-text C
     fields (`known_hazards`/`preferred_availability`) are stored as the human-readable
     comma-joined answers; nothing here re-derives what `validate_intake_payload` already
-    decided (this function only reshapes, never re-validates) except translating the two
-    vocabularies documented above."""
-    from ham.requests import certifications
+    decided (this function only reshapes, never re-validates).
+
+    PRD-guardian M1/UX M2/B1: need category, property type, and the certification statement
+    codes used to need translating here, because the portal and `ham.requests` each had their
+    own, differently-coded copy of the same vocabulary. There is now exactly one vocabulary
+    for each (`ham.requests.models.NeedCategory`/`PropertyType`,
+    `ham.requests.certifications`), so `cleaned["need_category"]`/`cleaned["property_type"]`/
+    `cleaned["attested_statements"]` already carry the codes `ham.requests` persists —
+    `attested_statements` is passed through exactly as ticked (never re-derived from
+    "what this relationship requires"), so the stored record always matches what the
+    requester actually accepted."""
     from ham.requests.services import SubmittedRequestPayload
     from ham.requests.states import VerificationMethod
 
@@ -330,12 +352,8 @@ def _payload_from_cleaned(cleaned: dict, *, no_email: bool) -> Any:
     if cleaned.get("hazard_note"):
         hazards = f"{hazards} ({cleaned['hazard_note']})" if hazards else cleaned["hazard_note"]
 
-    # The portal's own `attestation.statements_satisfied` (called by `validate_intake_payload`
-    # before we ever get here) already confirmed both required ticks were accepted for this
-    # relationship, under the portal's own (differently-coded but content-equivalent) two-tick
-    # wording -- so it's safe to record the corresponding *certifications*-vocabulary codes
-    # `ham.requests.services.submit_request` actually checks and stores.
-    attested_statements = certifications.required_statements(cleaned["relationship_to_property"])
+    attested_statements = tuple(cleaned["attested_statements"])
+    intake_source_id, source = _resolve_intake_source(cleaned.get("intake_source_code") or "")
 
     return SubmittedRequestPayload(
         full_name=cleaned["full_name"],
@@ -347,14 +365,10 @@ def _payload_from_cleaned(cleaned: dict, *, no_email: bool) -> Any:
         city=cleaned["city"],
         state=cleaned["state"],
         postal_code=cleaned["postal_code"] or "",
-        property_type=_PROPERTY_TYPE_TRANSLATION.get(
-            cleaned["property_type"], cleaned["property_type"]
-        ),
+        property_type=cleaned["property_type"],
         owner_name=cleaned["owner_name"],
         relationship_to_property=cleaned["relationship_to_property"],
-        need_category=_NEED_CATEGORY_TRANSLATION.get(
-            cleaned["need_category"], cleaned["need_category"]
-        ),
+        need_category=cleaned["need_category"],
         description=cleaned["description"],
         preferred_contact_method=cleaned["contact_preference"],
         attested_statements=attested_statements,
@@ -362,23 +376,28 @@ def _payload_from_cleaned(cleaned: dict, *, no_email: bool) -> Any:
         urgency_justification=cleaned["urgency_justification"],
         known_hazards=hazards,
         preferred_availability=", ".join(cleaned["preferred_availability"]),
-        # Both a typed code and a clicked link satisfy `EMAIL_VERIFICATION_METHODS`
-        # (ham.requests.states) identically; neither challenge type is distinguished once
-        # consumed (`RequesterVerificationChallenge` has no such field), so `EMAIL_CODE` is
-        # recorded either way -- cosmetic only, never read by the state machine itself.
+        contact_note=cleaned.get("contact_note") or "",
+        # N7: which of the two emailed paths actually verified this address -- a typed code
+        # (`VerificationMethod.EMAIL_CODE`) or a clicked scanner-safe link
+        # (`VerificationMethod.EMAIL_LINK`) -- is now recorded accurately, not hard-coded to
+        # "code" for every submission. `submit_and_issue_link`'s caller (`ham.web.
+        # views_requester`) knows which one happened and passes it through.
         verification_method=(
-            VerificationMethod.STAFF_PHONE_CALL if no_email else VerificationMethod.EMAIL_CODE
+            VerificationMethod.STAFF_PHONE_CALL if no_email else VerificationMethod(method)
         ),
         verified_value="" if no_email else (cleaned["email"] or ""),
-        # PRD-GAP: `intake_source_code` -> `IntakeSource.id` resolution isn't wired yet
-        # (intake-contracts.md §8.6 -- the model itself still needs merging into one app);
-        # left `None` here, not a product-policy question.
-        intake_source_id=None,
-        source="public_form",
+        # PRD-GAP Q-114: see `_resolve_intake_source`'s docstring above.
+        intake_source_id=intake_source_id,
+        source=source,
     )
 
 
-def submit_and_issue_link(*, draft_id: UUID, verification_id: UUID | None) -> SubmissionResult:
+def submit_and_issue_link(
+    *,
+    draft_id: UUID,
+    verification_id: UUID | None,
+    verification_method: str = "email_code",
+) -> SubmissionResult:
     """intake.md §2: "The portal orchestrates submission: it verifies the draft, calls
     `requests.services.submit_request`, then issues the link, all in one transaction."
 
@@ -388,6 +407,10 @@ def submit_and_issue_link(*, draft_id: UUID, verification_id: UUID | None) -> Su
     building `SubmittedRequestPayload` (CLAUDE.md's "AI suggestion -> user accepts -> HAM
     validates permissions/rules -> transaction" -- the caller's own pre-code-send validation
     is not trusted as the only gate).
+
+    ``verification_method`` (N7): ``"email_code"`` (default, the R8 code-entry path) or
+    ``"email_link"`` (the emailed one-click link) -- ignored for the no-email path, where
+    `_payload_from_cleaned` always records `STAFF_PHONE_CALL`.
     """
     from ham.platform.church import church_profile
     from ham.requests.services import submit_request  # S2.2's `@command`-wrapped service
@@ -406,16 +429,75 @@ def submit_and_issue_link(*, draft_id: UUID, verification_id: UUID | None) -> Su
         raise ValueError(
             "submit_and_issue_link: verification_id must be set iff the draft has an email"
         )
-    payload = _payload_from_cleaned(cleaned, no_email=no_email)
+
+    # M1/Q-146: enforced right before the request is actually created (not just at
+    # code-send time -- a person can hold several still-valid codes from earlier in the day).
+    from ham.requests.queries import (
+        recent_no_email_submission_count_for_phone,
+        recent_submission_count_for_email,
+    )
+
+    since = clock_now() - dt.timedelta(hours=24)
+    if no_email:
+        if (
+            recent_no_email_submission_count_for_phone(cleaned["phone"] or "", since=since)
+            >= RULES.intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY
+        ):
+            raise IntakeSubmissionRateLimited("no-email submission cap reached for this phone")
+    else:
+        if (
+            recent_submission_count_for_email(cleaned["email"] or "", since=since)
+            >= RULES.intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY
+        ):
+            raise IntakeSubmissionRateLimited("submission cap reached for this email")
+
+    payload = _payload_from_cleaned(cleaned, no_email=no_email, method=verification_method)
 
     ctx = RequesterContext(request_id=None)
     with transaction.atomic():
+        # H1: the challenge named by `verification_id` must actually belong to THIS draft and
+        # THIS submitted email -- otherwise a person could send a code to their own address,
+        # change the draft's email to someone else's, and submit with the first code,
+        # producing a request that falsely records the *victim's* email as "confirmed".
+        # `select_for_update()` (inside this same atomic block) closes the race where two
+        # concurrent submits try to spend the same challenge at once. Every check below is
+        # required: purpose (only an intake challenge may create a request), already-consumed
+        # (verify_code/consume_link already redeemed it -- this is not itself the redemption
+        # step), belongs to this exact draft, matches the exact email now being submitted, and
+        # has never already been used to create a request (one submission per verification;
+        # `request_id` doubles as that one-time marker for purpose=intake rows, which
+        # otherwise never set it at creation).
+        if not no_email:
+            assert verification_id is not None
+            challenge = (
+                RequesterVerificationChallenge.objects.select_for_update()
+                .filter(pk=verification_id)
+                .first()
+            )
+            if (
+                challenge is None
+                or challenge.purpose != RequesterVerificationChallenge.PURPOSE_INTAKE
+                or challenge.consumed_at is None
+                or challenge.draft_id != draft_id
+                or challenge.request_id is not None
+                or challenge.email_key != otp.hash_value((cleaned["email"] or "").strip().lower())
+            ):
+                raise ValueError(
+                    "submit_and_issue_link: verification does not match this draft/email"
+                )
+
         request = submit_request(
             ctx,
             draft_id=draft_id,
             verification_id=verification_id,
             payload=payload,
         )
+        if not no_email:
+            assert verification_id is not None
+            # One-time marker: this verification has now been spent on a real request.
+            RequesterVerificationChallenge.objects.filter(pk=verification_id).update(
+                request_id=request.id
+            )
         drafts.mark_consumed(draft_id, request_id=request.id)
         issued: IssuedLink | None = None
         if not no_email:
@@ -441,6 +523,7 @@ def submit_and_issue_link(*, draft_id: UUID, verification_id: UUID | None) -> Su
 
 
 __all__ = [
+    "IntakeSubmissionRateLimited",
     "IssuedLink",
     "RequestLinkFacts",
     "SubmissionResult",

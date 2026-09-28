@@ -190,8 +190,8 @@ ORACLE: dict[str, tuple[frozenset[str], str, bool, bool, str]] = {
     # Director, Assistant Director, Pastor and Board representative see every request awaiting
     # approval (§4.3, §8; Q-106 decided). Q-124 (decided): the Administrator additionally gets
     # view-only access (masked contact, no reveal) to request/media *viewing* actions only —
-    # never `requester_pii.reveal`, `request.cancel`, `request.create_assisted`,
-    # `request_media.reopen`, the phone-verification actions, or `intake_source.manage`.
+    # never `requester_pii.reveal`, `request.cancel`, `request_media.reopen`, the
+    # phone-verification actions, or `intake_source.manage`.
     "request.list": (_DIR_AD_PAS_BRD_ADM, ANY, False, False, "§8, §64, Q-106"),
     "request.view": (_DIR_AD_PAS_BRD_ADM, ANY, False, False, "§8, §67, Q-124"),
     # Kept separate from request.view (intake.md §5: "so later PL/TL request.view never
@@ -221,17 +221,8 @@ ORACLE: dict[str, tuple[frozenset[str], str, bool, bool, str]] = {
         True,
         "§52, Q-107, Q-111",
     ),
-    # Q-025 (decided): Director, Assistant Director or a pastor may enter a request on behalf
-    # of someone with no email, over the phone; blocked while impersonating (the actor is
-    # vouching for a phone call on their own account, the same "target's own decisions"
-    # pattern Q-048 blocks for accepting agreements on someone else's behalf).
-    "request.create_assisted": (
-        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR, PASTOR}),
-        ANY,
-        False,
-        True,
-        "Q-025",
-    ),
+    # PRD-guardian N2: `request.create_assisted` removed (unwired, unaudited Pastor staff-
+    # entry power; see ham/authz/matrix.py's own note at the same spot).
     # intake.md owner-decisions box: the "Needs a phone check" list is Director/AD only.
     "request.needs_phone_check.list": (
         frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),

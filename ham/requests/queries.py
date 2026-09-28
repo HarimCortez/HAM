@@ -155,6 +155,7 @@ class RequestDetailRow:
     urgency_status: str
     known_hazards: str
     preferred_availability: str
+    contact_note: str  # Q-148: R5's "anything else about reaching you or visiting?"
     preferred_contact_method: str
     relationship_to_property: str
     property_type: str
@@ -185,6 +186,7 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         urgency_status=r.urgency_status,
         known_hazards=r.known_hazards,
         preferred_availability=r.preferred_availability,
+        contact_note=r.contact_note,
         preferred_contact_method=r.preferred_contact_method,
         relationship_to_property=r.relationship_to_property,
         property_type=r.property.property_type,
@@ -195,7 +197,11 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         cancel_reason_code=r.cancel_reason_code,
         can_reveal_contact=can_reveal(ctx, r),
         is_masked_view=is_masked_view(ctx),
-        photo_count_only=roles.ADMINISTRATOR in ctx.effective_roles,
+        # N9 (coordinator handoff from FIX-B): higher privilege wins -- an Administrator who
+        # also holds a leadership role must not be masked. `is_masked_view` (this module,
+        # above) already encodes "Administrator AND no leadership role also grants access",
+        # matching `ham.media.services.media_gallery_for`'s identical fix.
+        photo_count_only=is_masked_view(ctx),
     )
 
 
@@ -402,17 +408,26 @@ def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
                 HistoryEntry(label=f"Email confirmed ({word})", occurred_at=v.verified_at)
             )
 
-    if request.status in (RequestStatus.AWAITING_APPROVAL.value,):
+    # PRD-guardian N8: `awaiting_approval_at` is set once and never cleared, so this entry
+    # stays on the timeline even after a later cancellation moves `request.status` away from
+    # AWAITING_APPROVAL (checking the *current* status here used to make the entry vanish).
+    if request.awaiting_approval_at is not None:
         entries.append(
             HistoryEntry(
-                label="Awaiting Approval (automatic)", occurred_at=request.status_changed_at
+                label="Awaiting Approval (automatic)", occurred_at=request.awaiting_approval_at
             )
         )
     if request.status == RequestStatus.CANCELLED.value and request.closed_at is not None:
         reason = CANCEL_REASON_BANNER_LABELS.get(
             request.cancel_reason_code, request.cancel_reason_code
         )
-        entries.append(HistoryEntry(label=reason, occurred_at=request.closed_at))
+        entries.append(
+            HistoryEntry(
+                label=reason,
+                occurred_at=request.closed_at,
+                actor_user_id=request.closed_by_user_id,
+            )
+        )
     if request.attested_at is not None:
         entries.append(
             HistoryEntry(
@@ -435,3 +450,29 @@ def request_ids_for_portal_email(email: str) -> list[UUID]:
     return list(
         Requester.objects.filter(email_key__in=candidates).values_list("request_id", flat=True)
     )
+
+
+def recent_submission_count_for_email(email: str, *, since: dt.datetime) -> int:
+    """M1: `RULES.intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY` -- how many requests with this
+    normalized email on file (any configured HMAC key) were submitted on or after ``since``.
+    Called by `ham.requester_portal.services.submit_and_issue_link` right before it actually
+    creates a request, not just at code-send time (a person can hold several still-valid
+    verification codes from earlier in the day)."""
+    if not email:
+        return 0
+    candidates = otp.hash_candidates(email)
+    return Requester.objects.filter(
+        email_key__in=candidates, request__submitted_at__gte=since
+    ).count()
+
+
+def recent_no_email_submission_count_for_phone(phone: str, *, since: dt.datetime) -> int:
+    """Q-146 (decided): `RULES.intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY` -- how many
+    "I don't use email" requests with this phone number on file were submitted on or after
+    ``since``. The per-email cap above cannot reach this path since there is no email."""
+    if not phone:
+        return 0
+    candidates = otp.hash_candidates(phone)
+    return Requester.objects.filter(
+        phone_key__in=candidates, request__submitted_at__gte=since
+    ).count()

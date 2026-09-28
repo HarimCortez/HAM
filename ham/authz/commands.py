@@ -115,7 +115,6 @@ _AUDITED_ON_DENIAL: frozenset[str] = frozenset(
         # explicitly called out in the plan as "audited on denial".
         "requester_pii.reveal",
         "request.cancel",
-        "request.create_assisted",
         "request.contact_verify_phone",
     }
 )

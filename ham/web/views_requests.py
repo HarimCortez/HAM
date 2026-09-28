@@ -351,12 +351,18 @@ def request_phone_check(request, request_id: uuid.UUID):
     except PermissionDenied:
         return render(request, "web/not_found.html", status=404)
 
+    # Q-148/M6: the phone-check sheet is one of the two places (with the leadership detail
+    # view) that shows R5's "anything else about reaching you or visiting?" note.
+    detail = get_request_detail(ctx, request_id)
+    contact_note = detail.contact_note if detail is not None else ""
+
     return render(
         request,
         "web/request_phone_check.html",
         {
             "request_row": request_row,
             "revealed": revealed,
+            "contact_note": contact_note,
             "is_impersonating": ctx.is_impersonating,
             "is_director": roles.HAM_DIRECTOR in ctx.effective_roles,
         },

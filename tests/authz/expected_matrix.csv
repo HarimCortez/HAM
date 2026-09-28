@@ -628,22 +628,6 @@ request.cancel,ADMINISTRATOR,n/a,False,False,False,"§52, Q-107, Q-111",disabled
 request.cancel,HAM_DIRECTOR,n/a,False,False,False,"§52, Q-107, Q-111",mfa_role_unverified_alone
 request.cancel,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§52, Q-107, Q-111",mfa_role_unverified_union_with_volunteer
 request.cancel,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§52, Q-107, Q-111",role_union
-request.create_assisted,ADMINISTRATOR,n/a,False,False,False,Q-025,baseline
-request.create_assisted,HAM_DIRECTOR,n/a,True,False,True,Q-025,baseline
-request.create_assisted,ASSISTANT_DIRECTOR,n/a,True,False,True,Q-025,baseline
-request.create_assisted,PASTOR,n/a,True,False,True,Q-025,baseline
-request.create_assisted,BOARD_REPRESENTATIVE,n/a,False,False,False,Q-025,baseline
-request.create_assisted,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,Q-025,baseline
-request.create_assisted,VOLUNTEER,n/a,False,False,False,Q-025,baseline
-request.create_assisted,CONTRACTOR,n/a,False,False,False,Q-025,baseline
-request.create_assisted,PROJECT_LEADER,n/a,False,False,False,Q-025,baseline
-request.create_assisted,TASK_LEADER,n/a,False,False,False,Q-025,baseline
-request.create_assisted,,n/a,False,False,False,Q-025,zero_role
-request.create_assisted,,n/a,False,False,False,Q-025,unauthenticated
-request.create_assisted,ADMINISTRATOR,n/a,False,False,False,Q-025,disabled_user
-request.create_assisted,HAM_DIRECTOR,n/a,False,False,False,Q-025,mfa_role_unverified_alone
-request.create_assisted,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,Q-025,mfa_role_unverified_union_with_volunteer
-request.create_assisted,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,Q-025,role_union
 request.needs_phone_check.list,ADMINISTRATOR,n/a,False,False,False,Q-025,baseline
 request.needs_phone_check.list,HAM_DIRECTOR,n/a,True,False,False,Q-025,baseline
 request.needs_phone_check.list,ASSISTANT_DIRECTOR,n/a,True,False,False,Q-025,baseline

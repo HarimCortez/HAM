@@ -67,7 +67,7 @@ class Command(BaseCommand):
         now = clock_now()
         with transaction.atomic():
             self._create(
-                need_category=NeedCategory.PLUMBING,
+                need_category=NeedCategory.PLUMBING_OR_WATER,
                 status=RequestStatus.SUBMITTED,
                 full_name="Doris Hall",
                 email="doris@example.org",
@@ -75,7 +75,7 @@ class Command(BaseCommand):
                 submitted_at=now - dt.timedelta(hours=2),
             )
             self._create(
-                need_category=NeedCategory.ROOF,
+                need_category=NeedCategory.ROOF_OR_CEILING,
                 status=RequestStatus.AWAITING_APPROVAL,
                 full_name="Walter Jimenez",
                 email="walter@example.org",
@@ -93,7 +93,7 @@ class Command(BaseCommand):
                 urgency_justification="Exposed wiring near a bathtub.",
             )
             self._create(
-                need_category=NeedCategory.ACCESSIBILITY,
+                need_category=NeedCategory.RAMPS_RAILS_GRAB_BARS,
                 status=RequestStatus.NEEDS_PHONE_CHECK,
                 full_name="Ruth Hall",
                 email=None,
@@ -102,7 +102,7 @@ class Command(BaseCommand):
                 email_opt_out=True,
             )
             self._create(
-                need_category=NeedCategory.PAINTING,
+                need_category=NeedCategory.PAINTING_OR_WALLS,
                 status=RequestStatus.CANCELLED,
                 full_name="Test Testerson",
                 email="spam@example.org",
@@ -111,7 +111,7 @@ class Command(BaseCommand):
                 cancel_reason=CancelReason.SPAM,
             )
             self._create(
-                need_category=NeedCategory.YARD_OUTDOOR,
+                need_category=NeedCategory.YARD_OR_OUTSIDE,
                 status=RequestStatus.CANCELLED,
                 full_name="Grace Okafor",
                 email="grace.o@example.org",
@@ -151,7 +151,7 @@ class Command(BaseCommand):
             if email is None
             else PreferredContactMethod.EMAIL,
             relationship_to_property=relationship,
-            attestation_version=certifications.CURRENT_ATTESTATION_VERSION,
+            attestation_version=certifications.ATTESTATION_VERSION,
             attested_statements=list(certifications.required_statements(relationship)),
             attested_at=submitted_at,
             submitted_at=submitted_at,
@@ -184,7 +184,7 @@ class Command(BaseCommand):
             city="Example City",
             state="FL",
             postal_code="33101",
-            property_type=PropertyType.SINGLE_FAMILY_HOME,
+            property_type=PropertyType.HOUSE,
             address_key=keys["address_key"],
         )
         if email is not None:

@@ -127,6 +127,13 @@ def _request(
     email_key = _email_key(email)
     now = clock_now()
 
+    # H2: every budget below is scoped to THIS purpose only (never shared across "intake" and
+    # "link_regeneration") -- a shared counter let someone run several "Check on your
+    # request"/regeneration sends for an address that DOES have a request (incrementing a
+    # purpose-blind counter), then try the *intake* form with the same address and observe a
+    # distinctly different ("too many codes") outcome only when a request existed. Splitting
+    # the counters by purpose closes that oracle regardless of what the caller does with the
+    # result (see the second half of this fix, below).
     if not bypass_cooldown:
         last = (
             RequesterVerificationChallenge.objects.filter(email_key=email_key, purpose=purpose)
@@ -139,10 +146,22 @@ def _request(
 
     window_start = now - dt.timedelta(hours=1)
     recent = RequesterVerificationChallenge.objects.filter(
-        email_key=email_key, created_at__gte=window_start
+        email_key=email_key, purpose=purpose, created_at__gte=window_start
     ).count()
     if recent >= RULES.intake.REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR:
         return ChallengeRequestResult("rate_limited", retry_at=window_start + dt.timedelta(hours=1))
+
+    # M1: a per-internet-address cap alongside the per-email one above -- one address mashing
+    # "resend" against many different made-up email addresses would otherwise never trip the
+    # per-email cap at all. Also purpose-scoped, for the same H2 reason as above.
+    if ip_address:
+        recent_from_ip = RequesterVerificationChallenge.objects.filter(
+            ip_address=ip_address, purpose=purpose, created_at__gte=window_start
+        ).count()
+        if recent_from_ip >= RULES.intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR:
+            return ChallengeRequestResult(
+                "rate_limited", retry_at=window_start + dt.timedelta(hours=1)
+            )
 
     code = otp.generate_code(RULES.intake.REQUESTER_CODE_LENGTH)
     link_token = otp.generate_token()
@@ -178,22 +197,75 @@ def _consume(challenge: RequesterVerificationChallenge) -> VerifyResult:
     return VerifyResult(ok=True, challenge=challenge)
 
 
-def _recent_failed_attempts(email_key: str, purpose: str, *, now: dt.datetime) -> int:
+def _recent_failed_attempts(
+    *,
+    purpose: str,
+    draft_id: UUID | None,
+    request_id: UUID | None,
+    ip_address: str,
+    now: dt.datetime,
+) -> int:
+    """L6: scoped to the draft (or request, for link regeneration) plus IP -- never to the
+    bare email address, which anyone can type into a draft they control without proving they
+    own it. A shared per-address counter let an attacker lock a real person's address out of
+    intake for a day just by guessing wrong codes against their own drafts."""
     from django.db.models import Sum
 
     window_start = now - _FAILED_ATTEMPT_WINDOW
-    total = RequesterVerificationChallenge.objects.filter(
-        email_key=email_key, purpose=purpose, created_at__gte=window_start
-    ).aggregate(total=Sum("failed_attempts"))["total"]
+    qs = RequesterVerificationChallenge.objects.filter(
+        purpose=purpose, created_at__gte=window_start
+    )
+    qs = qs.filter(draft_id=draft_id) if draft_id is not None else qs.filter(request_id=request_id)
+    if ip_address:
+        qs = qs.filter(ip_address=ip_address)
+    total = qs.aggregate(total=Sum("failed_attempts"))["total"]
     return total or 0
 
 
-def verify_code(*, purpose: str, email: str, code: str) -> VerifyResult:
+def _audit_locked(
+    *, purpose: str, draft_id: UUID | None, request_id: UUID | None, reason: str
+) -> None:
+    """M6/N13: `requester_verification.locked` was declared in the audit label table (S2.0)
+    but never actually written. No email/address anywhere in the event -- the target is the
+    draft/request id (non-PII UUIDs), never `email_key` (an HMAC digest is still "no address"
+    per M6, but the draft/request id is more useful and equally address-free)."""
+    from ham.audit.models import ACTOR_TYPE_SYSTEM
+    from ham.audit.services import record as audit_record
+
+    target_id = str(draft_id) if draft_id is not None else str(request_id)
+    audit_record(
+        ctx=None,
+        actor_type=ACTOR_TYPE_SYSTEM,
+        action="requester_verification.locked",
+        target_type="intake_draft" if draft_id is not None else "request",
+        target_id=target_id,
+        project_id=request_id,
+        context={"purpose": purpose, "reason": reason},
+    )
+
+
+def verify_code(
+    *,
+    purpose: str,
+    email: str,
+    code: str,
+    draft_id: UUID | None = None,
+    request_id: UUID | None = None,
+    ip_address: str = "",
+) -> VerifyResult:
     email_key = _email_key(email)
     now = clock_now()
 
     daily_cap = RULES.intake.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY
-    if _recent_failed_attempts(email_key, purpose, now=now) >= daily_cap:
+    recent = _recent_failed_attempts(
+        purpose=purpose,
+        draft_id=draft_id,
+        request_id=request_id,
+        ip_address=ip_address,
+        now=now,
+    )
+    if recent >= daily_cap:
+        _audit_locked(purpose=purpose, draft_id=draft_id, request_id=request_id, reason="daily_cap")
         return VerifyResult(ok=False, reason="locked")
 
     with transaction.atomic():
@@ -209,6 +281,12 @@ def verify_code(*, purpose: str, email: str, code: str) -> VerifyResult:
             return VerifyResult(ok=False, reason="expired")
         max_attempts = RULES.intake.REQUESTER_CODE_MAX_ATTEMPTS
         if challenge.failed_attempts >= max_attempts:
+            _audit_locked(
+                purpose=purpose,
+                draft_id=challenge.draft_id,
+                request_id=challenge.request_id,
+                reason="max_attempts",
+            )
             return VerifyResult(ok=False, reason="locked")
 
         normalized = code.strip().replace(" ", "").replace("-", "")
@@ -216,6 +294,12 @@ def verify_code(*, purpose: str, email: str, code: str) -> VerifyResult:
             challenge.failed_attempts += 1
             challenge.save(update_fields=["failed_attempts"])
             if challenge.failed_attempts >= max_attempts:
+                _audit_locked(
+                    purpose=purpose,
+                    draft_id=challenge.draft_id,
+                    request_id=challenge.request_id,
+                    reason="max_attempts",
+                )
                 return VerifyResult(ok=False, reason="locked")
             return VerifyResult(
                 ok=False, reason="wrong", attempts_left=max_attempts - challenge.failed_attempts

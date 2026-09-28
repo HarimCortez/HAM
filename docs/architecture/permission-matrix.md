@@ -30,7 +30,6 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `outbox.retry` | Administrator | any |  | IB | §70.3 |
 | `request.cancel` | Assistant Director, HAM Director | any |  | IB | §52, Q-107, Q-111 |
 | `request.contact_verify_phone` | Assistant Director, HAM Director | any |  | IB | Q-025 |
-| `request.create_assisted` | Assistant Director, HAM Director, Pastor | any |  | IB | Q-025 |
 | `request.history.view` | Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §5, §9 |
 | `request.list` | Administrator, Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §8, §64, Q-106 |
 | `request.needs_phone_check.list` | Assistant Director, HAM Director | any |  |  | Q-025 |

@@ -59,7 +59,8 @@ _CANCEL_REASON_WORDING: dict[str, str] = {
         "It matched a request you'd already sent us. Your other request is still open. If "
         "that's not right, please call us."
     ),
-    "couldnt_reach": "We weren't able to reach you to confirm it.",
+    # PRD-guardian N5: key must equal CancelReason.COULDNT_REACH_THEM.value.
+    "couldnt_reach_them": "We weren't able to reach you to confirm it.",
 }
 
 _ALWAYS_WELCOME = "You're always welcome to submit a new request."

@@ -28,16 +28,24 @@ def next_reference_number() -> int:
 
 
 class NeedCategory(models.TextChoices):
-    """PRD-GAP Q-107: proposed default in use; owner may change (intake.md §3)."""
+    """Q-109 (decided, docs/ux/intake.md R2 / §12.1 "What kind of help?"): the ONE vocabulary
+    for need category, used by both the public form and every leadership screen (PRD-guardian
+    M1/UX M2 — there used to be a second, different-coded copy of this list in
+    `ham.requester_portal.choices`; that copy is gone, this is the only one)."""
 
-    PLUMBING = "plumbing", "Plumbing"
+    # PRD-GAP Q-109: leader-initiated category *change* (audited) is deferred to step 3 — this
+    # slice only stores the requester's own choice; no "Change category" leadership action
+    # exists yet in ham.requests.services. Note for the orchestrator: add "Change category
+    # deferred to step 3" to Q-109's row in docs/prd-open-questions.md.
+    ROOF_OR_CEILING = "roof_or_ceiling", "Roof or ceiling"
+    PLUMBING_OR_WATER = "plumbing_or_water", "Plumbing or water"
     ELECTRICAL = "electrical", "Electrical"
-    ROOF = "roof", "Roof"
-    CARPENTRY = "carpentry", "Carpentry & repairs"
-    ACCESSIBILITY = "accessibility", "Accessibility"
-    PAINTING = "painting", "Painting"
-    YARD_OUTDOOR = "yard_outdoor", "Yard & outdoor"
-    OTHER = "other", "Other"
+    DOORS_WINDOWS_LOCKS = "doors_windows_locks", "Doors, windows or locks"
+    FLOORS_OR_STAIRS = "floors_or_stairs", "Floors or stairs"
+    RAMPS_RAILS_GRAB_BARS = "ramps_rails_grab_bars", "Ramps, rails or grab bars"
+    PAINTING_OR_WALLS = "painting_or_walls", "Painting or walls"
+    YARD_OR_OUTSIDE = "yard_or_outside", "Yard or outside"
+    SOMETHING_ELSE = "something_else", "Something else or not sure"
 
 
 class RelationshipToProperty(models.TextChoices):
@@ -47,20 +55,23 @@ class RelationshipToProperty(models.TextChoices):
 
 
 class PropertyType(models.TextChoices):
-    SINGLE_FAMILY_HOME = "single_family_home", "Single-family home"
-    MOBILE_MANUFACTURED_HOME = "mobile_manufactured_home", "Mobile / manufactured home"
-    TOWNHOME_CONDO = "townhome_condo", "Townhome / condominium"
-    APARTMENT = "apartment", "Apartment"
+    """Q-110 (decided, docs/ux/intake.md R3 / §12.1 "Type of home"): the ONE vocabulary for
+    property type (see `NeedCategory`'s docstring above for why there is only one now)."""
+
+    HOUSE = "house", "House"
+    TOWNHOUSE = "townhouse", "Townhouse"
+    APARTMENT_OR_CONDO = "apartment_or_condo", "Apartment or condo"
+    MOBILE_OR_MANUFACTURED_HOME = "mobile_or_manufactured_home", "Mobile or manufactured home"
     OTHER = "other", "Other"
 
 
 class PreferredContactMethod(models.TextChoices):
-    """Q-124 (decided): stored as a preference for leaders; HAM's own automatic messages go
-    by email regardless (§75 -- no SMS provider in V1)."""
+    """Q-111 (decided; PRD-guardian N1 fixed a wrong Q-124 citation here): Email · Phone call
+    only -- the form never offers a "text message" option (§75, no SMS provider in V1), so
+    `TEXT_MESSAGE` is gone, not just unoffered."""
 
     EMAIL = "email", "Email"
     PHONE_CALL = "phone_call", "Phone call"
-    TEXT_MESSAGE = "text_message", "Text message"
 
 
 class RequestSource(models.TextChoices):
@@ -83,7 +94,7 @@ class AssistanceRequest(models.Model):
     intake_source_id = models.UUIDField(null=True, blank=True)
     created_by_user_id = models.UUIDField(null=True, blank=True)  # assisted entry only
 
-    need_category = models.CharField(max_length=16, choices=NeedCategory.choices)
+    need_category = models.CharField(max_length=32, choices=NeedCategory.choices)
     description = models.TextField(blank=True, default="")  # C
 
     urgent_requested = models.BooleanField(default=False)
@@ -96,6 +107,10 @@ class AssistanceRequest(models.Model):
 
     known_hazards = models.TextField(blank=True, default="")  # C
     preferred_availability = models.TextField(blank=True, default="")  # C
+    # Q-148 (decided): R5's "Anything else about reaching you or visiting?" (helper name, best
+    # time to call) -- stored and shown to leadership on the detail view and the phone-check
+    # screen; erased at the 7-year purge along with the other free-text circumstances (Q-145).
+    contact_note = models.TextField(blank=True, default="")  # C
     preferred_contact_method = models.CharField(
         max_length=16, choices=PreferredContactMethod.choices
     )
@@ -109,7 +124,17 @@ class AssistanceRequest(models.Model):
 
     submitted_at = models.DateTimeField()
     status_changed_at = models.DateTimeField()
+    # PRD-guardian N8: recorded once, the first time `system.request.complete_intake_checks`
+    # moves a request into AWAITING_APPROVAL, and never cleared afterwards -- so
+    # `ham.requests.queries.request_history`'s "Awaiting Approval (automatic)" entry keeps
+    # showing on the timeline even after the request is later cancelled (`request.status` is
+    # no longer AWAITING_APPROVAL at that point, so the old "current status" check silently
+    # dropped this entry from the history of every cancelled request).
+    awaiting_approval_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    # PRD-guardian N8: who closed it (set by `request.cancel`) -- the history timeline showed
+    # no actor at all for a close before this.
+    closed_by_user_id = models.UUIDField(null=True, blank=True)
     requester_access_ends_at = models.DateTimeField(null=True, blank=True)
     cancel_reason_code = models.CharField(
         max_length=24, choices=[(c.value, c.value) for c in CancelReason], blank=True, default=""

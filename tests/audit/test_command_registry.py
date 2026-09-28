@@ -60,7 +60,7 @@ PLACEHOLDER_ACTIONS = frozenset(
         # requester.media.remove, request_media.reopen (ham/media/services.py);
         # requester_link.regenerate (ham/requester_portal/services.py). Genuinely still
         # unbuilt this slice (no `@command(...)` site anywhere in `ham/` as of step 2):
-        "request.create_assisted",
+        # (none left; request.create_assisted was removed from the matrix in the fix round)
         "intake_source.manage",
         # `system.media.process`/`system.media.purge`: SYSTEM-scoped background jobs
         # (`ham/media/jobs.py::process_item`/`_purge_item`) that write their own audit rows
