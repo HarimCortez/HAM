@@ -145,3 +145,155 @@
   templates) under `ham/` and `config/` for the literal forbidden church-name strings
   (`test_no_literal_church_name_in_python_source`), per foundation.md §9.6's fuller wording
   ("templates/Python outside design-system/").
+
+## Step 2 (Intake) gap-filling pass (2026-09-28)
+
+### `ham.requester_portal.services` lookup-globals test isolation
+- `services.register_request_facts_lookup`/`register_request_contact_lookup`/
+  `register_email_to_request_ids_lookup` are process-global mutable state, set once for real
+  at `RequesterPortalConfig.ready()`. Several test files' `autouse` fixtures register either
+  the *real* callables or *fakes* for the duration of their own tests, then used to reset the
+  globals to `None` on teardown -- fine only if that file happened to be the *last* one in
+  the session to touch them; any later test/file that assumed `ready()`'s registration was
+  still intact would then get a spurious `RuntimeError`.
+- Fixed by adding one shared fixture, `real_portal_lookups`, to top-level `tests/conftest.py`.
+  It re-registers the exact real callables (duplicated from `RequesterPortalConfig.ready()`,
+  not by calling `ready()` again, which would also re-register the periodic purge jobs) both
+  on setup **and** on teardown.
+  - Files that want the *real* lookups for their own tests (`tests/requester_portal/
+    test_submission_flow.py`, `test_notifications.py`, `tests/web/
+    test_requester_portal_screens.py`): their own `autouse` fixture just takes
+    `real_portal_lookups` as a parameter and does nothing else in its body.
+  - Files that want *fakes* for their own tests but must not corrupt global state for
+    whoever runs next (`tests/requester_portal/test_links.py`, `test_regenerate_and_find.py`):
+    their own `autouse` fixture takes `real_portal_lookups` as a parameter too, purely for
+    **fixture teardown ordering** (pytest tears down in reverse setup order, so
+    `real_portal_lookups`'s teardown — re-register real — runs *after* the local fixture's
+    own `services._request_facts_lookup = None` reset, so the real ones win either way,
+    regardless of file/test order). The local fixture's body still registers its own fakes
+    exactly as before; only the dependency was added.
+- Lesson for next time: don't trust "this fixture resets to `None`, so it must be safe" —
+  check whether `None` really is a safe idle state, or whether it's standing in for "whatever
+  `ready()` set up", which is not the same thing once *this* isn't the first/only test file
+  that touches that global in the session.
+
+### Runtime-registry-based tests for "was this decorator's side effect triggered" are
+inherently order-dependent within one pytest session — use a static source check instead
+- `ham.jobs.periodic_job` (like any decorator) only runs when the module defining it is
+  *imported*. A test that inspects `ham.jobs.app.periodic_registry.periodic_tasks` at runtime
+  to check "did job X get registered" is checking a **process-wide, one-time** side effect:
+  once *any* test anywhere in the session imports that module (directly or transitively — a
+  lazy function-body import inside a service function counts too, the moment that function is
+  first called), the registration sticks for every test that runs afterward in the same
+  process, silently changing the answer depending on file/test order.
+- Concretely: an early draft of `tests/jobs/test_periodic_registry.py` used
+  `app.periodic_registry.periodic_tasks` directly. It correctly caught the
+  `RequestsConfig.ready()` bug (below) when `tests/jobs/` happened to run early
+  (alphabetically first), but two of its assertions **spuriously passed** when the suite ran
+  in reverse file order, because `tests/web/*` (which calls `submit_request` a lot) had
+  already run first and incidentally imported the buggy module. Caught by this task's
+  "run the suite twice, forward and reverse" step — always do this after adding any test that
+  inspects shared/global registration state.
+- Fixed by rewriting the check to be **static**: regex-scan each app's `apps.py::ready()`
+  source (`_ready_imports_submodule` in `tests/jobs/test_periodic_registry.py`) for whether it
+  imports the module that defines the periodic job, rather than asking Procrastinate's live
+  registry whether it happened to get imported by *something* by the time this test runs. A
+  static check reads the same source text no matter what ran before it. Two regex passes are
+  needed (not one collapsed-whitespace regex): one for parenthesized multi-line
+  `from . import (\n a,\n b,\n)` (a DOTALL search naturally bounded by the closing `)`), one
+  per-line for non-parenthesized single-line imports (which have no reliable terminator other
+  than the newline itself once there's more than one `from ... import` statement in the same
+  method body).
+- Real bug found this way (High severity, reported in the hand-back): `ham/requests/
+  apps.py::RequestsConfig.ready()` never imports `ham.requests.jobs`, so
+  `requests.retention_sweep` (Q-127: 7-year requester-PII erase after close, 90-day spam
+  purge) never registers with Procrastinate's periodic runner in a real
+  `manage.py procrastinate worker` process. Pinned as an `xfail(strict=True)` bug file
+  (`tests/jobs/test_requests_retention_sweep_not_registered_bug.py`), same pattern as
+  `tests/web/test_audit_export_stepup_redirect_bug.py`. A second, same-shape, step-1-scope
+  instance also exists (`ham/identity/apps.py::ready()` never imports `.authn`, so
+  `identity.purge_sign_in_challenges` never registers either) — not fixed this slice (out of
+  step-2 scope) but listed in `KNOWN_NOT_WIRED_DUE_TO_BUG` so the enumeration test doesn't
+  silently miss it. `identity.sweep_idle_impersonation_sessions` (also step 1) turned out to
+  be a false alarm under the static check: it *is* registered at real startup, but only via an
+  indirect chain (`RequestsConfig.ready()` → `.notifications` → `ham.identity.services` →
+  `.impersonation`, all module-level imports) that this table's one-job/one-ready-file model
+  can't cleanly express — deliberately left out of `EXPECTED_PERIODIC_JOBS` with a comment
+  explaining why, rather than forced into a misleading row.
+
+### §77 acceptance harness, steps 1-3 (now real, `tests/e2e/test_acceptance_77.py`)
+- Steps 1-3 drive the actual public wizard through `client`/`reverse(...)` (not a service-layer
+  shortcut), reusing the same `_fill_wizard`-shaped helpers as `tests/web/
+  test_requester_portal_screens.py` (kept as a local copy in this file, not imported, since
+  this module intentionally uses its own distinctive PII identity — see below).
+- A *second* distinctive requester identity (`DISTINCTIVE_NAME`/`STREET`/`PHONE`/`EMAIL`,
+  different strings from `tests/requester_portal/test_notifications.py`'s own
+  `DISTINCTIVE_*` constants) is used here on purpose, so this file's own PII-leak assertions
+  (steps 2/3/28) can never accidentally pass against a stray match left behind by a *different*
+  test file's fixtures/DB rows from earlier in the session.
+- Video upload in step 3 always ends up `rejected`/`processing_unavailable` in this sandbox
+  (no ffmpeg/ffprobe installed) — asserted precisely as that outcome, not skipped; the photo
+  half of the same step uses a *real* PIL-generated JPEG (`ffmpeg`-missing only affects the
+  video codec path; `process_photo` genuinely decodes the file with Pillow, so raw fake bytes
+  like `b"\xff\xd8\xff" * 10` fail actual image decoding, not just "isn't a real image" —
+  don't reuse the video test's fake-bytes trick for a photo assertion).
+- The requester-verification-code rate limit (`REQUESTER_CODE_RESEND_COOLDOWN`) is keyed by
+  **email address**, not IP, and is real wall-clock time (not the fixed test clock) in this
+  harness (no `FixedClock` fixture is used for steps 1-3, since real HTTP round-trips through
+  `client.post` don't go through a clock-controlled code path here). Two submissions in the
+  same test using the *same* email within the cooldown window will get `"cooldown"`, not
+  `"sent"` — no email, no new challenge row. The step-3 duplicate-detection sub-test works
+  around this by using a *different* email (but the same phone/street) for the second
+  submission, proving the match on `phone`/`address` reasons specifically rather than `email`.
+- `request_help_verify`'s wrong-code branch re-renders the verify template with **HTTP 422**,
+  not a 200 — don't assert `resp.status_code == 200` after a wrong-code POST even with
+  `follow=True` (there's no redirect to follow; it's a direct render).
+- Step 28 is not "done" in the sense of "never touch again": it now has a real
+  request-scoped `AuditEvent` assertion (actor+UTC on every `request.*` event, no PII in
+  before/after/context/reason, `project_id == request.id` from intake onward per intake.md's
+  module-boundary table) — but the docstring/CHECKLIST both say explicitly to add a
+  *second* assertion once step 3 (projects) lands, not just re-mark it done.
+
+### `tests/e2e/conftest.py` (new): shared Procrastinate `todo`-job sweep for live_server tests
+- `live_server` + `django_db(transaction=True)` tests commit real rows with no per-test
+  rollback; a job a test drove directly (bypassing `run_due_jobs_now()`) can leak a `status =
+  'todo'` row in `procrastinate_jobs` into a *later*, unrelated test's `run_due_jobs_now()`
+  call, which then fails trying to execute a job whose target has already moved on. Two files
+  (`test_step2_leadership.py`, `test_step2_leadership_screenshots.py`) used to each hand-copy
+  a raw `DELETE FROM procrastinate_jobs WHERE status = 'todo'` at the end of their own test.
+  Replaced with one `autouse` fixture in `tests/e2e/conftest.py` that runs this sweep in
+  teardown for every test in the directory **that actually used the DB** (checks
+  `request.node.get_closest_marker("django_db")` first — several files in this directory mark
+  individual test *functions* with `django_db`, not the whole module, and pytest-django
+  refuses DB access from an unmarked test).
+
+### HTTP-layer gap found and filled: anti-abuse wiring on the public intake form
+- `ham/web/views_requester.py`'s `request_help_step` review-POST handler wires
+  `ham.requester_portal.antiabuse`'s honeypot + min-fill-time checks (`bot = ... or not ...`)
+  together, but nothing exercised that wiring end-to-end before this pass — only the pure
+  logic in isolation (`tests/requester_portal/test_antiabuse.py`) and the two underlying rate
+  limits at the service layer (`test_drafts.py`, `test_verification.py`) were covered. Added
+  `TestAntiAbuseAtHttpLayer` to `tests/web/test_requester_portal_screens.py`: filling the
+  honeypot field, and submitting faster than `RULES.intake.INTAKE_MIN_FILL_TIME` (skip
+  `_backdate_form_opened_at`), both must fake the normal "success" redirect to the verify
+  screen while sending zero emails and creating zero `RequesterVerificationChallenge` rows —
+  the whole point is that a bot learns nothing from the difference.
+
+### `tests/audit/test_command_registry.py`'s `PLACEHOLDER_ACTIONS` had gone stale
+- Four step-2 actions (`requester.media.upload`, `requester.media.remove`,
+  `requester_link.regenerate`, `request_media.reopen`) were still listed as "not yet wired"
+  placeholders even though their real `@command(...)` sites had since landed
+  (`ham/media/services.py`, `ham/requester_portal/services.py`) — harmless today (they *are*
+  wired), but it meant the registry test's "every mutating action has a real `@command` site"
+  check had silently stopped actually checking those four. Moved them out of
+  `PLACEHOLDER_ACTIONS` (confirmed each still-wired site by grepping `@command(` first).
+  `request.create_assisted`/`intake_source.manage` are genuinely still unbuilt; `system.media.
+  process`/`system.media.purge` are genuinely never going to be `@command` sites (SYSTEM
+  background jobs that audit by hand, not human decisions) — left in place with clearer
+  comments distinguishing the two different reasons for staying a placeholder.
+
+### Independent oracle (`tests/authz/generate_expected_matrix.py`)
+- Already fully covered every step-2 MATRIX action as of this pass (checked by hand against
+  `ham/authz/matrix.py`'s step-2 rows one by one) — no gap found, no regeneration needed.
+  Don't assume "the oracle needs a step-2 update" without actually diffing; it may already be
+  current.

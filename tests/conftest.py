@@ -52,3 +52,43 @@ def make_user(db):
         return User.objects.create_user(email=email)
 
     return _make
+
+
+@pytest.fixture
+def real_portal_lookups(db):
+    """Registers `ham.requester_portal.services`'s three lookup globals with the exact same
+    production callables `ham.requester_portal.apps.RequesterPortalConfig.ready()` registers
+    at process startup (duplicated here on purpose rather than calling `ready()` again, which
+    would also re-register the periodic purge jobs), for tests that exercise the real
+    `ham.requests.queries` wiring rather than a hand-built fake.
+
+    Several files (`tests/requester_portal/test_submission_flow.py`,
+    `tests/requester_portal/test_notifications.py`, `tests/web/test_requester_portal_screens.py`)
+    used to each copy this registration as a local `autouse` fixture whose teardown reset the
+    globals to `None` -- fine as long as that was the *last* portal test to run in the
+    process, but a later test file relying on the app-startup registration still being intact
+    (without re-registering it itself) would then hit `RuntimeError` depending on test order.
+    This shared fixture instead re-registers the same real callables on teardown, so the
+    globals are always left in a valid (real, non-`None`) state no matter what ran before or
+    after. Request this fixture explicitly (it is not autouse at this shared level, since most
+    tests don't touch the requester portal at all) -- e.g.
+    `@pytest.fixture(autouse=True) def _use(self, real_portal_lookups): pass` in a module that
+    wants every test in it covered.
+    """
+    import uuid
+
+    from ham.requester_portal import services
+    from ham.requests import queries as requests_queries
+
+    def _facts_lookup(request_id: uuid.UUID) -> services.RequestLinkFacts:
+        facts = requests_queries.request_facts_for_portal(request_id)
+        return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
+
+    def _register() -> None:
+        services.register_request_facts_lookup(_facts_lookup)
+        services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
+        services.register_email_to_request_ids_lookup(requests_queries.request_ids_for_portal_email)
+
+    _register()
+    yield
+    _register()

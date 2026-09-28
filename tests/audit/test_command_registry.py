@@ -52,18 +52,24 @@ READ_ONLY_ACTIONS = frozenset(
 PLACEHOLDER_ACTIONS = frozenset(
     {
         "me.sign_in_email.change",  # Q-083: matrix entry declared, flow not built this slice
-        # S2.0 (intake.md §10 "S2.0 contents"): matrix rows + stub service signatures land
-        # now; the real `@command`-wrapped services land in S2.2 (ham.requests),
-        # S2.3 (ham.requester_portal), S2.4b (ham.media), S2.5 (ham.notifications).
-        # S2.2 wired: request.submit, request.cancel, request.contact_verify_phone,
-        # system.request.complete_intake_checks, system.intake.purge (see
-        # ham/requests/services.py) -- removed from this set below.
-        "requester.media.upload",
-        "requester.media.remove",
-        "requester_link.regenerate",
-        "request_media.reopen",
+        # S2.0 (intake.md §10 "S2.0 contents"): matrix rows declared ahead of their slice.
+        # Now wired (moved out of this set by the ham-test-engineer step-2 gap-filling pass,
+        # confirmed against real `@command(...)` sites): request.submit, request.cancel,
+        # request.contact_verify_phone, system.request.complete_intake_checks,
+        # system.intake.purge (ham/requests/services.py); requester.media.upload,
+        # requester.media.remove, request_media.reopen (ham/media/services.py);
+        # requester_link.regenerate (ham/requester_portal/services.py). Genuinely still
+        # unbuilt this slice (no `@command(...)` site anywhere in `ham/` as of step 2):
         "request.create_assisted",
         "intake_source.manage",
+        # `system.media.process`/`system.media.purge`: SYSTEM-scoped background jobs
+        # (`ham/media/jobs.py::process_item`/`_purge_item`) that write their own audit rows
+        # by hand (`request_media.rejected`/`request_media.purged`/`request_media.purged`)
+        # rather than through `@command` -- a routine automated transformation/cleanup, not
+        # a human decision, so `@command`'s full authorize/audit/outbox pipeline was never
+        # wired for these two MATRIX-declared action codes. Not the same shape as
+        # `MANUALLY_WIRED_ACTIONS` below (those *do* authorize via the matrix by hand; these
+        # two don't call `authorize()` for their declared action code at all).
         "system.media.process",
         "system.media.purge",
     }

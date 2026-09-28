@@ -22,7 +22,6 @@ from ham.platform import otp
 from ham.platform.clock import FixedClock, set_clock
 from ham.requester_portal import drafts, services, verification
 from ham.requester_portal.models import RequesterAccessLink, RequesterVerificationChallenge
-from ham.requests import queries as requests_queries
 from ham.requests.models import Requester
 from ham.requests.states import RequestStatus
 
@@ -39,25 +38,12 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture(autouse=True)
-def _real_portal_lookups():
-    """Other test files' fixtures (e.g. `test_links.py`) register fakes for the module-level
-    duration of one test and reset the globals to `None` on teardown, not back to whatever
-    `ham.requester_portal.apps.RequesterPortalConfig.ready()` originally registered -- so this
-    module cannot rely on process-startup registration surviving until it runs. Re-registers
-    the exact same production callables `ready()` uses (duplicated here on purpose, not by
-    calling `ready()` again, which would also re-register the periodic purge jobs)."""
-
-    def _facts_lookup(request_id: uuid.UUID) -> services.RequestLinkFacts:
-        facts = requests_queries.request_facts_for_portal(request_id)
-        return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
-
-    services.register_request_facts_lookup(_facts_lookup)
-    services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
-    services.register_email_to_request_ids_lookup(requests_queries.request_ids_for_portal_email)
-    yield
-    services._request_facts_lookup = None  # noqa: SLF001 - test isolation
-    services._request_contact_lookup = None  # noqa: SLF001
-    services._email_to_request_ids_lookup = None  # noqa: SLF001
+def _real_portal_lookups(real_portal_lookups):
+    """Shared fixture (`tests/conftest.py::real_portal_lookups`): registers the real
+    `ham.requester_portal.services` lookups (the exact same production callables
+    `RequesterPortalConfig.ready()` uses) and restores them -- not `None` -- on teardown, so
+    this module doesn't depend on run order relative to sibling files that register fakes
+    (e.g. `test_links.py`)."""
 
 
 def _base_payload(**overrides) -> dict:

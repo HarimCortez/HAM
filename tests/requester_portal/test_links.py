@@ -24,9 +24,17 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture(autouse=True)
-def _facts_lookup():
+def _facts_lookup(real_portal_lookups):
     """A fake `ham.requests` facts provider (this slice's app doesn't own that model; see
-    `ham.requester_portal.services.register_request_facts_lookup`'s docstring)."""
+    `ham.requester_portal.services.register_request_facts_lookup`'s docstring).
+
+    Depends on `real_portal_lookups` (`tests/conftest.py`) purely for fixture-teardown
+    *ordering*, not its registration: pytest tears fixtures down in reverse setup order, so
+    `real_portal_lookups`'s own teardown (re-registers the real callables) runs *after* this
+    fixture's `None` reset below, leaving the globals in a valid state for whatever test runs
+    next regardless of file/test order -- this test module still gets its fake for the
+    duration of its own tests either way, since this fixture's body runs (and overwrites the
+    real one) after `real_portal_lookups`'s setup completes."""
     facts_by_request: dict[uuid.UUID, services.RequestLinkFacts] = {}
 
     def lookup(request_id: uuid.UUID) -> services.RequestLinkFacts:

@@ -124,9 +124,6 @@ def test_leadership_screenshots(live_server):
 
     # This test commits real rows (`transaction=True`, no per-test rollback) and calls
     # `complete_intake_checks` directly rather than letting `submit_request`'s deferred job
-    # run, which would otherwise leave "todo" jobs in the shared queue for the rest of the
-    # run (see the matching comment in tests/e2e/test_step2_leadership.py).
-    from django.db import connection
-
-    with connection.cursor() as cursor:
-        cursor.execute("DELETE FROM procrastinate_jobs WHERE status = 'todo'")
+    # run. The shared `_sweep_leaked_procrastinate_todo_jobs` autouse fixture in
+    # `tests/e2e/conftest.py` drains any leftover "todo" job after this test so it can't leak
+    # into a later, unrelated test.

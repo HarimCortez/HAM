@@ -27,7 +27,11 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture(autouse=True)
-def _lookups():
+def _lookups(real_portal_lookups):
+    """Fakes for this module's own tests; depends on `real_portal_lookups`
+    (`tests/conftest.py`) purely for teardown *ordering* -- see `test_links.py::
+    _facts_lookup`'s identical rationale (reverse-teardown-order means the real callables win
+    once this fixture's own `None` reset below has run)."""
     facts: dict[uuid.UUID, services.RequestLinkFacts] = {}
     contact: dict[uuid.UUID, str | None] = {}
     by_email: dict[str, list[uuid.UUID]] = {}

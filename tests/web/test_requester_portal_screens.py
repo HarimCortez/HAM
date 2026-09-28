@@ -21,27 +21,11 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture(autouse=True)
-def _real_portal_lookups():
-    """Some other test module's fixture (e.g. `tests/requester_portal/test_links.py`)
-    registers a fake lookup for the module-level duration of one test and resets the global to
-    `None` on teardown rather than back to what `RequesterPortalConfig.ready()` originally
-    registered (see `tests/requester_portal/test_submission_flow.py`'s identical fixture,
-    which this copies) -- so a view test running later in the same process can't rely on
-    process-startup registration surviving. Re-registers the same production callables."""
-    from ham.requester_portal import services
-    from ham.requests import queries as requests_queries
-
-    def _facts_lookup(request_id):
-        facts = requests_queries.request_facts_for_portal(request_id)
-        return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
-
-    services.register_request_facts_lookup(_facts_lookup)
-    services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
-    services.register_email_to_request_ids_lookup(requests_queries.request_ids_for_portal_email)
-    yield
-    services._request_facts_lookup = None  # noqa: SLF001 - test isolation
-    services._request_contact_lookup = None  # noqa: SLF001
-    services._email_to_request_ids_lookup = None  # noqa: SLF001
+def _real_portal_lookups(real_portal_lookups):
+    """Shared fixture (`tests/conftest.py::real_portal_lookups`): registers the real
+    `ham.requester_portal.services` lookups and restores them -- not `None` -- on teardown, so
+    this module's view tests don't depend on run order relative to sibling files that register
+    fakes (e.g. `tests/requester_portal/test_links.py`)."""
 
 
 @pytest.fixture
@@ -317,3 +301,60 @@ class TestLinkExpiredAndNewLink:
         code_resp = client.post(reverse("web:request_help_verify"), {"code": "333444"}, follow=True)
         assert code_resp.status_code == 200, code_resp.content
         assert code_resp.redirect_chain[-1][0].startswith("/request-help/r/")
+
+
+class TestAntiAbuseAtHttpLayer:
+    """S2.7 wires `ham.requester_portal.antiabuse`'s honeypot + min-fill-time checks into
+    `request_help_step`'s review-step POST (docs/ux/intake.md §9: "no third-party trackers or
+    CAPTCHAs"). Neither check is exercised anywhere else at the HTTP layer -- the pure logic
+    is unit-tested in isolation by `tests/requester_portal/test_antiabuse.py`, and the view
+    code that actually calls it (`ham/web/views_requester.py`'s `bot = ... or not ...` line)
+    had no test proving the two are actually wired together. A tripped check must fake the
+    exact same "success" response a real person gets (so a bot learns nothing) while sending
+    no email and creating no verification challenge (`ham.requester_portal.services.
+    submit_and_issue_link` is therefore never reached with credentials no one asked for)."""
+
+    def test_honeypot_field_filled_fakes_success_and_sends_nothing(self, client: Client):
+        from ham.requester_portal import antiabuse
+
+        _fill_wizard(client)
+        mail.outbox.clear()
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {
+                "attested_statements": ["owner_authority", "responsibility"],
+                antiabuse.HONEYPOT_FIELD_NAME: "https://spam.example",
+            },
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert mail.outbox == []
+        assert not RequesterVerificationChallenge.objects.filter(purpose="intake").exists()
+
+    def test_submitting_faster_than_min_fill_time_fakes_success_and_sends_nothing(
+        self, client: Client
+    ):
+        client.get(reverse("web:request_help_start"))
+        client.post(reverse("web:request_help_begin"), follow=True)
+        # Deliberately skip `_backdate_form_opened_at`: the session's real "form opened at"
+        # timestamp is only moments old -- faster than any real person could fill 4 steps.
+        steps = _step_payload()
+        for step_name in ("need", "home", "safety", "reaching-you"):
+            client.post(
+                reverse("web:request_help_step", kwargs={"step": step_name}),
+                steps[step_name],
+                follow=True,
+            )
+        mail.outbox.clear()
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {"attested_statements": ["owner_authority", "responsibility"]},
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert mail.outbox == []
+        assert not RequesterVerificationChallenge.objects.filter(purpose="intake").exists()

@@ -132,13 +132,7 @@ def test_phone_check_verify_and_close_flows(live_server):
     # Both flows defer a `system.request.complete_intake_checks` job (verify_by_phone for the
     # phone-check request; submit_request for `_make_awaiting_request`'s fixture, which calls
     # `complete_intake_checks` itself rather than waiting for the deferred job). This test
-    # commits real rows (`live_server`, `transaction=True`, no per-test rollback), so an
-    # undrained "todo" job would otherwise sit in the shared queue for the rest of the run and
-    # get picked up by the next test that calls `run_due_jobs_now()`, refusing on a request
-    # that has already moved on (states.py's `WRONG_STATE`) and failing an unrelated test. A
-    # raw sweep (not `run_due_jobs_now()`, which would try to *execute* them, including any
-    # already-stale from an earlier interrupted run) is the safe cleanup here.
-    from django.db import connection
-
-    with connection.cursor() as cursor:
-        cursor.execute("DELETE FROM procrastinate_jobs WHERE status = 'todo'")
+    # commits real rows (`live_server`, `transaction=True`, no per-test rollback). The shared
+    # `_sweep_leaked_procrastinate_todo_jobs` autouse fixture in `tests/e2e/conftest.py`
+    # drains any leftover "todo" job after this test so it can't leak into a later, unrelated
+    # test.
