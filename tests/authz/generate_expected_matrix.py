@@ -81,11 +81,33 @@ ORACLE: dict[str, tuple[frozenset[str], str, bool, bool, str]] = {
         True,
         "§4.11, Q-037, Q-080",
     ),
-    # §4.11 lists "users" under Administrator only; Q-079 leaves Director's disable/enable
-    # open, so this stays Administrator-only until decided.
+    # Q-037/Q-071: whoever may invite may resend or cancel a pending invitation.
+    "user.invitation_resend": (
+        frozenset({ADMINISTRATOR, HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§4.11, Q-037, Q-071",
+    ),
+    "user.invitation_cancel": (
+        frozenset({ADMINISTRATOR, HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§4.11, Q-037",
+    ),
     "user.update_identity": (frozenset({ADMINISTRATOR}), ANY, False, False, "§4.11"),
-    "user.disable": (frozenset({ADMINISTRATOR}), ANY, False, True, "§4.11, Q-035, Q-079, Q-080"),
-    "user.enable": (frozenset({ADMINISTRATOR}), ANY, False, True, "§4.11, Q-080"),
+    # Q-052 (Decided): Admin, and the Director for roles they manage (Q-041: all but
+    # Administrator), may turn an account off/on. The "not an Administrator's account"
+    # carve-out is a service-level check, not a matrix distinction.
+    "user.disable": (
+        frozenset({ADMINISTRATOR, HAM_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§4.11, Q-035, Q-052",
+    ),
+    "user.enable": (frozenset({ADMINISTRATOR, HAM_DIRECTOR}), ANY, False, True, "§4.11, Q-052"),
     # Q-035/Q-044: only an Administrator resets another person's MFA, never their own.
     "user.mfa_reset": (frozenset({ADMINISTRATOR}), ANY, True, True, "§60.1, Q-035, Q-044"),
     # Q-041: Director may grant/remove every role except Administrator (the "except
