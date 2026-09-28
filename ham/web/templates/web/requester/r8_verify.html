@@ -1,17 +1,30 @@
 {% extends "web/base_public.html" %}
+{% load web_extras %}
 
 {% block title %}Check your email &middot; {{ church.short_name }} HAM{% endblock %}
 
 {% block eyebrow %}
-  <p class="step-header__eyebrow">Last step</p>
+  {% if purpose == "intake" and not already_received %}
+    <p class="step-header__eyebrow">Last step</p>
+  {% endif %}
 {% endblock %}
 
 {% block public_content %}
+  {% if already_received %}
+    {% include "web/requester/_already_received.html" %}
+  {% else %}
   <h1>Check your email</h1>
-  <p>Your answers are saved. To send your request, enter the 6-digit code we sent to
-    <strong>{{ email }}</strong>.</p>
-  <p>Or tap <strong>Confirm my email</strong> in that message. It works on any phone or
-    computer.</p>
+  {% if purpose == "intake" %}
+    <p>Your answers are saved. To send your request, enter the 6-digit code we sent to
+      <strong>{{ email }}</strong>.</p>
+    <p>Or tap <strong>Confirm my email</strong> in that message. It works on any phone or
+      computer.</p>
+  {% else %}
+    <p>We sent a 6-digit code to <strong>{{ email }}</strong>. Enter it to open your request
+      page.</p>
+    <p>Or tap <strong>Open my request</strong> in that email. It works on any phone or
+      computer.</p>
+  {% endif %}
 
   {% if error %}
     <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
@@ -46,7 +59,7 @@
         {% if purpose == "intake" %}
           <p>Can't get into your email? <a href="{% url 'web:request_help_step' step='reaching-you' %}">Choose "I don't use email" instead</a>, and a HAM leader will call you.</p>
         {% endif %}
-        {% if church.phone %}<p>Still stuck? Call <a href="tel:{{ church.phone }}">{{ church.phone }}</a>.</p>{% endif %}
+        {% if church.phone %}<p>Still stuck? Call <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a>.</p>{% endif %}
       </details>
     </div>
 
@@ -61,4 +74,5 @@
     {% csrf_token %}
     <input type="hidden" name="resend" value="1">
   </form>
+  {% endif %}
 {% endblock %}

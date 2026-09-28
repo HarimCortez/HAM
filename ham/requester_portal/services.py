@@ -21,6 +21,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from ham.audit.models import ACTOR_TYPE_SYSTEM
 from ham.audit.services import record as audit_record
 from ham.authz.commands import CommandResult, OutboxSpec, command
 from ham.authz.context import RequesterContext
@@ -65,6 +66,11 @@ class RequestLinkFacts:
     status: str
     closed_at: dt.datetime | None
     completed_at: dt.datetime | None = None
+    # M7: the "HAM #NNN" display number -- carried through the same registered lookup rather
+    # than a direct `ham.requests.models.AssistanceRequest` import (this app sits *above*
+    # `ham.requests` in the layers contract), so `find_my_request`'s E4 email can name the
+    # request without a second, ad hoc cross-app query.
+    display_number: str = ""
 
 
 RequestFactsLookup = Callable[[UUID], RequestLinkFacts]
@@ -201,6 +207,27 @@ def resolve_token(token: str, *, now: dt.datetime | None = None) -> RequesterCon
     return RequesterContext(request_id=link.request_id, link_id=link.id)
 
 
+def current_secure_page_path(request_id: UUID) -> str | None:
+    """M8: the URL path to the requester's own currently-live access link, or `None` if there
+    is none (e.g. a `NEEDS_PHONE_CHECK` request never has one). Used only when a caller has
+    already independently established that *this exact browser* holds a valid session/link
+    for this draft/request (`ham.web.views_requester`'s already-received handling) -- never
+    surfaced to a browser that merely replayed an already-used code/link with no such proof."""
+    link = (
+        RequesterAccessLink.objects.filter(request_id=request_id, revoked_at__isnull=True)
+        .order_by("-issued_at")
+        .first()
+    )
+    if link is None:
+        return None
+    from django.urls import reverse
+
+    from ham.platform.crypto import decrypt
+
+    token = decrypt(link.token_ciphertext)
+    return reverse("web:request_help_secure_page", kwargs={"token": token})
+
+
 def _resource_own_request(ctx: RequesterContext, *args: Any, **kwargs: Any) -> RequesterContext:
     return ctx
 
@@ -296,6 +323,14 @@ def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResu
     address with no request gets none at all. The HTTP-visible response is identical
     regardless (intake.md §9); only whether/how many emails go out differs.
 
+    Usability re-check M7: this used to send a verification *code* email (intake wording,
+    with nowhere on R11b to type the code) and, once that code was entered, a *second*
+    "new link" email (E3) via the generic link-regeneration path. R11b never asked anyone to
+    prove anything beyond holding the inbox this link is emailed to (the same trust level as
+    any "email me a reset link" flow) -- there is no code step here at all now: a fresh
+    access link is issued directly and exactly one E4 email ("Here's the link to your
+    request") is sent per matching request, never the code/E3 wording.
+
     M1: also enforces `RULES.intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR` -- counted from
     `FindRequestAttempt`, which logs every try (matched or not), not just the ones that
     happen to send an email (an unmatched address would otherwise never count against this
@@ -317,13 +352,32 @@ def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResu
     normalized = normalize_email(email)
     if normalized is not None:
         for request_id in _requests_for_email(normalized):
-            request_link_regeneration_code(
-                request_id=request_id,
-                email=normalized,
-                ip_address=ip_address,
-                bypass_cooldown=True,
-            )
+            _issue_and_notify_found_link(request_id=request_id, email=normalized)
     return ChallengeRequestResult("sent")
+
+
+def _issue_and_notify_found_link(*, request_id: UUID, email: str) -> None:
+    """M7: issues a fresh access link directly (no code/verification step -- see
+    `find_my_request`'s docstring) and emails E4 immediately, the same way
+    `ham.requester_portal.verification`'s code emails are sent immediately rather than
+    through the outbox -- this deliberately never touches the generic
+    `RequesterAccessLinkIssued`/E3 ("new link") path (that event's own docstring in
+    `notifications.py` flags the R11a/R11b ambiguity this resolves: R11b gets its own event/
+    audit action and its own email wording, not a repurposed "your old link is dead" one)."""
+    from .notifications import send_found_request_email
+
+    display_number = _facts(request_id).display_number
+    issued = issue_link(request_id=request_id, kind=RequesterAccessLink.KIND_REGENERATED)
+    audit_record(
+        ctx=None,
+        actor_type=ACTOR_TYPE_SYSTEM,
+        action="requester_link.found",
+        target_type="request",
+        target_id=str(request_id),
+        project_id=request_id,
+        context={"link_id": str(issued.link.id)},
+    )
+    send_found_request_email(display_number=display_number, email=email, link=issued.link)
 
 
 # ---------------------------------------------------------------------------------------
@@ -394,6 +448,7 @@ def _payload_from_cleaned(cleaned: dict, *, no_email: bool, method: str = "email
         preferred_contact_method=cleaned["contact_preference"],
         attested_statements=attested_statements,
         urgent_requested=cleaned["urgent_requested"],
+        urgency_reason=cleaned.get("urgency_reason") or "",
         urgency_justification=cleaned["urgency_justification"],
         known_hazards=hazards,
         preferred_availability=", ".join(cleaned["preferred_availability"]),
@@ -548,6 +603,7 @@ __all__ = [
     "IssuedLink",
     "RequestLinkFacts",
     "SubmissionResult",
+    "current_secure_page_path",
     "find_my_request",
     "issue_link",
     "link_owner_contact",

@@ -14,16 +14,19 @@ plain (legal, downward) imports of `ham.requests` — this app sits *above* `ham
 the layers contract (`ham.web -> ham.requester_portal -> ham.media -> ham.requests -> ...`),
 same as `services.py`'s own `submit_and_issue_link` already does.
 
-**Coordination note (documented, not silently decided):** docs/ux/intake.md lists "new link"
+**Coordination note resolved (usability re-check M7):** docs/ux/intake.md lists "new link"
 (E3, after R11a "my link expired") and "find-my-request result" (E4, after R11b "check on my
-request") as two differently-worded emails, but intake-contracts.md §7's route table sends
-*both* flows through the same `requester_link.regenerate` action and the same
-`RequesterAccessLinkIssued` (`kind="regenerated"`) outbox event — the event payload
-(`request_id`, `link_id`, `kind`) carries nothing to tell the two origins apart, and adding one
-would be a new payload field invented by this slice, not a documented contract. One builder
-below (`_build_new_link_email`, E3's wording) therefore fires for every regenerated link,
-covering both R11a and R11b's result email; flagged here for the coordinator, not a silent
-default.
+request") as two differently-worded emails. An earlier slice noted that intake-contracts.md
+§7's route table sent both flows through the same `requester_link.regenerate` action and the
+same `RequesterAccessLinkIssued` (`kind="regenerated"`) outbox event, with nothing in the
+payload to tell the two origins apart, and flagged it here rather than silently picking one.
+Resolution: R11b ("check on your request") no longer goes through that shared path at all —
+`ham.requester_portal.services._issue_and_notify_found_link` issues the link and sends E4
+directly (see `send_found_request_email` below), with its own `requester_link.found` audit
+action, never touching `RequesterAccessLinkIssued`/`_build_new_link_email` (E3). R11a ("my
+link expired") is the only flow left on the shared `requester_link.regenerate` /
+`RequesterAccessLinkIssued` path, so E3's wording ("your old link no longer works") is now
+always the right wording for whoever receives it.
 """
 
 from __future__ import annotations
@@ -242,6 +245,37 @@ def _build_closed_email(event: OutboxEvent) -> NotificationEmail | None:
     )
 
 
+# ---------------------------------------------------------------------------------------
+# E4: "Your HAM request #047" (R11b "Check on your request" result, one per matching
+# request -- Q-117). Sent immediately by `ham.requester_portal.services.
+# _issue_and_notify_found_link`, the same way `ham.requester_portal.verification`'s code
+# emails are sent immediately, never through the outbox (usability re-check M7: this used to
+# ride the generic `RequesterAccessLinkIssued`/E3 "new link" path, which is wrong wording for
+# a "here's your link" result and also fired a second, unwanted email on top of a code email
+# that had nowhere to be typed in).
+# ---------------------------------------------------------------------------------------
+def send_found_request_email(*, display_number: str, email: str, link: RequesterAccessLink) -> None:
+    """``display_number`` comes from the caller's own registered facts lookup
+    (`ham.requester_portal.services.RequestLinkFacts.display_number`), not a direct
+    `ham.requests.models.AssistanceRequest` query here -- this app sits *above* `ham.requests`
+    in the layers contract for its cross-app *reads* on the hot path (it already imports
+    `ham.requests.models` elsewhere in this module for the outbox-driven builders, which are
+    a legal, one-way downward read; this function is kept lookup-driven instead so it works
+    identically whether or not this specific request row is reachable, matching every other
+    "portal facts" cross-app boundary in this app)."""
+    from ham.integrations.email.service import send_transactional_email
+
+    subject = f"Your {display_number}" if display_number else "Your HAM request"
+    link_url = _link_url(link)
+    text = f"Here's the link to your request.\n\nOpen my request page: {link_url}"
+    send_transactional_email(
+        to=email,
+        subject=subject,
+        text_body=text,
+        category="requester_found_link",
+    )
+
+
 def register() -> None:
     """Called once from `RequesterPortalConfig.ready()`."""
     register_notification("RequestSubmitted", _build_request_received_email)
@@ -250,4 +284,4 @@ def register() -> None:
     register_notification("RequestCancelled", _build_closed_email)
 
 
-__all__ = ["register"]
+__all__ = ["register", "send_found_request_email"]

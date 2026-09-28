@@ -95,7 +95,7 @@ its own page, h2 inside the list page).
   <section aria-labelledby="request-detail-need-{{ detail.id }}">
     <{{ heading_tag }} id="request-detail-need-{{ detail.id }}">What's needed</{{ heading_tag }}>
     <p>{{ detail.description }}</p>
-    {% if detail.urgent_requested %}<p class="text-secondary">Urgent: {{ detail.urgency_justification }}</p>{% endif %}
+    {% if detail.urgent_requested %}<p class="text-secondary">Urgent: {{ urgency_line }}</p>{% endif %}
   </section>
 
   <section aria-labelledby="request-detail-safety-{{ detail.id }}">
@@ -179,7 +179,7 @@ its own page, h2 inside the list page).
       <{{ heading_tag }} id="request-detail-history-{{ detail.id }}">History</{{ heading_tag }}>
       <ul class="status-timeline">
         {% for entry in history %}
-          <li>{{ entry.label }}{% if entry.actor %} &middot; {{ entry.actor }}{% endif %} &middot; {{ entry.occurred_at|church_time }}</li>
+          <li{% if entry.title %} title="{{ entry.title }}"{% endif %}>{{ entry.label }}{% if entry.actor %} &middot; {{ entry.actor }}{% endif %} &middot; {{ entry.occurred_at|church_time }}</li>
         {% endfor %}
       </ul>
     </section>

@@ -39,15 +39,28 @@ def _email_key(email: str) -> str:
     return otp.hash_value(email.strip().lower())
 
 
-def _code_email_text(*, code: str, link_url: str, church) -> tuple[str, str]:
+def _code_email_text(*, code: str, link_url: str, church, purpose: str) -> tuple[str, str]:
+    """Usability re-check M6: the intake wording ("your answers are saved", "to send your
+    request") only fits the *first* code the person ever sees -- a new-link/regeneration code
+    (R11a, "my link expired") is never about sending anything, so it gets its own, neutral
+    wording instead ("open your request page")."""
     minutes = int(RULES.intake.REQUESTER_CODE_LIFETIME.total_seconds() // 60)
     formatted = f"{code[:3]} {code[3:]}" if len(code) == 6 else code
-    subject = f"{church.short_name} HAM: Confirm your request"  # Q-102: neutral subject
-    text = (
-        f"Your code is {formatted}. Or use the button below.\n\n{link_url}\n\n"
-        f"It works once, for {minutes} minutes. Your answers are saved. If you didn't ask "
-        "for this, you can ignore this email."
-    )
+    if purpose == RequesterVerificationChallenge.PURPOSE_INTAKE:
+        subject = f"{church.short_name} HAM: Confirm your request"  # Q-102: neutral subject
+        text = (
+            f"Your code is {formatted}. Or use the button below.\n\n{link_url}\n\n"
+            f"It works once, for {minutes} minutes. Your answers are saved. If you didn't ask "
+            "for this, you can ignore this email."
+        )
+    else:
+        subject = f"{church.short_name} HAM code"  # Q-102: neutral subject
+        text = (
+            f"Your code is {formatted}. Use it to open your request page, or use the button "
+            f"below.\n\n{link_url}\n\n"
+            f"It works once, for {minutes} minutes. If you didn't ask for this, you can "
+            "ignore this email."
+        )
     return subject, text
 
 
@@ -177,7 +190,10 @@ def _request(
         ip_address=ip_address or None,
     )
     subject, text = _code_email_text(
-        code=code, link_url=_confirm_url(link_token, purpose=purpose), church=church_profile()
+        code=code,
+        link_url=_confirm_url(link_token, purpose=purpose),
+        church=church_profile(),
+        purpose=purpose,
     )
     send_transactional_email(to=email, subject=subject, text_body=text, category="requester_code")
     return ChallengeRequestResult("sent", challenge_id=challenge.id)
@@ -338,6 +354,16 @@ def consume_link(*, token: str) -> VerifyResult:
         return _consume(challenge)
 
 
+def challenge_for_link_token(token: str) -> RequesterVerificationChallenge | None:
+    """M8: looks up the challenge a link token belongs to regardless of whether it has
+    already been consumed -- used only to detect "this link/draft was already turned into a
+    request" (`ham.web.views_requester`'s already-received handling), never to grant access
+    on its own (the token hash is still the only credential; an unknown token yields
+    `None` exactly like every other lookup here)."""
+    token_hash = otp.hash_value(token)
+    return RequesterVerificationChallenge.objects.filter(link_token_hash=token_hash).first()
+
+
 def link_is_valid(*, token: str) -> bool:
     token_hash = otp.hash_value(token)
     now = clock_now()
@@ -349,6 +375,7 @@ def link_is_valid(*, token: str) -> bool:
 __all__ = [
     "ChallengeRequestResult",
     "VerifyResult",
+    "challenge_for_link_token",
     "consume_link",
     "link_is_valid",
     "request_intake_verification",

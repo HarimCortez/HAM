@@ -23,6 +23,11 @@ def actor_ctx(*, roles: frozenset[str], **overrides) -> ActorContext:
 
 def make_payload(**overrides) -> SubmittedRequestPayload:
     relationship = overrides.pop("relationship_to_property", "owner")
+    # UX M4/N-M1: urgency_reason is now its own required field whenever urgent_requested is
+    # true (never derived from/prefixed onto urgency_justification) -- default it so every
+    # existing urgent-request test fixture keeps working without having to know about this.
+    if overrides.get("urgent_requested"):
+        overrides.setdefault("urgency_reason", "something_else")
     defaults = dict(
         full_name="Jane Test",
         phone="+13055550111",

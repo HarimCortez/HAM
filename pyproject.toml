@@ -143,6 +143,11 @@ ignore_imports = [
   # S2.3: the requester-portal code/link email, same documented exception as
   # ham.identity.authn/mfa above (intake.md §2).
   "ham.requester_portal.verification -> ham.integrations.email.service",
+  # FIX-F2/M7: `find_my_request`'s E4 "here's the link" email is sent immediately, same
+  # documented exception/shape as ham.requester_portal.verification's code emails above (not
+  # through the outbox -- there is no domain event worth one; it's purely a re-send of an
+  # already-known fact).
+  "ham.requester_portal.notifications -> ham.integrations.email.service",
   # S2.6 (intake.md §2, docs/ux/intake.md §7): requester and leadership email builders, same
   # documented exception as ham.identity.notifications above. ham.media.notifications does not
   # exist yet (no builder needed there this slice; L-E4 "new photos" in-app is a later gap) --

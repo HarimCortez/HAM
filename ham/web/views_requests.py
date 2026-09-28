@@ -246,6 +246,11 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         else "",
         "gallery": gallery,
         "hazards": presentation.hazard_labels(detail.known_hazards),
+        # UX M4/N-M1: composed at display time only, from the two separate stored fields --
+        # never re-derived from a prefixed/mutated string.
+        "urgency_line": presentation.urgency_line(
+            detail.urgency_reason, detail.urgency_justification
+        ),
         "availability_labels": presentation.availability_labels(detail.preferred_availability),
         "can_view_matches": can_view_matches,
         "matches": [
@@ -271,6 +276,7 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
                 "label": e.label,
                 "occurred_at": e.occurred_at,
                 "actor": history_names.get(e.actor_user_id, "") if e.actor_user_id else "",
+                "title": e.title,
             }
             for e in history
         ]

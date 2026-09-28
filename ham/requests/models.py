@@ -74,6 +74,22 @@ class PreferredContactMethod(models.TextChoices):
     PHONE_CALL = "phone_call", "Phone call"
 
 
+class UrgencyReason(models.TextChoices):
+    """docs/ux/intake.md R2 "Why is it urgent?" chips. UX M4/N-M1: the ONE vocabulary for
+    urgency reason (same "one canonical, lower-layer vocabulary" pattern as `NeedCategory`/
+    `PropertyType` above) -- `ham.requester_portal.choices.UrgencyReason` re-exports this
+    rather than defining its own, differently-coded copy. Stored as its own field
+    (`AssistanceRequest.urgency_reason`), always separate from the requester's own free-text
+    `urgency_justification` -- the two must never be concatenated into one stored string
+    (that was the bug: re-saving the draft kept re-prefixing the label onto the text)."""
+
+    SOMEONE_COULD_GET_HURT = "someone_could_get_hurt", "Someone could get hurt"
+    WATER_OR_DAMAGE = "water_or_damage", "Water is coming in or damage is getting worse"
+    NO_UTILITIES = "no_utilities", "No power, water, heat or cooling"
+    CANT_GET_IN_OR_OUT = "cant_get_in_or_out", "Can't get in or out of the home safely"
+    SOMETHING_ELSE = "something_else", "Something else"
+
+
 class RequestSource(models.TextChoices):
     PUBLIC_FORM = "public_form", "Public form"
     CHURCH_LINK = "church_link", "Church-issued link"
@@ -98,6 +114,12 @@ class AssistanceRequest(models.Model):
     description = models.TextField(blank=True, default="")  # C
 
     urgent_requested = models.BooleanField(default=False)
+    # UX M4/N-M1: the chosen reason *code* -- never prefixed onto `urgency_justification`
+    # (the requester's own words). A code, not free text, so it is kept (not blanked) at the
+    # 7-year retention purge, unlike `urgency_justification` (Q-145).
+    urgency_reason = models.CharField(
+        max_length=32, choices=UrgencyReason.choices, blank=True, default=""
+    )
     urgency_justification = models.TextField(blank=True, default="")  # C
     urgency_status = models.CharField(
         max_length=24,
@@ -151,12 +173,30 @@ class AssistanceRequest(models.Model):
             ),
         ]
         constraints = [
+            # UX M4/N-M1: justification is required when urgent only for the "Something
+            # else" reason (every other reason chip is self-explanatory) -- not urgent =>
+            # always empty; urgent + "something_else" => never empty; any other urgent
+            # reason => either is fine.
             models.CheckConstraint(
                 condition=(
                     models.Q(urgent_requested=False, urgency_justification="")
-                    | models.Q(urgent_requested=True) & ~models.Q(urgency_justification="")
+                    | models.Q(urgent_requested=True)
+                    & (
+                        ~models.Q(urgency_reason=UrgencyReason.SOMETHING_ELSE.value)
+                        | ~models.Q(urgency_justification="")
+                    )
                 ),
                 name="req_urgency_justification_iff_urgent",
+            ),
+            # UX M4/N-M1: a reason code is required whenever urgent is ticked, same shape as
+            # the justification constraint above -- catches any future write path (not just
+            # the public form) that forgets to set it.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(urgent_requested=False, urgency_reason="")
+                    | models.Q(urgent_requested=True) & ~models.Q(urgency_reason="")
+                ),
+                name="req_urgency_reason_iff_urgent",
             ),
             models.CheckConstraint(
                 condition=(

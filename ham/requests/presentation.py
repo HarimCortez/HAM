@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 import phonenumbers
 
 from .matching import DEFAULT_PHONE_REGION, MatchReason
-from .models import NeedCategory, PreferredContactMethod, PropertyType, RelationshipToProperty
+from .models import (
+    NeedCategory,
+    PreferredContactMethod,
+    PropertyType,
+    RelationshipToProperty,
+    UrgencyReason,
+)
 from .states import CancelReason, RequestStatus, VerificationMethod
 
 # Q-113 hazard codes (`ham.requester_portal.choices.Hazard`) duplicated here rather than
@@ -50,6 +56,7 @@ AVAILABILITY_LABELS: dict[str, str] = {
 }
 
 NEED_CATEGORY_LABELS: dict[str, str] = dict(NeedCategory.choices)
+URGENCY_REASON_LABELS: dict[str, str] = dict(UrgencyReason.choices)
 PROPERTY_TYPE_LABELS: dict[str, str] = dict(PropertyType.choices)
 RELATIONSHIP_LABELS: dict[str, str] = dict(RelationshipToProperty.choices)
 CONTACT_METHOD_LABELS: dict[str, str] = dict(PreferredContactMethod.choices)
@@ -157,25 +164,49 @@ def hazard_labels(known_hazards: str) -> list[dict[str, str]]:
     (`ham.requester_portal.services._payload_from_cleaned`) -- turns that back into a list of
     `{"code", "label", "note"}` dicts for L2, instead of printing the raw string
     ("dogs_or_other_animals") to a leader. Never raises on an unrecognized code (falls back to
-    the code itself so nothing silently disappears)."""
+    the code itself so nothing silently disappears).
+
+    Usability re-check M1: two leftover bugs fixed here.
+    (1) The wrapper-note parse used to split on the *last* " (" in the stored string
+    (``rpartition``), which mis-parsed a note that itself contained " (" (e.g. a note reading
+    "help (please)" produced note="please" and left "help" stuck onto the codes). Hazard codes
+    themselves never contain a parenthesis, so the wrapper's opening "(" is always the
+    *first* " (" in the string -- ``partition`` (not ``rpartition``) is unambiguous and robust
+    to any parenthesis the requester's own note text contains.
+    (2) A bare "none_known" answer is not itself a hazard -- it is filtered out of the
+    returned list entirely so the caller's own empty-list branch renders the neutral "None
+    that they know of" line (no warning-triangle icon) instead of a hazard-shaped item.
+    """
     stored = (known_hazards or "").strip()
     if not stored:
         return []
     note = ""
     if stored.endswith(")") and " (" in stored:
-        stored, _, note = stored.rpartition(" (")
+        stored, _, note = stored.partition(" (")
         note = note[:-1]
     elif not any(code in stored for code in HAZARD_LABELS) and "," not in stored:
         # A single free-text note with no recognized code in front of it (e.g. the
         # "Something else" hazard note stands alone with nothing to strip).
         note, stored = stored, ""
-    codes = [c.strip() for c in stored.split(",") if c.strip()]
+    codes = [c.strip() for c in stored.split(",") if c.strip() and c.strip() != "none_known"]
     if not codes and note:
         return [{"code": "", "label": "", "note": note}]
     return [
         {"code": code, "label": HAZARD_LABELS.get(code, code), "note": note if i == 0 else ""}
         for i, code in enumerate(codes)
     ]
+
+
+def urgency_line(reason_code: str, justification: str) -> str:
+    """UX M4/N-M1: composes "Reason label. Their words" for display only (L2) -- never
+    stored this way; `AssistanceRequest.urgency_reason` (a code) and `.urgency_justification`
+    (the requester's own free text) are always kept as two separate fields, so re-saving a
+    draft or re-rendering this line twice never duplicates/re-prefixes anything."""
+    label = URGENCY_REASON_LABELS.get(reason_code, "")
+    justification = (justification or "").strip()
+    if label and justification:
+        return f"{label}. {justification}"
+    return label or justification
 
 
 def availability_labels(preferred_availability: str) -> list[str]:
