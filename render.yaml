@@ -43,6 +43,11 @@ services:
         sync: false
       - key: HAM_FIELD_ENCRYPTION_KEY
         sync: false
+      # Security review round 3, N5: Render's edge proxy adds exactly one `X-Forwarded-For`
+      # hop; anything further left in that header is client-controlled and must not be
+      # trusted by the sign-in IP throttle (`ham.web.auth_views._client_ip`).
+      - key: HAM_TRUSTED_PROXY_COUNT
+        value: "1"
     buildCommand: "python manage.py migrate --noinput"
 
   - type: worker
@@ -74,6 +79,17 @@ services:
         sync: false
       - key: ANYMAIL_RESEND_API_KEY
         sync: false
-      # The worker decrypts job payloads (security review C2) — same key as ham-web.
-      - key: HAM_FIELD_ENCRYPTION_KEY
-        sync: false
+      # Security review round 3, N4: the worker builds emails (invitations, role-change,
+      # impersonation-ended notices) too — without its own HAM_BASE_URL every link in those
+      # emails silently fell back to prod.py's default and pointed at localhost.
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_BASE_URL
+      # The worker decrypts job payloads (security review C2) — must be the exact same key as
+      # ham-web's, never a second, independently-typed `sync: false` value that can drift
+      # (security review round 3, N9).
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_FIELD_ENCRYPTION_KEY

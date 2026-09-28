@@ -42,8 +42,16 @@ def encrypt(plaintext: str) -> str:
     return _cipher().encrypt(plaintext.encode()).decode()
 
 
-def decrypt(token: str) -> str:
-    return _cipher().decrypt(token.encode()).decode()
+def decrypt(token: str, *, ttl_seconds: int | None = None) -> str:
+    """`ttl_seconds` (security review round 3, N9) rejects a token older than that many
+    seconds since it was encrypted — Fernet embeds its own creation timestamp, so this needs
+    no extra bookkeeping. Leave it `None` (the default) for data with no natural expiry (e.g.
+    a TOTP secret at rest); a caller decrypting a background-job payload
+    (`ham.integrations.email.service`) should pass the job-payload TTL from `ham.rules` so a
+    captured/replayed old job payload can't be decrypted indefinitely."""
+    if ttl_seconds is None:
+        return _cipher().decrypt(token.encode()).decode()
+    return _cipher().decrypt(token.encode(), ttl=ttl_seconds).decode()
 
 
 def reset_cache_for_tests() -> None:

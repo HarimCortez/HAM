@@ -1,4 +1,96 @@
-# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth) + Fix B (parallel security/PRD fixes)
+# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth) + Fix B (parallel security/PRD fixes) + round-3 re-review fixes
+
+## Round-3 security re-review fixup (2026-09-28)
+- **A denial audit written inside a `@command`'s own `transaction.atomic()` is lost if a
+  *caller* wraps several `@command` calls in one more outer `transaction.atomic()`** (only one
+  call site does this today: `ham.web.views_admin_users._apply_role_changes`, batching
+  multiple `grant_global_role`/`revoke_global_role` calls). The inner atomic is a savepoint,
+  so `ham.authz.commands`'s own `except PermissionDenied: audit_record(...); raise` writes the
+  row *inside* the still-open outer transaction — then the exception propagates out through
+  the outer `with`, rolling the whole thing back, audit row included. Don't try to detect
+  "nested atomic" via `connection.in_atomic_block` (pytest-django's default per-test wrapping
+  transaction makes that True in literally every test, so it can't distinguish "a caller
+  intentionally nested me" from "pytest wrapped the whole test"). Instead: at the *one*
+  call site that batches commands in an outer atomic, catch the denial **inside** the `with`
+  block, call `transaction.set_rollback(True)` and let the block exit *without* raising (a
+  clean rollback, not an exception-triggered one), then record the missed audit event
+  yourself once you're safely outside the `with` — see `_apply_role_changes`'s
+  `step_up_exc`/`denial_exc` pattern.
+- **Every session-ending path must end any active impersonation *before* `django_logout`**,
+  not just the manual "Stop" button and idle timeout: `ham.identity.impersonation.
+  end_impersonation_for_session(request, reason=...)` (new) reads/pops
+  `SESSION_KEY_IMPERSONATION_ID` from `request.session` itself and calls the existing
+  `end_impersonation`, so callers that only have a bare `HttpRequest` (not an
+  `ImpersonationSession` row already in hand) don't have to duplicate that lookup.
+  `SessionLifetimeMiddleware._enforce_session_epoch`/`_enforce_session_lifetime` and
+  `ham.web.auth_views._end_session_fully` (shared by `sign_out` and `sign_in_cancel`, itself
+  new) all call it. Added `ImpersonationSession.END_REASON_SESSION_EXPIRED` for the
+  epoch/lifetime paths (needs a migration for the `choices=` metadata change, even though
+  it's "just" adding a choice value to an existing `CharField`).
+- **`ham.jobs.periodic_job(name=..., cron=...)`** (new): combines `job()` with Procrastinate's
+  `Application.periodic(cron=...)` so the worker defers a task on schedule itself — no
+  separate scheduler process. The decorated function's first parameter must be
+  `timestamp: int` (Procrastinate's periodic-task contract; conventionally unused). Use for
+  "purge/sweep on a schedule" jobs that were previously defined but never actually wired to
+  run (`ham.identity.authn.purge_expired_sign_in_challenges` is now hourly; a new
+  `ham.identity.impersonation.sweep_idle_impersonation_sessions` runs every 5 minutes as the
+  backstop for an impersonation session whose owner's browser never sends another request at
+  all — the per-request idle check in the middleware only ever fires *if* a request comes in).
+- **A step-up (or similar) attempt-lockout budget must be ONE counter for the whole session,
+  never one per free-text "kind"** — a per-kind dict lets an attacker reset their guess budget
+  just by making up a new kind string each time. Also reject any `kind` that isn't in the
+  fixed, known set (`ham.web.auth_views._STEP_UP_ACTION_LABELS`'s keys) before doing anything
+  else with it. Reaching the lockout should fully sign the person out (ending any active
+  impersonation via the helper above), not just refuse that one confirmation and let the
+  session carry on — mirrors `_restart_sign_in`'s existing "too many sign-in MFA guesses"
+  behavior.
+- **A stash-and-replay session key needs an explicit `created_at` + a freshness check against
+  `RULES.auth.STEP_UP_WINDOW`**, same as `admin_user_roles_resume`'s pending-role-change
+  stash — `ham.web.views_audit.audit_export`'s `_EXPORT_STASH_SESSION_KEY` didn't have one and
+  could be replayed hours later. When a view's Cancel handler clears session keys by literal
+  string, double-check it's clearing the *actual* key that screen uses, not a similarly-named
+  key from a different mechanism (`ham.identity.web._STEP_UP_STASH_SESSION_KEY` =
+  `"ham_step_up_stash"` is the *generic* command-error stash; `views_audit.py`'s own
+  `"ham_audit_export_stash"` is a separate, page-specific mechanism — `step_up`'s Cancel
+  handler needs to clear both, not assume clearing one covers the other).
+- **Never fall back to an email address as a display name** — `ham.identity.models.
+  neutral_display_name(user_id)` (`f"Member {short id}"`) is the one fallback every such call
+  site (`display_names_for`, `UserRow`/`UserDetail.display_name`, the impersonation banner's
+  `target_display_name`, `ham.identity.notifications._display_name`) must use instead of
+  `profile.user.email`/`user.email` when there's no `SharedIdentityProfile.full_name` yet —
+  §68 forbids showing contact info to a viewer who isn't otherwise authorized to see it, and
+  a bare email-address fallback bypassed that everywhere it appeared.
+- **A client-supplied `X-Forwarded-For` is not trustworthy input for anything security-
+  relevant** (a rate-limit throttle counts as one) **unless you know exactly how many hops a
+  proxy *you* control actually added.** `settings.HAM_TRUSTED_PROXY_COUNT` (new, default `0` =
+  "ignore the header, use `REMOTE_ADDR`") is that number; `ham.web.auth_views._client_ip` reads
+  the right-most `N` comma-separated hops, never the left-most (client-controlled) one.
+  `render.yaml` sets it to `1` for Render's single edge proxy.
+- **Fernet's own `ttl=` parameter on `decrypt()`** (already built into the library, no extra
+  bookkeeping needed) bounds how long a ciphertext stays decryptable, on top of key rotation —
+  `ham.platform.crypto.decrypt(token, ttl_seconds=...)` is opt-in (`None` default preserves
+  "no natural expiry" for TOTP secrets at rest); `ham.integrations.email.service`'s job-payload
+  decrypt passes `RULES.outbox.JOB_PAYLOAD_ENCRYPTION_TTL`. Gotcha for tests: Fernet's TTL
+  check is against the **real** wall clock (`time.time()`), not `ham.platform.clock` — use a
+  real `time.sleep()`, not `tick()`/`FixedClock`, to age a token in a test.
+- **`config/settings/prod.py` should validate *every* comma-separated
+  `HAM_FIELD_ENCRYPTION_KEY`**, not just the first (a bad key later in a rotation list should
+  fail at deploy time, not the first time some old record needs it to decrypt) — and should
+  refuse to boot at all without a non-localhost `HAM_BASE_URL` (emailed links otherwise
+  silently point at `localhost` in production). `render.yaml`'s worker service needs its own
+  `HAM_BASE_URL` too (it builds emails) and should get `HAM_FIELD_ENCRYPTION_KEY` via
+  `fromService` pointing at `ham-web`, not a second independently-typed `sync: false` secret
+  that can drift out of sync with the web service's.
+- **An emailed link's query string can end up in a mail scanner's/proxy's/browser's own logs
+  or history** — don't put a person's email address in one just to prefill a form
+  (`ham.identity.notifications._sign_in_url()` no longer takes an `email=` param for the
+  invitation email's sign-in link).
+- **A one-time secret shown once (recovery codes, an enrollment QR/secret) should leave the
+  session the moment it's rendered**, not wait for a "Continue"/"Finish" button that might
+  never get pressed — pop it from `request.session` on the GET that renders it, but keep a
+  separate boolean "already shown" flag so the same page's own POST can still complete the
+  flow afterward (`ham.web.auth_views.mfa_setup_codes`'s
+  `_RECOVERY_CODES_SHOWN_SESSION_KEY`).
 
 ## Fix B additions (parallel with Fix A on auth/security)
 - **`ham.authz.commands.command()`'s atomic block now catches `PermissionDenied` raised from

@@ -8,7 +8,7 @@
     <h1 id="invite-sent-title">Invitation sent</h1>
     <p>
       {% if email %}{{ email }} has{% else %}They have{% endif %} been sent an email with a
-      sign-in link. It works for 7 days.
+      sign-in link. It works for {{ invitation_days }} days.
     </p>
     <a class="btn btn--primary" href="{% url 'web:admin_users_invite' %}">Invite someone else</a>
   </section>

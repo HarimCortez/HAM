@@ -23,7 +23,23 @@ DEFAULT_FROM_EMAIL=no-reply@example.org
 # S3b auth: encrypts TOTP secrets at rest (ham.identity.crypto). Optional in dev/test (falls
 # back to a key derived from DJANGO_SECRET_KEY); required in production. Generate a real one
 # with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Web and worker must use the exact same value (render.yaml wires the worker's from the
+# web service's, rather than a second independently-typed secret) -- the worker decrypts
+# background-job payloads (security review C2), and losing/rotating this key makes every
+# already-enrolled TOTP secret/recovery code (and every trusted-device cookie, which is
+# itself HMAC-signed with DJANGO_SECRET_KEY -- rotating *that* key has the same effect)
+# undecryptable/invalid, forcing an MFA reset for everyone.
 HAM_FIELD_ENCRYPTION_KEY=
+
+# Emailed links (invitations, role-change/impersonation-ended notices) are built from this.
+# Required (and must not be localhost) in production; safe to leave unset in dev (falls back
+# to http://localhost:8000).
+HAM_BASE_URL=http://localhost:8000
+
+# Security review round 3, N5: how many X-Forwarded-For hops (right-to-left) were added by
+# proxies HAM itself controls -- 0 (the default) means "no proxy in front, trust
+# REMOTE_ADDR only"; Render's edge proxy adds exactly one hop (render.yaml sets this to 1).
+HAM_TRUSTED_PROXY_COUNT=0
 ```
 
 ## Signing in locally (S3b)

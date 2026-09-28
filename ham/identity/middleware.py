@@ -37,7 +37,13 @@ from ham.authz.context import (
 from ham.platform.clock import now as clock_now
 from ham.rules import RULES
 
-from .models import ImpersonationSession, RoleAssignment, SharedIdentityProfile, User
+from .models import (
+    ImpersonationSession,
+    RoleAssignment,
+    SharedIdentityProfile,
+    User,
+    neutral_display_name,
+)
 
 SESSION_KEY_STARTED_AT = "ham_session_started_at"
 SESSION_KEY_LAST_ACTIVITY = "ham_last_activity"
@@ -79,7 +85,9 @@ def build_actor_context(request: HttpRequest) -> ActorContext:
                 impersonation_reason = session.reason
                 impersonation_last_activity_at = session.last_activity_at
                 profile = SharedIdentityProfile.objects.filter(user_id=target.id).first()
-                target_display_name = profile.display_name if profile else target.email
+                target_display_name = (
+                    profile.display_name if profile else ""
+                ) or neutral_display_name(target.id)
         # An invalid/expired/mismatched session id is treated as "not impersonating" rather
         # than an error — the sign-out/impersonation views are responsible for clearing the
         # session key when it ends (`ham.identity.services.stop_impersonation`,
@@ -161,6 +169,15 @@ class SessionLifetimeMiddleware:
             User.objects.filter(pk=real_user.id).values_list("session_epoch", flat=True).first()
         )
         if current is not None and int(stored) != int(current):
+            from .impersonation import end_impersonation_for_session
+
+            # Security review N1: don't let this browser session go from "impersonating" to
+            # "signed out" without an audited `ImpersonationEnded` in between — a session-epoch
+            # bump (MFA reset/replace, "sign out everywhere") can land while an Admin is mid-
+            # impersonation, and the old code just called `django_logout` directly here.
+            end_impersonation_for_session(
+                request, reason=ImpersonationSession.END_REASON_SESSION_EXPIRED
+            )
             django_logout(request)
             request.actor = ActorContext.anonymous()  # type: ignore[attr-defined]
             return True
@@ -208,6 +225,15 @@ class SessionLifetimeMiddleware:
             except ValueError:  # pragma: no cover - defensive
                 pass
         if expired:
+            from .impersonation import end_impersonation_for_session
+
+            # Security review N1: same reasoning as `_enforce_session_epoch` above — this path
+            # (idle/absolute session lifetime) previously left an active impersonation session
+            # running (and un-audited) after the admin's own session had already been signed
+            # out from under them.
+            end_impersonation_for_session(
+                request, reason=ImpersonationSession.END_REASON_SESSION_EXPIRED
+            )
             django_logout(request)
             request.actor = ActorContext.anonymous()  # type: ignore[attr-defined]
             return

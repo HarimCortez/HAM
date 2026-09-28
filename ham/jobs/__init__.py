@@ -46,6 +46,24 @@ def defer_later(job_name: str, /, *, schedule_at, **kwargs: Any) -> None:
     _app.tasks[job_name].configure(schedule_at=schedule_at).defer(**kwargs)
 
 
+def periodic_job(*, name: str, cron: str, **task_options: Any) -> Callable:
+    """Decorator combining `job()` with Procrastinate's periodic deferring
+    (``Application.periodic``) so the worker defers the task on ``cron``'s schedule itself —
+    no separate scheduler/cron process is needed (PRD §78: reminders, retention, waitlists,
+    calendar sync are all background jobs). The decorated function's first parameter must be
+    ``timestamp: int`` (Procrastinate's periodic-task contract; conventionally unused here).
+
+    Security review round 3, L5: this is the one place a "purge/sweep on a schedule" job
+    should be registered, instead of leaving a job defined but never actually scheduled.
+    """
+
+    def decorator(fn: Callable) -> Callable:
+        task = _app.task(name=name, **task_options)(fn)
+        return _app.periodic(cron=cron)(task)
+
+    return decorator
+
+
 def run_due_jobs_now() -> int:
     """Synchronously run every currently-due job (dev/test helper only — see foundation.md §9.3
     "§77 harness ... job-runner 'run due jobs now'"). Production always uses the real

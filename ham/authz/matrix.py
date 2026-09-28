@@ -90,7 +90,7 @@ MATRIX: dict[str, ActionRule] = {
     "user.view": ActionRule(_ADM_DIR, prd=("§4.11", "Q-041")),
     # Q-037 (decided): Admin, Director and Assistant Director may invite. This is an admin
     # action on someone else's account, so it is blocked while impersonating, like disable
-    # (PRD-GAP Q-080: see the note above `user.disable`).
+    # (Q-080, decided: matches docs/ux/auth-and-access.md §4 I3's expanded blocked-action list).
     "user.invite": ActionRule(
         _ADM_DIR_AD, blocked_while_impersonating=True, prd=("§4.11", "Q-037")
     ),
@@ -107,9 +107,9 @@ MATRIX: dict[str, ActionRule] = {
     # hold Administrator — `disable_user`/`enable_user` (ham/identity/services.py) enforce the
     # finer-grained "not an Administrator" rule the matrix can't express (like
     # `_check_can_grant` does for role grants).
-    # PRD-GAP Q-080: blocked_while_impersonating=True follows docs/ux/auth-and-access.md §4 I3's
+    # Q-080 (decided): blocked_while_impersonating=True follows docs/ux/auth-and-access.md §4 I3's
     # expanded blocked-action list ("user invites/turn-off"), which is more specific than
-    # foundation.md's compressed owner-decisions summary; see Q-080.
+    # foundation.md's compressed owner-decisions summary.
     "user.disable": ActionRule(
         _ADM_DIR, blocked_while_impersonating=True, prd=("§4.11", "Q-035", "Q-052", "Q-079")
     ),

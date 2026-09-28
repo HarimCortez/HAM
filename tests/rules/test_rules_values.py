@@ -107,8 +107,10 @@ EXPECTED = {
     "outbox.OUTBOX_MAX_ATTEMPTS": 8,
     "outbox.OUTBOX_BACKOFF_INITIAL": M(1),
     "outbox.OUTBOX_BACKOFF_MAX": H(6),
+    "outbox.JOB_PAYLOAD_ENCRYPTION_TTL": D(1),  # security review round 3 N9
     # Operations
     "operations.HEALTH_MAX_QUEUE_LAG": M(5),  # Q-056 proposed default in use
+    "operations.RECENT_ACTIVITY_WINDOW": H(24),  # security review round 3 M9
 }
 
 

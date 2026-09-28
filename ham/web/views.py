@@ -93,17 +93,17 @@ def _recent_sign_in_failures(ctx) -> dict[str, object]:
     (never `ham.audit.queries` directly, repo convention) even though the caller has already
     checked `integrations.view_status`, so this stays authorized the same way the audit log
     itself is."""
-    import datetime as dt
-
     from ham.audit.queries import AuditFilter
     from ham.authz.audit_access import list_events
     from ham.platform.clock import now as clock_now
+    from ham.rules import RULES
 
-    since = clock_now() - dt.timedelta(hours=24)
+    since = clock_now() - RULES.operations.RECENT_ACTIVITY_WINDOW
     events = list_events(ctx, AuditFilter(action="auth.sign_in.locked", date_from=since), limit=200)
     return {
         "count": len(events),
         "latest_at": events[0].occurred_at if events else None,
+        "window_hours": int(RULES.operations.RECENT_ACTIVITY_WINDOW.total_seconds() // 3600),
     }
 
 

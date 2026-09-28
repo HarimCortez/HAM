@@ -20,6 +20,7 @@ import json
 
 from ham import jobs
 from ham.platform.crypto import decrypt, encrypt
+from ham.rules import RULES
 
 from .adapters import get_default_channel
 
@@ -47,7 +48,11 @@ def send_transactional_email(
 
 @jobs.job(name=_JOB_NAME)
 def _send_transactional_email_job(*, payload_encrypted: str, category: str) -> None:
-    payload = json.loads(decrypt(payload_encrypted))
+    # Security review round 3, N9: bound how long this payload stays decryptable at all — on
+    # top of key rotation, an old/replayed job row (or a backup of one) can't be decrypted
+    # once `RULES.outbox.JOB_PAYLOAD_ENCRYPTION_TTL` has passed.
+    ttl_seconds = int(RULES.outbox.JOB_PAYLOAD_ENCRYPTION_TTL.total_seconds())
+    payload = json.loads(decrypt(payload_encrypted, ttl_seconds=ttl_seconds))
     get_default_channel().send(
         to=payload["to"],
         subject=payload["subject"],

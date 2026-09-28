@@ -16,7 +16,6 @@ concern.
 from __future__ import annotations
 
 import uuid
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.urls import reverse
@@ -30,7 +29,7 @@ from ham.outbox.models import OutboxEvent
 from ham.platform.church import church_profile, format_church_time
 from ham.rules import RULES
 
-from .models import ImpersonationSession, SharedIdentityProfile, User
+from .models import ImpersonationSession, SharedIdentityProfile, User, neutral_display_name
 
 
 def _display_name(user_id: uuid.UUID | str | None) -> str:
@@ -39,7 +38,7 @@ def _display_name(user_id: uuid.UUID | str | None) -> str:
     profile = SharedIdentityProfile.objects.filter(user_id=user_id).select_related("user").first()
     if profile is None:
         return ""
-    return profile.display_name or profile.user.email
+    return profile.display_name or neutral_display_name(profile.user_id)
 
 
 def _absolute_url(path: str) -> str:
@@ -47,11 +46,11 @@ def _absolute_url(path: str) -> str:
     return f"{base}{path}"
 
 
-def _sign_in_url(email: str = "") -> str:
-    path = reverse("web:sign_in")
-    if email:
-        path = f"{path}?{urlencode({'email': email})}"
-    return _absolute_url(path)
+def _sign_in_url() -> str:
+    # Security review round 3, N4: an emailed link's query string can end up in a mail
+    # scanner's/proxy's/browser's own logs or history — an invitation email must not put the
+    # invited person's email address there just to prefill the sign-in form.
+    return _absolute_url(reverse("web:sign_in"))
 
 
 # ---------------------------------------------------------------------------------------
@@ -59,7 +58,7 @@ def _sign_in_url(email: str = "") -> str:
 # `UserCreated` with an `invited_by` id. `bootstrap_administrator` also emits `UserCreated`
 # but never sets `invited_by` — that is not an invitation, so no email is sent for it.
 # ---------------------------------------------------------------------------------------
-def _build_invitation_email(event: OutboxEvent) -> NotificationEmail | None:
+def _build_invitation_email(event: OutboxEvent) -> list[NotificationEmail] | None:
     invited_by = event.payload.get("invited_by")
     if not invited_by:
         return None
@@ -71,16 +70,59 @@ def _build_invitation_email(event: OutboxEvent) -> NotificationEmail | None:
     days = RULES.auth.ACCOUNT_INVITATION_LIFETIME.days
     text = (
         f"{inviter_name} invited you to join HAM at {church.name}.\n\n"
-        f"Sign in at {_sign_in_url(user.email)} using this email address to get started.\n\n"
+        f"Sign in at {_sign_in_url()} using this email address to get started.\n\n"
         f"This invitation is valid for {days} days. If it expires, ask {inviter_name} to send "
         "a new one."
     )
-    return NotificationEmail(
-        to=user.email,
-        subject=f"{inviter_name} invited you to HAM at {church.short_name}",
-        text_body=text,
-        category="account_invited",
+    emails = [
+        NotificationEmail(
+            to=user.email,
+            subject=f"{inviter_name} invited you to HAM at {church.short_name}",
+            text_body=text,
+            category="account_invited",
+        )
+    ]
+    emails.extend(_build_invite_admin_notices(event, user=user, inviter_name=inviter_name))
+    return emails
+
+
+def _build_invite_admin_notices(
+    event: OutboxEvent, *, user: User, inviter_name: str
+) -> list[NotificationEmail]:
+    """PRD-GAP Q-096 (proposed default in use): Q-055's "every role grant/removal emails all
+    Administrators" is written for `RoleGranted`/`RoleRevoked` on an existing account, but an
+    invitation that already carries a role beyond plain Volunteer is the same underlying fact
+    (someone can now do more than serve on projects) — email every active Administrator, the
+    same way `_build_role_change_email` does, but only when that's actually true (an ordinary
+    Volunteer-only invitation stays quiet, matching Q-055's intent rather than notifying for
+    every routine invite)."""
+    role_list = event.payload.get("roles") or []
+    if set(role_list) <= {roles.VOLUNTEER}:
+        return []
+    subject_name = _display_name(user.id) or "A new invitee"
+    role_labels = ", ".join(roles.ROLE_LABELS.get(r, r) for r in role_list if r != roles.VOLUNTEER)
+    admin_emails = list(
+        User.objects.filter(
+            role_assignments__role=roles.ADMINISTRATOR,
+            role_assignments__revoked_at__isnull=True,
+            is_active=True,
+            disabled_at__isnull=True,
+        )
+        .values_list("email", flat=True)
+        .distinct()
     )
+    if not admin_emails:
+        return []
+    church = church_profile()
+    text = (
+        f"{inviter_name} invited {subject_name} to HAM with the role(s): {role_labels}.\n\n"
+        f"See this invitation in the HAM audit log: {_absolute_url(reverse('web:audit_log'))}"
+    )
+    subject = f"{church.short_name} HAM: invitation with a leadership role"
+    return [
+        NotificationEmail(to=email, subject=subject, text_body=text, category="role_change_notice")
+        for email in admin_emails
+    ]
 
 
 # ---------------------------------------------------------------------------------------

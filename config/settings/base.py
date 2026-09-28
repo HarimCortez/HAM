@@ -21,6 +21,7 @@ env = environ.Env(
     DJANGO_DEBUG=(bool, False),
     HAM_ENV=(str, "development"),
     HAM_BRAND=(str, "miami-temple"),
+    HAM_TRUSTED_PROXY_COUNT=(int, 0),
 )
 # A .env file is only ever read in development; prod/Render inject real environment
 # variables directly, and CI sets its own. Reading a missing .env is not an error.
@@ -34,6 +35,14 @@ DEBUG = env.bool("DJANGO_DEBUG")
 HAM_ENV = env("HAM_ENV")
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+
+# Security review round 3, N5: how many `X-Forwarded-For` hops (right-to-left) were added by
+# proxies HAM itself controls -- everything to the *left* of that many hops is attacker-
+# controlled input a client can fake, so `ham.web.auth_views._client_ip`'s sign-in throttle
+# must never trust more hops than this. `0` (the default, correct for `make run`/tests
+# without a proxy in front) means "don't trust the header at all, use `REMOTE_ADDR`"; Render
+# terminates TLS and adds exactly one hop, so `render.yaml` sets this to `1`.
+HAM_TRUSTED_PROXY_COUNT = env.int("HAM_TRUSTED_PROXY_COUNT")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
