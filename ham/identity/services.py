@@ -9,9 +9,11 @@ path): authorize -> step-up -> impersonation block -> change + audit + outbox, a
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q as models_Q
 
@@ -40,6 +42,39 @@ def mfa_enrolled(user_id: uuid.UUID) -> bool:
     column). Thin wrapper so callers outside `ham.identity` (e.g. the Admin Users screen) don't
     need to import `ham.identity.mfa` directly."""
     return TOTPDevice.objects.filter(user_id=user_id, confirmed_at__isnull=False).exists()
+
+
+# S2.5 (intake.md §2, intake-contracts.md §7 "Only ham.identity reads auth tables. ham.
+# notifications gets recipients from a new identity.services.notification_recipients(roles)").
+def notification_recipients(
+    roles_: Iterable[str],
+) -> list[tuple[uuid.UUID, str, bool]]:
+    """Resolves active users holding any of `roles_` (a role set such as "every pastor",
+    "Director and Assistant Director") to `(user_id, email, notify_email)` triples, for a
+    notification builder outside `ham.identity` (`ham.requests`/`ham.notifications`, S2.6) that
+    needs to know who to email/notify without itself reading `User`/`RoleAssignment`
+    (foundation.md §1 "only ham.identity reads auth tables"). Only currently-active,
+    non-disabled users with a currently-active (non-revoked) grant of one of `roles_` — a role
+    held by a disabled account, or since revoked, is never a recipient."""
+    role_set = set(roles_)
+    users = User.objects.filter(
+        role_assignments__role__in=role_set,
+        role_assignments__revoked_at__isnull=True,
+        is_active=True,
+        disabled_at__isnull=True,
+    ).select_related("profile")
+    seen: set[uuid.UUID] = set()
+    recipients: list[tuple[uuid.UUID, str, bool]] = []
+    for user in users:
+        if user.id in seen:
+            continue
+        seen.add(user.id)
+        try:
+            notify_email = user.profile.notify_email
+        except ObjectDoesNotExist:
+            notify_email = True
+        recipients.append((user.id, user.email, notify_email))
+    return recipients
 
 
 # Least-privilege default for an invitation's role list (Q-037, Q-040 lineage): anyone who may
