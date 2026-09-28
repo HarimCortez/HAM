@@ -140,3 +140,37 @@ class TestCommandPipeline:
 
             disable_user(ctx, user_id=volunteer.id)
         assert AuditEvent.objects.filter(action="authz.denied").exists()
+
+    def test_permission_denied_raised_inside_service_body_is_audited_and_rolled_back(
+        self, make_user
+    ):
+        """Item 4: a finer-grained `PermissionDenied` raised from *inside* the service body
+        (after the matrix-level check already passed) is still audited as `authz.denied`,
+        recorded outside the rolled-back transaction — e.g. a Director trying to grant
+        Administrator (`role.grant_global` passes the matrix for a Director, but
+        `_check_can_grant` then refuses it)."""
+        director = make_user("marcus@example.org")
+        from ham.authz.roles import HAM_DIRECTOR
+        from ham.identity.models import RoleAssignment
+        from ham.platform.clock import now as clock_now
+
+        RoleAssignment.objects.create(user=director, role=HAM_DIRECTOR, granted_at=clock_now())
+        target = make_user("new-admin@example.org")
+        ctx = ActorContext(
+            user_id=director.id,
+            real_user_id=None,
+            roles=frozenset({HAM_DIRECTOR}),
+            is_active=True,
+            mfa_satisfied=True,
+            step_up_at={"role_change": clock_now()},
+        )
+        from ham.identity.services import grant_global_role
+
+        audit_before = AuditEvent.objects.filter(action="authz.denied").count()
+        assignments_before = RoleAssignment.objects.count()
+        with pytest.raises(PermissionDenied):
+            grant_global_role(ctx, user_id=target.id, role=roles.ADMINISTRATOR)
+        assert RoleAssignment.objects.count() == assignments_before  # rolled back
+        assert (
+            AuditEvent.objects.filter(action="authz.denied").count() == audit_before + 1
+        )  # recorded despite the rollback

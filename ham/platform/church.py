@@ -6,6 +6,8 @@ anywhere else (CLAUDE.md, design-system/brands/README.md).
 
 from __future__ import annotations
 
+import datetime as dt
+import zoneinfo
 from dataclasses import dataclass
 
 from ham.platform.brand import Brand, load_brand
@@ -48,3 +50,20 @@ def church_profile() -> ChurchProfileView:
         time_zone=row.time_zone,
         website_url=row.website_url,
     )
+
+
+def is_valid_time_zone(name: str) -> bool:
+    """Q-030/§70.5: the church profile's time zone must be a real IANA zone name."""
+    return bool(name) and name in zoneinfo.available_timezones()
+
+
+def format_church_time(moment: dt.datetime, *, church: ChurchProfileView | None = None) -> str:
+    """Render a UTC ``moment`` in the church's local time zone with its abbreviation (Q-030,
+    §70.5: "label times with the zone abbreviation where shown"), e.g. "3:45 PM EST"."""
+    church = church or church_profile()
+    try:
+        zone = zoneinfo.ZoneInfo(church.time_zone)
+    except zoneinfo.ZoneInfoNotFoundError:  # pragma: no cover - defensive; validated on save
+        zone = zoneinfo.ZoneInfo("UTC")
+    local = moment.astimezone(zone)
+    return local.strftime("%-I:%M %p %Z on %b %-d, %Y")

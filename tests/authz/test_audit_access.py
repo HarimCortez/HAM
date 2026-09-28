@@ -64,3 +64,25 @@ class TestExportCsv:
         _grant(kevin, roles.VOLUNTEER)
         with pytest.raises(PermissionDenied):
             export_csv(_ctx(kevin, {roles.VOLUNTEER}))
+
+    def test_export_excludes_the_free_text_reason_column(self, make_user):
+        """Q-095: a free-text `reason` may carry a person's name/circumstances (Q-050); it
+        stays in the viewer but never leaves the building in a CSV export."""
+        from ham.audit.services import record as audit_record
+
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        ctx = _ctx(admin, {roles.ADMINISTRATOR}, step_up_at={"audit_export": clock_now()})
+        audit_record(
+            ctx=None,
+            actor_type="system",
+            actor_user_id=admin.id,
+            action="user.disabled",
+            target_type="user",
+            target_id=str(admin.id),
+            reason="a secret only the reason field should carry",
+        )
+        data = export_csv(ctx, AuditFilter())
+        text = data.decode("utf-8-sig")
+        assert "reason" not in text.splitlines()[0].split(",")
+        assert "a secret only the reason field should carry" not in text

@@ -7,6 +7,9 @@ call through here instead of `ham.audit.queries` directly, so every read/export 
 
 from __future__ import annotations
 
+import csv
+import io
+
 from django.db import transaction
 
 from ham.audit.export import build_csv
@@ -22,6 +25,28 @@ from .context import ActorContext
 from .matrix import authorize
 
 _EXPORT_STEP_UP_KIND = dict(RULES.auth.STEP_UP_ACTIONS)["audit.export"]
+
+# Q-095: a free-text `reason` may contain a person's name or circumstances someone typed in
+# (Q-050) — it stays visible in the audit *viewer* (a leader looking at their own action) but
+# is excluded from the CSV export, which can leave the building. `ham.audit.export.build_csv`
+# is Fix A's file, so the column drop happens here (authorization/output-shaping layer)
+# instead, keyed off the module's own `CSV_COLUMNS` order rather than a hard-coded index.
+_EXCLUDED_EXPORT_COLUMNS = frozenset({"reason"})
+
+
+def _drop_excluded_columns(data: bytes) -> bytes:
+    text = data.decode("utf-8-sig")
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        return data
+    header = rows[0]
+    keep_indexes = [i for i, name in enumerate(header) if name not in _EXCLUDED_EXPORT_COLUMNS]
+    out = io.StringIO()
+    writer = csv.writer(out)
+    for row in rows:
+        writer.writerow([row[i] for i in keep_indexes if i < len(row)])
+    return ("﻿" + out.getvalue()).encode("utf-8")
 
 
 def list_events(
@@ -62,8 +87,24 @@ def export_csv(ctx: ActorContext, filters: AuditFilter | None = None) -> bytes:
     """Export the current filter set as CSV, recording `audit.exported` (PRD §58)."""
     decision = authorize(ctx, "audit.export")
     if not decision.allowed:
+        assert _commands._audit_record is not None
+        _commands._audit_record(
+            ctx=ctx,
+            action="authz.denied",
+            target_type="action",
+            target_id="audit.export",
+            reason=decision.reason,
+        )
         raise PermissionDenied(f"audit.export: {decision.reason}")
     if decision.blocked_by_impersonation:
+        assert _commands._audit_record is not None
+        _commands._audit_record(
+            ctx=ctx,
+            action="impersonation.action_blocked",
+            target_type="action",
+            target_id="audit.export",
+            reason="blocked while impersonating (§59)",
+        )
         raise ImpersonationBlocked("audit.export")
     if not ctx.has_fresh_step_up(
         _EXPORT_STEP_UP_KIND, now=clock_now(), freshness=RULES.auth.STEP_UP_WINDOW
@@ -73,7 +114,7 @@ def export_csv(ctx: ActorContext, filters: AuditFilter | None = None) -> bytes:
     filters = filters or AuditFilter()
     with transaction.atomic():
         events = _list_events(filters, limit=100_000)
-        data = build_csv(events)
+        data = _drop_excluded_columns(build_csv(events))
         assert _commands._audit_record is not None  # AuthzConfig.ready() always registers this
         _commands._audit_record(
             ctx=ctx,

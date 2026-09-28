@@ -23,7 +23,7 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `me.recovery_codes.regenerate` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self | SU | IB | §60.1, Q-046 |
 | `me.security.manage` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  | IB | §60 |
 | `me.sign_in_email.change` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self | SU | IB | §60.2, Q-051, Q-046 |
-| `me.update` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  |  | §67 |
+| `me.update` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  | IB | §67, §59 |
 | `me.view` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  |  | §67 |
 | `outbox.retry` | Administrator | any |  | IB | §70.3 |
 | `requester_pii.reveal` | _(none yet)_ | any |  |  | §67, §68, Q-009, Q-024 |
@@ -31,8 +31,10 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `role.revoke_global` | Administrator, HAM Director | any | SU | IB | §4.11, §58, Q-041 |
 | `rules.view` | Administrator, HAM Director | any |  |  | §4.11 |
 | `shell.use` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | any |  |  | §67 |
-| `user.disable` | Administrator | any |  | IB | §4.11, Q-035 |
-| `user.enable` | Administrator | any |  | IB | §4.11 |
+| `user.disable` | Administrator, HAM Director | any |  | IB | §4.11, Q-035, Q-052, Q-079 |
+| `user.enable` | Administrator, HAM Director | any |  | IB | §4.11, Q-052, Q-079 |
+| `user.invitation_cancel` | Administrator, Assistant Director, HAM Director | any |  | IB | §4.11, Q-037, Q-052 |
+| `user.invitation_resend` | Administrator, Assistant Director, HAM Director | any |  | IB | §4.11, Q-037, Q-071 |
 | `user.invite` | Administrator, Assistant Director, HAM Director | any |  | IB | §4.11, Q-037 |
 | `user.list` | Administrator, HAM Director | any |  |  | §4.11, Q-041 |
 | `user.mfa_reset` | Administrator | any | SU | IB | §60.1, Q-035 |

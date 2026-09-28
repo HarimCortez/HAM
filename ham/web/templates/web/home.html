@@ -7,8 +7,39 @@
   {% comment %}
   navigation.md §1 "Home is a to-do list, not a menu" and §7 "per highest role". Real per-role
   cards (invitations, reconfirmations, project-day check-in...) arrive with staffing/projects;
-  this slice only ships the placeholder every signed-in person sees today.
+  this slice ships the placeholder plus two step-1-only additions below.
   {% endcomment %}
+
+  {% if show_invite_card %}
+    <section class="card" aria-labelledby="home-invite-title">
+      <h2 id="home-invite-title">Invite someone</h2>
+      <p>Bring a new volunteer, contractor or leader into HAM.</p>
+      <a class="btn btn--primary" href="{% url 'web:admin_users_invite' %}">Invite someone</a>
+    </section>
+  {% endif %}
+
+  {% if integration_counts is not None %}
+    <section class="card" aria-labelledby="home-integrations-title">
+      <h2 id="home-integrations-title">Integrations</h2>
+      {% if integration_counts %}
+        <ul>
+          {% for row in integration_counts %}
+            <li>{{ row.subscriber }}: {{ row.status }} ({{ row.count }})</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-secondary">No deliveries recorded yet.</p>
+      {% endif %}
+      <p>
+        Recent sign-in failures (last 24 hours): {{ recent_sign_in_failures.count }}
+        {% if recent_sign_in_failures.latest_at %}
+          &middot; most recent {{ recent_sign_in_failures.latest_at }}
+        {% endif %}
+      </p>
+      <a href="{% url 'web:admin_integrations' %}">See integrations detail</a>
+    </section>
+  {% endif %}
+
   <section class="empty-state" aria-labelledby="home-empty-title">
     <h3 id="home-empty-title">Your to-do list will appear here</h3>
     <p>

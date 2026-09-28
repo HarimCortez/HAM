@@ -167,27 +167,43 @@ def command(
                 ):
                     raise StepUpRequired(action, kind)
 
-            with transaction.atomic():
-                result = fn(ctx, *args, **kwargs)
-                audit_record(
-                    ctx=ctx,
-                    action=result.audit_action,
-                    target_type=result.target_type,
-                    target_id=result.target_id,
-                    project_id=result.project_id,
-                    before=result.before,
-                    after=result.after,
-                    reason=result.reason,
-                    context=result.context,
-                )
-                if result.outbox is not None:
-                    outbox_emit(
-                        result.outbox.event_type,
-                        aggregate_type=result.outbox.aggregate_type,
-                        aggregate_id=result.outbox.aggregate_id,
-                        payload=result.outbox.payload,
-                        schema_version=result.outbox.schema_version,
+            try:
+                with transaction.atomic():
+                    result = fn(ctx, *args, **kwargs)
+                    audit_record(
+                        ctx=ctx,
+                        action=result.audit_action,
+                        target_type=result.target_type,
+                        target_id=result.target_id,
+                        project_id=result.project_id,
+                        before=result.before,
+                        after=result.after,
+                        reason=result.reason,
+                        context=result.context,
                     )
+                    if result.outbox is not None:
+                        outbox_emit(
+                            result.outbox.event_type,
+                            aggregate_type=result.outbox.aggregate_type,
+                            aggregate_id=result.outbox.aggregate_id,
+                            payload=result.outbox.payload,
+                            schema_version=result.outbox.schema_version,
+                        )
+            except PermissionDenied as exc:
+                # A finer-grained rule inside the service body (e.g. "a Director may not grant
+                # Administrator", `ham.identity.services._check_can_grant`) raised this from
+                # *inside* the atomic block the matrix-level check above already passed. The
+                # `with transaction.atomic()` block above already rolled the change back; audit
+                # it here, outside (after) that rollback, same as the matrix-level denial above.
+                if action in _AUDITED_ON_DENIAL:
+                    audit_record(
+                        ctx=ctx,
+                        action="authz.denied",
+                        target_type="action",
+                        target_id=action,
+                        reason=str(exc),
+                    )
+                raise
             return result.value
 
         return wrapper

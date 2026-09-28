@@ -20,8 +20,11 @@ from ham.authz import roles
 from ham.authz.commands import CommandResult, OutboxSpec, PermissionDenied, command
 from ham.authz.context import ActorContext
 from ham.outbox.api import emit as outbox_emit
+from ham.platform.church import is_valid_time_zone
 from ham.platform.clock import now as clock_now
+from ham.rules import RULES
 
+from .impersonation import end_impersonations_for_target
 from .models import ImpersonationSession, RoleAssignment, SharedIdentityProfile, TOTPDevice, User
 
 
@@ -122,6 +125,39 @@ def _count_active_administrators(*, exclude_user_id: uuid.UUID | None = None) ->
     return qs.values("user_id").distinct().count()
 
 
+def _count_active_directors(*, exclude_user_id: uuid.UUID | None = None) -> int:
+    """Q-047/Q-094: mirrors `_count_active_administrators` for the HAM Director role — HAM
+    refuses to remove or disable the last active Director, just as it does the last
+    Administrator."""
+    qs = RoleAssignment.objects.filter(
+        role=roles.HAM_DIRECTOR,
+        revoked_at__isnull=True,
+        user__is_active=True,
+        user__disabled_at__isnull=True,
+    )
+    if exclude_user_id is not None:
+        qs = qs.exclude(user_id=exclude_user_id)
+    return qs.values("user_id").distinct().count()
+
+
+# ---------------------------------------------------------------------------------------
+# Invitation validity (Q-037, Q-071, Q-084): the seam Fix A's sign-in flow calls before
+# completing sign-in for an Invited person, so an expired invitation can't be redeemed.
+# ---------------------------------------------------------------------------------------
+def invitation_is_valid(user: User) -> bool:
+    """Whether `user` may still complete their first sign-in. Always ``True`` once the person
+    has signed in at least once (not an invitation concern any more); for a still-Invited
+    person, ``False`` once turned off (cancelled invitation) or past the
+    ``ACCOUNT_INVITATION_LIFETIME`` window measured from the invitation (or its most recent
+    resend)."""
+    if not user.is_invited:
+        return True
+    if user.is_disabled or not user.is_active:
+        return False
+    baseline = user.invitation_resent_at or user.created_at
+    return clock_now() - baseline <= RULES.auth.ACCOUNT_INVITATION_LIFETIME
+
+
 # ---------------------------------------------------------------------------------------
 # Invitation (Q-037: Admin, Director, Assistant Director may invite)
 # ---------------------------------------------------------------------------------------
@@ -159,8 +195,15 @@ def invite_user(
         else:
             _check_can_grant(ctx, role, reason)
 
+    # PRD-guardian B7: a friendly message, not a 500, when the address already has an account.
+    existing = User.objects.filter(email=email).first()
+    if existing is not None:
+        name = SharedIdentityProfile.objects.filter(user=existing).first()
+        display = (name.display_name if name else "") or existing.email
+        raise ValueError(f"{display} already has a HAM account.")
+
     with transaction.atomic():
-        user = User.objects.create(email=email)
+        user = User.objects.create(email=email, created_by_id=ctx.user_id)
         user.set_unusable_password()
         user.save()
         SharedIdentityProfile.objects.create(
@@ -187,6 +230,57 @@ def invite_user(
             aggregate_id=user.id,
             payload={"roles": list(role_list), "invited_by": str(ctx.user_id)},
         ),
+    )
+
+
+@command("user.invitation_resend")
+def resend_invitation(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> CommandResult:
+    """UX C5/B3: a leader can resend a still-Invited person's invitation, restarting the
+    7-day validity window (Q-071) and re-sending the invitation email."""
+    user = User.objects.select_for_update().get(pk=user_id)
+    if not user.is_invited:
+        raise ValueError("user.invitation_resend: this person has already signed in")
+    if user.is_disabled:
+        raise ValueError("user.invitation_resend: this invitation was cancelled")
+    user.invitation_resent_at = clock_now()
+    user.save(update_fields=["invitation_resent_at"])
+    role_list = tuple(
+        RoleAssignment.objects.filter(user=user, revoked_at__isnull=True).values_list(
+            "role", flat=True
+        )
+    )
+    return CommandResult(
+        value=user,
+        audit_action="user.invitation_resent",
+        target_type="user",
+        target_id=str(user_id),
+        reason=reason,
+        outbox=OutboxSpec(
+            "UserCreated",
+            aggregate_type="user",
+            aggregate_id=user.id,
+            payload={"roles": list(role_list), "invited_by": str(ctx.user_id)},
+        ),
+    )
+
+
+@command("user.invitation_cancel")
+def cancel_invitation(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> CommandResult:
+    """UX C5: cancelling a still-Invited person's invitation disables the account (Q-052-style
+    "turned off"), so it can no longer be redeemed."""
+    user = User.objects.select_for_update().get(pk=user_id)
+    if not user.is_invited:
+        raise ValueError("user.invitation_cancel: this person has already signed in")
+    user.is_active = False
+    user.disabled_at = clock_now()
+    user.disabled_by_id = ctx.user_id
+    user.save(update_fields=["is_active", "disabled_at", "disabled_by_id"])
+    return CommandResult(
+        value=user,
+        audit_action="user.invitation_cancelled",
+        target_type="user",
+        target_id=str(user_id),
+        reason=reason,
     )
 
 
@@ -267,19 +361,44 @@ def update_identity(
 def disable_user(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> CommandResult:
     if user_id == ctx.user_id:
         raise PermissionDenied("user.disable: you cannot disable your own account")
+    if not reason.strip():
+        # UX C5: disabling requires a reason, audited (step1-usability.md C5).
+        raise ValueError("user.disable: a reason is required")
     with transaction.atomic():
         user = User.objects.select_for_update().get(pk=user_id)
         is_admin = RoleAssignment.objects.filter(
             user=user, role=roles.ADMINISTRATOR, revoked_at__isnull=True
         ).exists()
+        if is_admin and roles.ADMINISTRATOR not in ctx.effective_roles:
+            # Q-052/Q-079: the matrix lets both Administrator and Director call `user.disable`,
+            # but a Director may only disable/enable accounts that don't hold Administrator.
+            raise PermissionDenied(
+                "user.disable: only an Administrator may turn off another Administrator's "
+                "account (Q-052)"
+            )
         if is_admin and _count_active_administrators(exclude_user_id=user_id) == 0:
             raise ValueError(
                 "user.disable: HAM refuses to disable the last active Administrator (Q-035)"
+            )
+        is_director = RoleAssignment.objects.filter(
+            user=user, role=roles.HAM_DIRECTOR, revoked_at__isnull=True
+        ).exists()
+        if is_director and _count_active_directors(exclude_user_id=user_id) == 0:
+            # PRD-GAP Q-094: proposed default in use; owner may change. Mirrors the last
+            # Administrator refusal (Q-035/Q-047) rather than only warning, per the security/
+            # PRD reviews' recommendation.
+            raise ValueError(
+                "user.disable: HAM refuses to disable the last active HAM Director (Q-094)"
             )
         user.is_active = False
         user.disabled_at = clock_now()
         user.disabled_by_id = ctx.user_id
         user.save(update_fields=["is_active", "disabled_at", "disabled_by_id"])
+        # Q-052: turning an account off must end any impersonation of it right away, not
+        # leave it running against a now-disabled account.
+        end_impersonations_for_target(
+            user_id, reason=ImpersonationSession.END_REASON_TARGET_DISABLED
+        )
     # PRD-GAP Q-052: cancelling the person's future commitments (no reliability effect) is a
     # staffing-module concern that doesn't exist yet in step 1; UserDisabled is emitted so
     # that module can react once it lands.
@@ -298,6 +417,13 @@ def disable_user(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> 
 @command("user.enable")
 def enable_user(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> CommandResult:
     user = User.objects.select_for_update().get(pk=user_id)
+    is_admin = RoleAssignment.objects.filter(
+        user=user, role=roles.ADMINISTRATOR, revoked_at__isnull=True
+    ).exists()
+    if is_admin and roles.ADMINISTRATOR not in ctx.effective_roles:
+        raise PermissionDenied(
+            "user.enable: only an Administrator may turn on another Administrator's account (Q-052)"
+        )
     user.is_active = True
     user.disabled_at = None
     user.disabled_by_id = None
@@ -373,6 +499,15 @@ def revoke_global_role(
                 "role.revoke_global: HAM refuses to remove the last active Administrator "
                 "(Q-035, Q-047)"
             )
+        if (
+            assignment.role == roles.HAM_DIRECTOR
+            and _count_active_directors(exclude_user_id=assignment.user_id) == 0
+        ):
+            # PRD-GAP Q-094: proposed default in use; owner may change.
+            raise ValueError(
+                "role.revoke_global: HAM refuses to remove the last active HAM Director "
+                "(Q-047, Q-094)"
+            )
         assignment.revoked_at = clock_now()
         assignment.revoked_by_id = ctx.user_id
         assignment.revoke_reason = reason
@@ -399,8 +534,15 @@ def revoke_global_role(
 # ---------------------------------------------------------------------------------------
 def _assign_leader(
     ctx: ActorContext, *, role: str, scope_type: str, scope_id: uuid.UUID, user_id: uuid.UUID
-) -> RoleAssignment:
+) -> tuple[RoleAssignment, uuid.UUID | None]:
     with transaction.atomic():
+        previous = (
+            RoleAssignment.objects.filter(
+                role=role, scope_type=scope_type, scope_id=scope_id, revoked_at__isnull=True
+            )
+            .values_list("user_id", flat=True)
+            .first()
+        )
         RoleAssignment.objects.filter(
             role=role, scope_type=scope_type, scope_id=scope_id, revoked_at__isnull=True
         ).update(revoked_at=clock_now(), revoked_by_id=ctx.user_id, revoke_reason="reassigned")
@@ -412,26 +554,29 @@ def _assign_leader(
             granted_by_id=ctx.user_id,
             granted_at=clock_now(),
         )
-    return assignment
+    return assignment, previous
 
 
 @command("leader.project.assign")
 def assign_project_leader(
     ctx: ActorContext, *, project_id: uuid.UUID, user_id: uuid.UUID
 ) -> CommandResult:
-    assignment = _assign_leader(
+    assignment, previous_user_id = _assign_leader(
         ctx,
         role=roles.PROJECT_LEADER,
         scope_type=roles.SCOPE_TYPE_PROJECT,
         scope_id=project_id,
         user_id=user_id,
     )
+    # Item 4: leader reassignment records who was replaced.
+    before = {"previous_user_id": str(previous_user_id)} if previous_user_id else None
     return CommandResult(
         value=assignment,
         audit_action="leader.project_assigned",
         target_type="project",
         target_id=str(project_id),
         project_id=project_id,
+        before=before,
         after={"user_id": str(user_id)},
         outbox=OutboxSpec(
             "ProjectLeaderAssigned",
@@ -474,18 +619,20 @@ def revoke_project_leader(ctx: ActorContext, *, project_id: uuid.UUID) -> Comman
 def assign_task_leader(
     ctx: ActorContext, *, task_id: uuid.UUID, user_id: uuid.UUID
 ) -> CommandResult:
-    assignment = _assign_leader(
+    assignment, previous_user_id = _assign_leader(
         ctx,
         role=roles.TASK_LEADER,
         scope_type=roles.SCOPE_TYPE_TASK,
         scope_id=task_id,
         user_id=user_id,
     )
+    before = {"previous_user_id": str(previous_user_id)} if previous_user_id else None
     return CommandResult(
         value=assignment,
         audit_action="leader.task_assigned",
         target_type="task",
         target_id=str(task_id),
+        before=before,
         after={"user_id": str(user_id)},
         outbox=OutboxSpec(
             "TaskLeaderAssigned",
@@ -557,6 +704,20 @@ def stop_impersonation(
         target_type="user",
         target_id=str(session.target_user_id),
         after={"end_reason": end_reason, "duration_seconds": duration_seconds},
+        # Q-049: every end path emits this (ids/codes only, §68) so the impersonated person is
+        # emailed afterward; the idle-timeout/sign-out paths should call
+        # `ham.identity.impersonation.end_impersonation` instead of duplicating this.
+        outbox=OutboxSpec(
+            "ImpersonationEnded",
+            aggregate_type="user",
+            aggregate_id=session.target_user_id,
+            payload={
+                "session_id": str(session.id),
+                "admin_user_id": str(session.admin_user_id),
+                "end_reason": end_reason,
+                "duration_seconds": duration_seconds,
+            },
+        ),
     )
 
 
@@ -573,6 +734,10 @@ def update_church_profile(
     website_url: str | None = None,
 ) -> CommandResult:
     from ham.platform.models import ChurchProfile
+
+    if time_zone is not None and not is_valid_time_zone(time_zone):
+        # Q-030/§70.5: must be a real IANA zone name (`zoneinfo.available_timezones()`).
+        raise ValueError(f"{time_zone!r} is not a recognized time zone (e.g. America/New_York).")
 
     profile = ChurchProfile.objects.select_for_update().get(pk=ChurchProfile.get_solo().pk)
     changed: list[str] = []

@@ -12,9 +12,11 @@ from django.contrib.staticfiles.storage import staticfiles_storage
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.http import require_GET
 
 from ham.authz.guard import requires_action
+from ham.authz.matrix import authorize
 from ham.jobs import queue_lag_seconds
 from ham.platform.brand import load_brand
 from ham.platform.church import church_profile
@@ -62,8 +64,44 @@ def healthz(request):
 def home(request):
     """Home placeholder (foundation.md §10 "Home placeholder per highest role"). Real per-role
     to-do cards land with staffing/projects; every signed-in person sees the same placeholder
-    for now (navigation.md §1)."""
-    return render(request, "web/home.html")
+    for now (navigation.md §1), plus two step-1-only additions: an Administrator's summary of
+    integrations health and recent sign-in failures (counts/times only, §68 — never who), and
+    an "Invite someone" card for anyone who may invite but has no `user.list` nav destination
+    (an Assistant Director, Q-082)."""
+    ctx = request.actor
+    context: dict[str, object] = {}
+    if authorize(ctx, "integrations.view_status").allowed:
+        from ham.outbox.services import subscriber_status_counts
+
+        from .views_admin_settings import _VISIBLE_SUBSCRIBERS
+
+        context["integration_counts"] = [
+            row for row in subscriber_status_counts() if row.subscriber in _VISIBLE_SUBSCRIBERS
+        ]
+        context["recent_sign_in_failures"] = _recent_sign_in_failures(ctx)
+    if authorize(ctx, "user.invite").allowed and not authorize(ctx, "user.list").allowed:
+        context["show_invite_card"] = True
+    return render(request, "web/home.html", context)
+
+
+def _recent_sign_in_failures(ctx) -> dict[str, object]:
+    """Counts/times only (§68: never names or emails) of recent lockouts, for the
+    Administrator Home summary (foundation.md §10). Goes through `ham.authz.audit_access`
+    (never `ham.audit.queries` directly, repo convention) even though the caller has already
+    checked `integrations.view_status`, so this stays authorized the same way the audit log
+    itself is."""
+    import datetime as dt
+
+    from ham.audit.queries import AuditFilter
+    from ham.authz.audit_access import list_events
+    from ham.platform.clock import now as clock_now
+
+    since = clock_now() - dt.timedelta(hours=24)
+    events = list_events(ctx, AuditFilter(action="auth.sign_in.locked", date_from=since), limit=200)
+    return {
+        "count": len(events),
+        "latest_at": events[0].occurred_at if events else None,
+    }
 
 
 @require_GET
@@ -124,6 +162,36 @@ def service_worker(request):
     response["Service-Worker-Allowed"] = "/"
     response["Cache-Control"] = "no-cache"
     return response
+
+
+@require_GET
+@requires_action("me.view")
+def api_me(request):
+    """`GET /api/v1/me` (foundation.md §10): id, display name, roles, nav, impersonation
+    state, rules_version. Never email or phone (§68) — those are only on the `Me` screen
+    itself, which the signed-in person is looking at their own record on."""
+    from ham.authz.nav import nav_for
+    from ham.identity.services import display_names_for
+    from ham.rules import RULES_VERSION
+
+    ctx = request.actor
+    names = display_names_for([ctx.user_id])
+    nav = [
+        {"key": item.key, "label": item.label, "url": reverse(item.url_name)}
+        for item in nav_for(ctx)
+    ]
+    data = {
+        "id": str(ctx.user_id),
+        "display_name": names.get(ctx.user_id, ""),
+        "roles": sorted(ctx.effective_roles),
+        "nav": nav,
+        "impersonation": {
+            "active": ctx.is_impersonating,
+            "target_display_name": ctx.target_display_name if ctx.is_impersonating else "",
+        },
+        "rules_version": RULES_VERSION,
+    }
+    return JsonResponse(data)
 
 
 @require_GET
