@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -63,19 +64,53 @@ class SourcesAndLabelsTest(unittest.TestCase):
         self.assertEqual(
             pending,
             {
+                "reporting.PUBLIC_EMBED_MIN_GROUP_SIZE": ("Q-027",),
+            },
+        )
+
+    def test_exactly_these_rules_run_on_a_proposed_default(self) -> None:
+        """Owner, 2026-09-28: use the proposed defaults for these open questions for now."""
+        provisional = {
+            f"{gf.name}.{rf.name}": rf.metadata["provisional"]
+            for gf, rf, _v in iter_rules(RULES)
+            if rf.metadata["provisional"]
+        }
+        q073 = ("Q-073",)
+        self.assertEqual(
+            provisional,
+            {
+                "staffing.RECONFIRMATION_DAYS_BEFORE": q073,
+                "staffing.RECONFIRMATION_REMINDER_DAYS_BEFORE": q073,
+                "staffing.UNCONFIRMED_RELEASE_DAYS_BEFORE": q073,
+                "reliability.CANCELLATION_FREE_DAYS_BEFORE": q073,
+                "reliability.CANCELLATION_BAND_LOWER_BOUNDS_DAYS": q073,
                 "reliability.PENALTY_CANCEL_4_TO_6_DAYS": ("Q-001",),
                 "reliability.PENALTY_CANCEL_2_TO_3_DAYS": ("Q-001",),
                 "reliability.PENALTY_CANCEL_1_DAY": ("Q-001",),
-                "reliability.PENALTY_CANCEL_SAME_DAY": ("Q-001",),
-                "reliability.PENALTY_NO_SHOW": ("Q-001",),
+                "reliability.PENALTY_CANCEL_SAME_DAY": ("Q-001", "Q-075"),
+                "reliability.PENALTY_NO_SHOW": ("Q-001", "Q-075"),
                 "reliability.RECOVERY_PER_FULFILLED_COMMITMENT": ("Q-001",),
+                "retention.INCIDENT_RETENTION": ("Q-074",),
+                "retention.HOMEOWNER_AGREEMENT_RETENTION": ("Q-074",),
+                "auth.STEP_UP_ACTIONS": ("Q-076",),
                 "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": ("Q-070",),
                 "auth.SIGN_IN_RESEND_COOLDOWN": ("Q-070",),
                 "auth.ACCOUNT_INVITATION_LIFETIME": ("Q-071",),
                 "auth.MFA_CODE_MAX_ATTEMPTS": ("Q-072",),
-                "reporting.PUBLIC_EMBED_MIN_GROUP_SIZE": ("Q-027",),
+                "operations.HEALTH_MAX_QUEUE_LAG": ("Q-056",),
             },
         )
+
+    def test_provisional_rules_cite_and_explain_their_open_question(self) -> None:
+        for gf, rf, value in iter_rules(RULES):
+            for q in rf.metadata["provisional"]:
+                with self.subTest(rule=f"{gf.name}.{rf.name}", question=q):
+                    self.assertFalse(contains_pending(value), "a proposed default is a value")
+                    self.assertIn(q, rf.metadata["sources"])
+                    self.assertIn(
+                        f"PRD-GAP {q}: proposed default in use; owner may change",
+                        rf.metadata["note"],
+                    )
 
     def test_pending_proposals_are_recorded(self) -> None:
         for gf, rf, value in iter_rules(RULES):
@@ -184,6 +219,38 @@ class InvariantsTest(unittest.TestCase):
                 {"SESSION_IDLE_LIFETIME_MFA_ROLES": RULES.auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES},
                 "MFA idle",
             ),
+        ]
+        for group, changes, expected_fragment in cases:
+            with self.subTest(group=group, changes=changes):
+                problems = check_invariants(self._with(group, **changes))
+                self.assertTrue(
+                    any(expected_fragment in p for p in problems), (expected_fragment, problems)
+                )
+
+    def test_q001_proposed_numbers_are_in_use_and_valid(self) -> None:
+        r = RULES.reliability
+        self.assertEqual(
+            (
+                r.PENALTY_CANCEL_4_TO_6_DAYS,
+                r.PENALTY_CANCEL_2_TO_3_DAYS,
+                r.PENALTY_CANCEL_1_DAY,
+                r.PENALTY_CANCEL_SAME_DAY,
+                r.PENALTY_NO_SHOW,
+                r.RECOVERY_PER_FULFILLED_COMMITMENT,
+            ),
+            (3, 6, 10, 16, 20, 2),
+        )
+
+    def test_new_auth_and_ops_invariants(self) -> None:
+        cases: list[tuple[str, dict[str, Any], str]] = [
+            ("auth", {"SIGN_IN_RESEND_COOLDOWN": timedelta(0)}, "cooldown"),
+            ("auth", {"SIGN_IN_RESEND_COOLDOWN": timedelta(hours=1)}, "cooldown"),
+            ("auth", {"SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": 0}, "SIGN_IN_EMAILS"),
+            ("auth", {"MFA_CODE_MAX_ATTEMPTS": 0}, "MFA_CODE_MAX_ATTEMPTS"),
+            ("auth", {"ACCOUNT_INVITATION_LIFETIME": timedelta(minutes=15)}, "invitation"),
+            ("operations", {"HEALTH_MAX_QUEUE_LAG": timedelta(0)}, "queue-lag"),
+            ("reliability", {"PENALTY_CANCEL_SAME_DAY": 20}, "same day"),
+            ("reliability", {"RECOVERY_PER_FULFILLED_COMMITMENT": 20}, "gradual"),
         ]
         for group, changes, expected_fragment in cases:
             with self.subTest(group=group, changes=changes):

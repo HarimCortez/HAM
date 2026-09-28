@@ -19,9 +19,7 @@ from ham.jobs import queue_lag_seconds
 from ham.platform.brand import load_brand
 from ham.platform.church import church_profile
 from ham.platform.tokens import token_hex
-
-# Generous margin before a delayed job is treated as "the worker is stuck", not just busy.
-MAX_HEALTHY_QUEUE_LAG_SECONDS = 300
+from ham.rules import RULES
 
 
 @require_GET
@@ -42,7 +40,9 @@ def healthz(request):
     try:
         lag = queue_lag_seconds()
         checks["job_queue_lag_seconds"] = lag
-        if lag is not None and lag > MAX_HEALTHY_QUEUE_LAG_SECONDS:
+        # PRD-GAP Q-056: proposed default in use; owner may change.
+        max_lag = RULES.operations.HEALTH_MAX_QUEUE_LAG.total_seconds()
+        if lag is not None and lag > max_lag:
             healthy = False
     except Exception:
         checks["job_queue"] = "error"

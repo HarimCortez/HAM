@@ -159,7 +159,7 @@ def _pending_mfa_user(request: HttpRequest) -> User | None:
 def _restart_sign_in(request: HttpRequest) -> HttpResponse:
     for key in (SESSION_PENDING_MFA_USER_ID, SESSION_PENDING_NEXT, SESSION_MFA_ATTEMPTS):
         request.session.pop(key, None)
-    messages.error(request, "For your safety, please start again from your email (PRD-GAP Q-072).")
+    messages.error(request, "For your safety, please start again from your email.")
     return redirect(reverse("web:sign_in"))
 
 
@@ -180,7 +180,8 @@ def sign_in_mfa(request: HttpRequest) -> HttpResponse:
         if not ok:
             attempts = request.session.get(SESSION_MFA_ATTEMPTS, 0) + 1
             request.session[SESSION_MFA_ATTEMPTS] = attempts
-            if attempts >= mfa.MFA_CODE_MAX_ATTEMPTS:
+            # PRD-GAP Q-072: proposed default in use; owner may change.
+            if attempts >= RULES.auth.MFA_CODE_MAX_ATTEMPTS:
                 return _restart_sign_in(request)
             return render(
                 request,

@@ -21,6 +21,7 @@ CHANGELOG = REPO_ROOT / "docs" / "rules-changelog.md"
 # version -> content hash. Append only; never edit an existing line.
 PINNED_HASHES = {
     "2026.09.27-1": "sha256:e13eb47656eceb028c495b3f5e918fb4274d9fdc7b752fce3ba1b434ee77188a",
+    "2026.09.28-1": "sha256:84f96591b6cae641b20e83cc70ea0eff466990850f31c207d6f0249ccd3983d7",
 }
 
 

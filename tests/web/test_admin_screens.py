@@ -228,7 +228,11 @@ def test_integrations_page_has_no_pii(admin_client, volunteer_user):
 def test_rules_page_renders_for_director(director_client):
     response = director_client.get(reverse("web:admin_rules"))
     assert response.status_code == 200
-    assert b"2026.09.27-1" in response.content
+    from ham.rules import RULES_VERSION
+
+    assert RULES_VERSION.encode() in response.content
+    # Values running on an open question's proposed default are marked as such (Q-001 etc.).
+    assert "Proposed default — may change (Q-001)".encode() in response.content
 
 
 @pytest.mark.django_db

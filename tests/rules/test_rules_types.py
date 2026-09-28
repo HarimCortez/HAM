@@ -55,11 +55,17 @@ class PendingRefusesUseTest(unittest.TestCase):
 
     def test_real_undecided_rules_raise_when_used(self) -> None:
         with self.assertRaises(RuleNotDecidedError):
-            _ = 100 - RULES.reliability.PENALTY_NO_SHOW  # type: ignore[operator]
-        with self.assertRaises(RuleNotDecidedError):
             _ = RULES.reporting.PUBLIC_EMBED_MIN_GROUP_SIZE > 3  # type: ignore[operator]
         with self.assertRaises(RuleNotDecidedError):
-            _ = datetime.now(UTC) + RULES.auth.ACCOUNT_INVITATION_LIFETIME  # type: ignore[operator]
+            _ = 100 - RULES.reporting.PUBLIC_EMBED_MIN_GROUP_SIZE  # type: ignore[operator]
+
+    def test_proposed_defaults_are_usable(self) -> None:
+        # Owner, 2026-09-28: Q-001/Q-070/Q-071/Q-072 run on their proposed defaults.
+        self.assertEqual(100 - RULES.reliability.PENALTY_NO_SHOW, 80)
+        start = datetime(2026, 9, 28, tzinfo=UTC)
+        self.assertEqual(
+            start + RULES.auth.ACCOUNT_INVITATION_LIFETIME, datetime(2026, 10, 5, tzinfo=UTC)
+        )
 
     def test_display_and_hash_are_allowed(self) -> None:
         self.assertEqual(repr(self.P), "Pending('Q-001')")

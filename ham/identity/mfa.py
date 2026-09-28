@@ -28,11 +28,6 @@ from . import totp
 from .crypto import decrypt, encrypt
 from .models import RecoveryCode, RoleAssignment, TOTPDevice, TrustedDevice, User
 
-# PRD-GAP Q-072: docs/prd-open-questions.md Q-072 is still open; using the proposed default
-# ("5, then restart email sign-in; audited") verbatim, since ham.rules.v1's
-# MFA_CODE_MAX_ATTEMPTS is `Pending` (see ham/rules/types.py).
-MFA_CODE_MAX_ATTEMPTS = 5
-
 RECOVERY_CODE_COUNT = RULES.auth.MFA_RECOVERY_CODE_COUNT
 TRUSTED_DEVICE_COOKIE_NAME = "ham_td"
 
