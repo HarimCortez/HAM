@@ -127,10 +127,23 @@ def test_hazards_something_else_requires_note():
     assert errors == {}
 
 
-def test_urgent_requires_justification():
+def test_urgent_requires_a_reason():
+    """M4/N-M1: urgent always needs a reason chip -- "Choose why it's urgent." on the
+    fieldset, never lumped in with the (optional-unless-"something else") textarea."""
     payload = _base_payload(urgent_requested=True)
     _cleaned, errors = validate_intake_payload(payload, church=CHURCH)
-    assert "urgency_justification" in errors
+    assert errors["urgency_reason"] == "Choose why it's urgent."
+    assert "urgency_justification" not in errors  # not "something else" -- textarea optional
+
+    payload["urgency_reason"] = "water_or_damage"
+    _cleaned, errors = validate_intake_payload(payload, church=CHURCH)
+    assert errors == {}
+
+
+def test_urgent_something_else_requires_justification_too():
+    payload = _base_payload(urgent_requested=True, urgency_reason="something_else")
+    _cleaned, errors = validate_intake_payload(payload, church=CHURCH)
+    assert errors["urgency_justification"] == "Tell us why this is urgent."
 
     payload["urgency_justification"] = "Water is coming in fast."
     _cleaned, errors = validate_intake_payload(payload, church=CHURCH)

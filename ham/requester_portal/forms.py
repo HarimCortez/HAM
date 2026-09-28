@@ -30,6 +30,7 @@ from .choices import (
     Hazard,
     NeedCategory,
     PropertyType,
+    UrgencyReason,
 )
 
 _AVAILABILITY_TIME_WORDS = {AVAILABILITY_ANY_TIME, AVAILABILITY_MORNINGS, AVAILABILITY_AFTERNOONS}
@@ -153,12 +154,21 @@ def validate_intake_payload(
         data, errors, "description", label="What's needed", max_len=_MAX_TEXT
     )
 
-    # --- Urgent (optional; justification required iff ticked) ----------------------------
+    # --- Urgent (optional; reason required iff ticked; justification required only for
+    # "Something else" -- UX M4/N-M1) -----------------------------------------------------
     urgent_requested = bool(data.get("urgent_requested"))
     cleaned["urgent_requested"] = urgent_requested
     justification = str(data.get("urgency_justification") or "").strip()
-    if urgent_requested and not justification:
-        errors["urgency_justification"] = "Tell us why this is urgent."
+    reason_raw = str(data.get("urgency_reason") or "").strip()
+    reason: UrgencyReason | None = None
+    if urgent_requested:
+        try:
+            reason = UrgencyReason(reason_raw)
+        except ValueError:
+            errors["urgency_reason"] = "Choose why it's urgent."
+        if reason is UrgencyReason.SOMETHING_ELSE and not justification:
+            errors["urgency_justification"] = "Tell us why this is urgent."
+    cleaned["urgency_reason"] = reason.value if (urgent_requested and reason is not None) else ""
     cleaned["urgency_justification"] = justification if urgent_requested else ""
 
     # --- Hazards: required, "none known" is a valid answer (Q-113) -----------------------

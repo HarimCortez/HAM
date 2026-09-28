@@ -97,6 +97,7 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         (
             "requester_link.issued",
             "requester_link.regenerated",
+            "requester_link.found",
             "requester_verification.locked",
         ),
     ),
@@ -164,6 +165,7 @@ ACTION_LABELS: dict[str, str] = {
     "requester_pii.revealed": "Viewed requester contact details",
     "requester_link.issued": "Secure link sent",
     "requester_link.regenerated": "New secure link sent",
+    "requester_link.found": "Secure link sent (check on request)",
     "requester_verification.locked": "Verification locked (too many attempts)",
     "request_media.batch_opened": "Photo/video batch opened",
     "request_media.uploaded": "Photo/video uploaded",

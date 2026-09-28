@@ -119,6 +119,16 @@ def mark_consumed(draft_id: UUID, *, request_id: UUID) -> None:
     IntakeDraft.objects.filter(pk=draft_id).update(consumed_at=clock_now(), request_id=request_id)
 
 
+def consumed_request_id(draft_id: UUID) -> UUID | None:
+    """M8: distinguishes "this draft's answers already became a real request" from "this
+    draft id is simply unknown/expired" -- both look identical to `load_payload` (`None`
+    either way). Used only to decide whether an already-used code/link should say "we
+    already received your request" instead of a generic "please start again" error
+    (`ham.web.views_requester`'s already-received handling)."""
+    draft = IntakeDraft.objects.filter(pk=draft_id, consumed_at__isnull=False).first()
+    return draft.request_id if draft is not None else None
+
+
 def draft_exists_and_live(draft_id: UUID) -> bool:
     """For the resume flow: whether the cookie's draft id still resolves to something (never
     reveals *what*, Q-139)."""

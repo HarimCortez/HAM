@@ -53,20 +53,27 @@
       <div class="inline-alert inline-alert--attention" role="status">
         <p>If anyone is in danger right now, call <a href="tel:911">911</a> first.</p>
       </div>
-      <fieldset class="form-field" id="id_urgency_reason">
+      <fieldset class="form-field{% if errors.urgency_reason %} form-field--error{% endif %}"
+                id="id_urgency_reason"
+                {% if errors.urgency_reason %}aria-invalid="true" aria-describedby="id_urgency_reason-error"{% endif %}>
         <legend>Why is it urgent?</legend>
+        {% if errors.urgency_reason %}<p class="form-field__error" id="id_urgency_reason-error">{{ errors.urgency_reason }}</p>{% endif %}
         <div class="choice-chip-group choice-chip-group--stacked">
           {% for value in urgency_reason_choices %}
             <label class="choice-chip">
               <input type="radio" name="urgency_reason" value="{{ value }}"
-                     {% if payload.urgency_reason == value %}checked{% endif %}>
+                     {% if payload.urgency_reason == value %}checked{% endif %}
+                     onchange="var isElse = this.value === 'something_else'; document.getElementById('urgency-justification-label-text').textContent = isElse ? 'Tell us a little about why it\'s urgent' : 'Anything else about why it\'s urgent?'; document.getElementById('urgency-justification-optional').hidden = isElse;">
               {{ urgency_reason_labels|get_item:value }}
             </label>
           {% endfor %}
         </div>
       </fieldset>
       <div class="form-field{% if errors.urgency_justification %} form-field--error{% endif %}">
-        <label for="id_urgency_justification">Anything else about why it's urgent? <span class="form-field__optional">(optional)</span></label>
+        <label for="id_urgency_justification">
+          <span id="urgency-justification-label-text">{% if payload.urgency_reason == "something_else" %}Tell us a little about why it's urgent{% else %}Anything else about why it's urgent?{% endif %}</span>
+          <span class="form-field__optional" id="urgency-justification-optional" {% if payload.urgency_reason == "something_else" %}hidden{% endif %}>(optional)</span>
+        </label>
         <textarea id="id_urgency_justification" name="urgency_justification" rows="2"
                   {% if errors.urgency_justification %}aria-invalid="true" aria-describedby="id_urgency_justification-error"{% endif %}>{{ payload.urgency_justification|default:"" }}</textarea>
         {% if errors.urgency_justification %}<p class="form-field__error" id="id_urgency_justification-error">{{ errors.urgency_justification }}</p>{% endif %}

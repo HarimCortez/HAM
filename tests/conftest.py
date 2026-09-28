@@ -82,7 +82,11 @@ def real_portal_lookups(db):
 
     def _facts_lookup(request_id: uuid.UUID) -> services.RequestLinkFacts:
         facts = requests_queries.request_facts_for_portal(request_id)
-        return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
+        return services.RequestLinkFacts(
+            status=facts.status,
+            closed_at=facts.closed_at,
+            display_number=facts.display_number,
+        )
 
     def _register() -> None:
         services.register_request_facts_lookup(_facts_lookup)

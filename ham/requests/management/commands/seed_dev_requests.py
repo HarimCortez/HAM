@@ -33,6 +33,7 @@ from ham.requests.models import (
     RequestContactVerification,
     Requester,
     RequestSource,
+    UrgencyReason,
     next_reference_number,
 )
 from ham.requests.states import CancelReason, RequestStatus, UrgencyStatus, VerificationMethod
@@ -90,6 +91,7 @@ class Command(BaseCommand):
                 phone="+13055550103",
                 submitted_at=now - dt.timedelta(hours=6),
                 urgent=True,
+                urgency_reason=UrgencyReason.SOMETHING_ELSE,
                 urgency_justification="Exposed wiring near a bathtub.",
             )
             self._create(
@@ -131,6 +133,7 @@ class Command(BaseCommand):
         phone: str,
         submitted_at: dt.datetime,
         urgent: bool = False,
+        urgency_reason: UrgencyReason | str = "",
         urgency_justification: str = "",
         email_opt_out: bool = False,
         cancel_reason: CancelReason | None = None,
@@ -143,6 +146,7 @@ class Command(BaseCommand):
             need_category=need_category,
             description="Fictional dev-seed request -- see seed_dev_requests.",
             urgent_requested=urgent,
+            urgency_reason=urgency_reason,
             urgency_justification=urgency_justification,
             urgency_status=(
                 UrgencyStatus.AWAITING_CERTIFICATION.value if urgent else UrgencyStatus.NONE.value

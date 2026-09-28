@@ -1,0 +1,21 @@
+{% comment %}
+M8: shared "already received" state for R8 (`r8_verify.html`) and the confirm-link page
+(`confirm_link.html`) -- confirming a code/link after the draft was already submitted (another
+device, a reused link). `secure_url` is only ever set when the caller has proof this exact
+browser holds a valid session/link right now (see `ham.web.views_requester.
+_already_received_context`'s docstring); otherwise this shows a neutral message with no HAM #
+and no link, never leaking the request to an unverified browser.
+{% endcomment %}
+{% if secure_url %}
+  <h1>We already received your request</h1>
+  <p>Your request number is <strong>{{ display_number }}</strong>.</p>
+  <div class="action-bar">
+    <div class="action-bar__inner">
+      <a class="btn btn--primary" href="{{ secure_url }}">Open my request page</a>
+    </div>
+  </div>
+{% else %}
+  <h1>Already received</h1>
+  <p>Check your email for the link to your request.</p>
+  <p><a href="{% url 'web:request_help_start' %}">Go to Ask for help</a></p>
+{% endif %}

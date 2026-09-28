@@ -73,7 +73,13 @@ STEP_REVIEW = "review"
 STEP_ORDER = [STEP_NEED, STEP_HOME, STEP_SAFETY, STEP_REACHING_YOU, STEP_REVIEW]
 
 _STEP_FIELDS: dict[str, set[str]] = {
-    STEP_NEED: {"need_category", "description", "urgent_requested", "urgency_justification"},
+    STEP_NEED: {
+        "need_category",
+        "description",
+        "urgent_requested",
+        "urgency_reason",
+        "urgency_justification",
+    },
     STEP_HOME: {
         "relationship_to_property",
         "owner_name",
@@ -262,21 +268,18 @@ def request_help_start_over(request: HttpRequest) -> HttpResponse:
 # R2-R6: the wizard steps
 # --------------------------------------------------------------------------------------
 def _need_data(request: HttpRequest, payload: dict) -> dict:
-    urgent = bool(request.POST.get("urgent_requested"))
-    justification = request.POST.get("urgency_justification", "").strip()
-    reason_code = request.POST.get("urgency_reason", "").strip()
-    if urgent and reason_code and reason_code != UrgencyReason.SOMETHING_ELSE.value:
-        try:
-            label = URGENCY_REASON_LABELS[UrgencyReason(reason_code)]
-        except ValueError:
-            label = ""
-        justification = f"{label}. {justification}".strip(". ").strip()
+    """UX M4/N-M1: `urgency_reason` (a code) and `urgency_justification` (the requester's own
+    words) are stored as two separate draft keys, exactly as typed/chosen -- never composed
+    or prefixed here. The old behavior (`f"{label}. {justification}"`, re-run on every
+    re-save) silently rewrote the requester's own text and duplicated the label each time the
+    form was edited and re-submitted; composing "Reason label. Their words" now happens only
+    at display time (`ham.requests.presentation.urgency_line`, L2)."""
     return {
         "need_category": request.POST.get("need_category", "").strip(),
         "description": request.POST.get("description", "").strip(),
-        "urgent_requested": urgent,
-        "urgency_justification": justification,
-        "urgency_reason": reason_code,
+        "urgent_requested": bool(request.POST.get("urgent_requested")),
+        "urgency_justification": request.POST.get("urgency_justification", "").strip(),
+        "urgency_reason": request.POST.get("urgency_reason", "").strip(),
     }
 
 
@@ -561,6 +564,22 @@ def request_help_verify(request: HttpRequest) -> HttpResponse:
             ip_address=_client_ip(request),
         )
         if not verify_result.ok or verify_result.challenge is None:
+            # M8: "no_challenge" for an intake draft that already became a real request (this
+            # exact browser's own session -- it holds `pending["draft_id"]`, proof enough) is
+            # not a generic error; show what actually happened instead of an invitation to
+            # duplicate the request.
+            if (
+                verify_result.reason == "no_challenge"
+                and purpose == RequesterVerificationChallenge.PURPOSE_INTAKE
+            ):
+                already_request_id = drafts.consumed_request_id(draft_id) if draft_id else None
+                if already_request_id is not None:
+                    context = {
+                        **_base_context(request),
+                        "purpose": purpose,
+                        **_already_received_context(already_request_id, reveal=True),
+                    }
+                    return render(request, "web/requester/r8_verify.html", context)
             return render(
                 request,
                 "web/requester/r8_verify.html",
@@ -601,7 +620,31 @@ def _verify_error_message(result: verification.VerifyResult) -> str:
         )
     if result.reason == "wrong":
         return f"That code doesn't match. {result.attempts_left} tries left."
-    return "We couldn't find a pending code for this email. Please start again."
+    # M8: never invite a duplicate submission -- a recovery that keeps the draft, not "start
+    # again". (When this "no_challenge" case is actually an already-submitted draft, the
+    # caller renders the dedicated already-received view instead of this message at all.)
+    return "We couldn't find a pending code for this email. Send a new code below, or call us."
+
+
+def _already_received_context(request_id: UUID, *, reveal: bool) -> dict[str, Any]:
+    """M8: "confirming a code/link after the draft was already submitted" (another device, a
+    reused link) must never look like a dead end that invites a duplicate request, but must
+    also never leak which request that draft became to a browser that hasn't itself proven
+    anything (a bare, already-used link is not proof -- anyone could have the URL text).
+
+    ``reveal=True`` only when the *caller* has already established that this exact browser
+    holds a valid session/link for this draft/request right now (it just typed a code in its
+    own session, or its own link-consume POST just succeeded) -- shows the HAM # and a button
+    straight to the secure page. ``reveal=False`` shows a neutral message with no HAM # and no
+    link at all, for a bare already-used-link GET/POST that proves nothing new."""
+    if not reveal:
+        return {"already_received": True, "display_number": "", "secure_url": None}
+    row = get_request_for_requester(request_id)
+    return {
+        "already_received": True,
+        "display_number": row.display_number if row is not None else "",
+        "secure_url": services.current_secure_page_path(request_id),
+    }
 
 
 def _welcome_url(token: str) -> str:
@@ -625,6 +668,19 @@ def _after_verified(
                 draft_id=draft_id, verification_id=challenge.id, verification_method="email_code"
             )
         except (ValueError, services.IntakeSubmissionRateLimited):
+            # M8: this browser's code just verified correctly (real proof of session), but
+            # the draft turned out to already be a request -- e.g. another device's link
+            # click won the race a moment earlier. Show what actually happened, with a way to
+            # open the secure page, instead of "answers have expired, start again" (which
+            # invites a duplicate submission).
+            already_request_id = drafts.consumed_request_id(draft_id)
+            if already_request_id is not None:
+                context = {
+                    **_base_context(request),
+                    "purpose": RequesterVerificationChallenge.PURPOSE_INTAKE,
+                    **_already_received_context(already_request_id, reveal=True),
+                }
+                return render(request, "web/requester/r8_verify.html", context)
             messages.error(request, "Your answers have expired. Please start again.")
             return redirect("web:request_help_start")
         assert result.issued_link is not None
@@ -655,23 +711,37 @@ def _pending_link_regen_request_id(request: HttpRequest) -> UUID | None:
 # --------------------------------------------------------------------------------------
 # The two emailed, scanner-safe links (intake-contracts.md §8.2 exact paths).
 # --------------------------------------------------------------------------------------
+def _already_received_for_link_token(token: str) -> UUID | None:
+    """M8: if this link token belonged to an intake draft that already became a request
+    (whether or not *this* attempt to use the token succeeds), returns that request's id;
+    `None` for a token that never maps to an already-submitted draft (a truly unknown/
+    not-yet-used token)."""
+    challenge = verification.challenge_for_link_token(token)
+    if challenge is None or challenge.draft_id is None:
+        return None
+    return drafts.consumed_request_id(challenge.draft_id)
+
+
 @require_http_methods(["GET", "POST"])
 def request_help_verify_link(request: HttpRequest, token: str) -> HttpResponse:
     if request.method == "GET":
         valid = verification.link_is_valid(token=token)
-        return render(
-            request,
-            "web/requester/confirm_link.html",
-            {**_base_context(request), "token": token, "valid": valid, "kind": "intake"},
-        )
+        context = {**_base_context(request), "token": token, "valid": valid, "kind": "intake"}
+        if not valid:
+            # M8: a GET proves nothing about who's asking -- never reveal the HAM # or a
+            # direct link here (see `_already_received_context`'s `reveal=False` docstring).
+            already_request_id = _already_received_for_link_token(token)
+            if already_request_id is not None:
+                context.update(_already_received_context(already_request_id, reveal=False))
+        return render(request, "web/requester/confirm_link.html", context)
 
     result = verification.consume_link(token=token)
     if not result.ok or result.challenge is None:
-        return render(
-            request,
-            "web/requester/confirm_link.html",
-            {**_base_context(request), "token": token, "valid": False, "kind": "intake"},
-        )
+        context = {**_base_context(request), "token": token, "valid": False, "kind": "intake"}
+        already_request_id = _already_received_for_link_token(token)
+        if already_request_id is not None:
+            context.update(_already_received_context(already_request_id, reveal=False))
+        return render(request, "web/requester/confirm_link.html", context)
     challenge = result.challenge
     if challenge.draft_id is None:
         return render(request, "web/not_found.html", status=404)
@@ -682,11 +752,14 @@ def request_help_verify_link(request: HttpRequest, token: str) -> HttpResponse:
             verification_method="email_link",
         )
     except (ValueError, services.IntakeSubmissionRateLimited):
-        return render(
-            request,
-            "web/requester/confirm_link.html",
-            {**_base_context(request), "token": token, "valid": False, "kind": "intake"},
-        )
+        # M8: this link token itself was just freshly, successfully consumed (real proof of
+        # inbox access) -- the draft turned out to already be a request via a different,
+        # earlier-consumed challenge. Reveal the HAM # and a way in, same as `_after_verified`.
+        already_request_id = drafts.consumed_request_id(challenge.draft_id)
+        context = {**_base_context(request), "token": token, "valid": False, "kind": "intake"}
+        if already_request_id is not None:
+            context.update(_already_received_context(already_request_id, reveal=True))
+        return render(request, "web/requester/confirm_link.html", context)
     request.session.pop(_SESSION_VERIFY, None)
     assert submission.issued_link is not None
     response = redirect(_welcome_url(submission.issued_link.token))
@@ -802,8 +875,8 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
                 row.cancel_reason_code or None
             ),
             "masked": masked,
-            "need_category_label": _need_category_display(row.need_category),
-            "property_type_label": _property_type_display(row.property_type),
+            "need_category_label": NEED_CATEGORY_LABELS.get(row.need_category, row.need_category),
+            "property_type_label": PROPERTY_TYPE_LABELS.get(row.property_type, row.property_type),
             "hazards": _hazards_display(row.known_hazards),
             "availability": _availability_display(row.preferred_availability),
             "photo_count": gallery.counts.photos,
@@ -817,17 +890,6 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
         }
     )
     return render(request, "web/requester/r10_secure_page.html", context)
-
-
-def _need_category_display(value: str) -> str:
-    # `ham.requests` stores its own (translated) vocabulary (services._NEED_CATEGORY_TRANSLATION);
-    # show the stored code in words rather than re-importing the portal's pre-translation
-    # labels, which no longer match 1:1.
-    return value.replace("_", " ").capitalize()
-
-
-def _property_type_display(value: str) -> str:
-    return value.replace("_", " ").capitalize()
 
 
 def _hazards_display(stored: str) -> str:

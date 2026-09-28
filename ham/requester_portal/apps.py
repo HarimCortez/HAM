@@ -39,7 +39,11 @@ class RequesterPortalConfig(AppConfig):
 
         def _facts_lookup(request_id: Any) -> services.RequestLinkFacts:
             facts = requests_queries.request_facts_for_portal(request_id)
-            return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
+            return services.RequestLinkFacts(
+                status=facts.status,
+                closed_at=facts.closed_at,
+                display_number=facts.display_number,
+            )
 
         services.register_request_facts_lookup(_facts_lookup)
         services.register_request_contact_lookup(requests_queries.request_contact_for_portal)

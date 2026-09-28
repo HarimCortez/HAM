@@ -38,6 +38,7 @@ from ham.requests.models import (
     RequestContactVerification,
     Requester,
     RequestMatch,
+    UrgencyReason,
     next_reference_number,
 )
 from ham.requests.states import (
@@ -96,6 +97,10 @@ class SubmittedRequestPayload:
     owner_name: str = ""
     description: str = ""
     urgent_requested: bool = False
+    # UX M4/N-M1: the chosen reason *code*, always separate from `urgency_justification` (the
+    # requester's own free-text words) -- never composed/prefixed here; that composition
+    # happens only at display time (`ham.requests.presentation.urgency_line`).
+    urgency_reason: str = ""
     urgency_justification: str = ""
     known_hazards: str = ""
     preferred_availability: str = ""
@@ -172,8 +177,19 @@ def submit_request(
         payload.relationship_to_property, payload.attested_statements
     ):
         raise ValueError("request.submit: missing a required certification statement")
-    if payload.urgent_requested and not payload.urgency_justification.strip():
-        raise ValueError("request.submit: urgent requests need a justification")
+    if payload.urgent_requested:
+        # UX M4/N-M1: a reason code is always required; the free-text justification is
+        # required only for the "something else" reason (every other chip is
+        # self-explanatory) -- mirrors `ham.requester_portal.forms.validate_intake_payload`'s
+        # own gate, re-checked here since a draft's last validation isn't trusted as the only
+        # gate (CLAUDE.md's "HAM validates ... -> transaction").
+        if not payload.urgency_reason:
+            raise ValueError("request.submit: urgent requests need a reason")
+        if (
+            payload.urgency_reason == UrgencyReason.SOMETHING_ELSE.value
+            and not payload.urgency_justification.strip()
+        ):
+            raise ValueError("request.submit: urgent requests need a justification")
 
     now = clock_now()
     request = AssistanceRequest.objects.create(
@@ -184,6 +200,7 @@ def submit_request(
         need_category=payload.need_category,
         description=payload.description,
         urgent_requested=payload.urgent_requested,
+        urgency_reason=payload.urgency_reason,
         urgency_justification=payload.urgency_justification,
         urgency_status=initial_urgency_status(payload.urgent_requested).value,
         known_hazards=payload.known_hazards,

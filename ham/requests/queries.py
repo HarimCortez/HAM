@@ -186,6 +186,7 @@ class RequestDetailRow:
     need_category: str
     description: str
     urgent_requested: bool
+    urgency_reason: str
     urgency_justification: str
     urgency_status: str
     known_hazards: str
@@ -218,6 +219,7 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         need_category=r.need_category,
         description=r.description,
         urgent_requested=r.urgent_requested,
+        urgency_reason=r.urgency_reason,
         urgency_justification=r.urgency_justification,
         urgency_status=r.urgency_status,
         known_hazards=r.known_hazards,
@@ -364,16 +366,27 @@ class PortalRequestFacts:
 
     status: str
     closed_at: dt.datetime | None
+    display_number: str = ""
 
 
 def request_facts_for_portal(request_id: UUID) -> PortalRequestFacts:
     """`register_request_facts_lookup`: `AssistanceRequest.status`/`closed_at` (this app has
-    no `completed_at` yet -- a later step's field, left `None` by the caller). Raises
-    `ValueError` for an unknown id, matching the registration docstring."""
-    row = AssistanceRequest.objects.filter(id=request_id).values("status", "closed_at").first()
+    no `completed_at` yet -- a later step's field, left `None` by the caller) plus the
+    "HAM #NNN" display number (M7: `find_my_request`'s E4 email names the request without a
+    second, ad hoc cross-app query). Raises `ValueError` for an unknown id, matching the
+    registration docstring."""
+    row = (
+        AssistanceRequest.objects.filter(id=request_id)
+        .values("status", "closed_at", "reference_number")
+        .first()
+    )
     if row is None:
         raise ValueError(f"unknown request {request_id}")
-    return PortalRequestFacts(status=row["status"], closed_at=row["closed_at"])
+    return PortalRequestFacts(
+        status=row["status"],
+        closed_at=row["closed_at"],
+        display_number=f"HAM #{row['reference_number']:03d}",
+    )
 
 
 def request_contact_for_portal(request_id: UUID) -> str | None:
@@ -420,6 +433,10 @@ class HistoryEntry:
     label: str
     occurred_at: dt.datetime
     actor_user_id: UUID | None = None
+    # Usability re-check Minor 3: a `title` tooltip (never shown in the plain label text)
+    # for details that belong in the record but not the sentence -- e.g. the exact
+    # attestation version on the "Agreed to the intake statements" entry.
+    title: str = ""
 
 
 def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
@@ -472,8 +489,12 @@ def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
     if request.attested_at is not None:
         entries.append(
             HistoryEntry(
-                label=f"Agreed to intake statements {request.attestation_version}",
+                # Usability re-check Minor 3: plain wording in the timeline sentence -- the
+                # version string stays in the record (`request.attestation_version`) and in
+                # this entry's `title` tooltip, not the visible text.
+                label="Agreed to the intake statements",
                 occurred_at=request.attested_at,
+                title=request.attestation_version,
             )
         )
     entries.sort(key=lambda e: e.occurred_at)

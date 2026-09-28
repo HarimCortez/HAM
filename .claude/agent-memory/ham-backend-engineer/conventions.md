@@ -1465,3 +1465,111 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   comment/docstring anywhere in `ham/` (even explaining *why* FL), `tests/web/test_no_hardcoded
   _church_or_colors.py::test_no_literal_church_name_in_python_source` greps all of `ham/` (not
   just `tests/`) for `FORBIDDEN_CHURCH_STRINGS`.
+
+## FIX-F2 (step-2 intake, requester flows/M4/M6/M7/M8 re-check round)
+- **"Fixed but not fixed" review findings (an earlier pass claimed M4/M6/M7/M8 fixed without
+  changing them) need an independently-written failing-before/passing-after test per item, not
+  just a code diff** — every item in this round got a new test file (`tests/**/test_fix_f2_*.py`)
+  that fails on the pre-fix code and passes after, named in the handback, per the parent task's
+  explicit instruction. Don't trust a prior "Fixed" claim in a review doc without re-deriving
+  the check yourself.
+- **A "reason code" and a "free-text justification" collected on the same form question are two
+  separate fields, always** — the recurring bug shape (M4/N-M1: `urgency_reason` was composed
+  into `urgency_justification` via `f"{label}. {justification}"` at *view* level, re-run on
+  every re-save, silently duplicating/mutating the requester's own words) is the same class of
+  mistake as the earlier hazard-note-in-parens bug: never fold a fixed-vocabulary code into a
+  free-text field's *stored* value. Compose "Label. Text" only at *display* time
+  (`ham.requests.presentation.urgency_line`, new — same shape as `hazard_labels`), never at
+  write time. When one such field is optional depending on the other's chosen value (here:
+  justification required only for the "Something else" reason), the DB `CheckConstraint` mirror
+  of the Python validation needs the same conditional shape
+  (`Q(reason="something_else") & ~Q(justification="") | ~Q(reason="something_else")`), not a
+  flat "always required when urgent" — a flat constraint silently regresses the "optional for
+  every other reason" requirement the very next migration.
+- **Adding a new required field to a `SubmittedRequestPayload`/`AssistanceRequest.objects.
+  create()` call touches every test factory that builds an urgent payload, transitively** —
+  `tests/requests/conftest.py::make_payload` is the one shared factory nearly every urgent-
+  request test routes through (directly or via a per-file `_submit`/`_submitted`/`_make_request`
+  wrapper); adding `overrides.setdefault("urgency_reason", "something_else")` there when
+  `urgent_requested` is truthy fixed every call site in one place instead of touching a dozen
+  test files. `ham/requests/management/commands/seed_dev_requests.py`'s own `_create()` (which
+  calls `AssistanceRequest.objects.create()` directly, bypassing `SubmittedRequestPayload`
+  entirely) needed the same new kwarg threaded through by hand — grep for *every* direct
+  `AssistanceRequest.objects.create(...)` call site, not just the one this slice's own service
+  module uses, before trusting a new required-field DB constraint is safe to land.
+- **A "same wording for every purpose" bug (M6) is fixed by threading `purpose` into the shared
+  copy-building function itself, not by branching at every call site** —
+  `verification._code_email_text(*, code, link_url, church, purpose)` now branches once,
+  internally, on `purpose == PURPOSE_INTAKE` vs. link-regeneration; the one call site
+  (`_request`) just passes `purpose` through. Same pattern in the template
+  (`r8_verify.html`'s `{% if purpose == "intake" %}`) and in `confirm_link.html`'s `kind`.
+- **"No enumeration, identical response" (H2) does not mean "the two flows must go through the
+  same code path"** — M7's fix deliberately gives R11b ("check on your request") its own,
+  completely separate issue-link+email function (`ham.requester_portal.services.
+  _issue_and_notify_found_link` / `notifications.send_found_request_email`, own
+  `requester_link.found` audit action, own E4 wording), never touching the
+  `requester_link.regenerate`/`RequesterAccessLinkIssued`/E3 path R11a still uses. The
+  HTTP-visible response (`ChallengeRequestResult("sent")`, no branching) stays identical either
+  way; only the internal code path differs. When an earlier slice's docstring flags "two flows
+  share one event with nothing to tell them apart, coordinator TODO" — that's a real
+  invitation to *split* them, not evidence the sharing was intentional.
+- **A cross-app "facts" lookup dataclass (`ham.requester_portal.services.RequestLinkFacts`,
+  registered by `ham.requests` at `AppConfig.ready()`, per intake.md §2's layering) is the right
+  place to add a new plain-value field (here: `display_number`) that a lower-layer app's data
+  needs to surface in an upper-layer app's UI/email — not a direct model import.** Adding
+  `RequestLinkFacts.display_number`/`PortalRequestFacts.display_number` (computed as
+  `f"HAM #{reference_number:03d}"`, matching `AssistanceRequest.display_number`'s own property
+  exactly, never re-derived differently) let `send_found_request_email` build its subject
+  without `ham.requester_portal.notifications` importing `AssistanceRequest` for this call path
+  at all (it already does so elsewhere, legally, for the *outbox-driven* builders — this one
+  path is different because `find_my_request`'s fake-lookup test fixtures, by design, never
+  create a real `AssistanceRequest` row).
+- **This exact lookup-wiring function is duplicated three times on purpose (documented in
+  `tests/conftest.py::real_portal_lookups`'s own docstring) and all three need the same edit
+  together**: `ham.requester_portal.apps.RequesterPortalConfig.ready()`'s `_facts_lookup`
+  closure, and `tests/conftest.py::real_portal_lookups`'s own copy of the identical closure (its
+  docstring explains *why* it's a second copy rather than calling `ready()` again). Forgetting
+  the test-conftest copy when adding a new `RequestLinkFacts` field produces a subtle failure:
+  tests using the *fake* per-file lookup fixtures (e.g. `tests/requester_portal/
+  test_regenerate_and_find.py`'s own `_lookups`) still worked, but tests using the *shared*
+  `real_portal_lookups` fixture silently got an empty value for the new field (no error, just a
+  blank subject line) until the second copy was updated too.
+- **M8 "already received" (confirming a code/link after the draft already became a request on
+  another device) needs a `reveal: bool` gate, not a uniform response** — whether to show the
+  HAM # and a direct link to the secure page depends on whether *this exact browser* just
+  proved something (a code that matched inside its own session, or a link-consume POST that
+  itself just succeeded) vs. merely replaying an already-dead code/link with no proof at all.
+  New shared context builder `ham.web.views_requester._already_received_context(request_id, *,
+  reveal)` and shared partial template `web/requester/_already_received.html` (included from
+  both `r8_verify.html` and `confirm_link.html`) keep the two "reveal" vs. "neutral" renderings
+  in exactly one place each. Distinguishing "this draft already became a request" from "this
+  draft id is simply unknown" needs a dedicated query
+  (`ham.requester_portal.drafts.consumed_request_id`, `IntakeDraft.objects.filter(pk=...,
+  consumed_at__isnull=False).first().request_id`) — `load_payload`'s existing `None` return
+  means either one identically, by design (no enumeration), so it can't be reused for this.
+  Finding "which draft an already-*used* link token belonged to" (to decide even whether to
+  offer the neutral message) needs its own lookup too, without the usual `consumed_at__isnull=
+  True` filter every other link-consuming query applies —
+  `ham.requester_portal.verification.challenge_for_link_token` (docstring: "used only to
+  detect... never to grant access on its own").
+- **A background job deferred by `submit_request` (the duplicate-check `complete_intake_checks`
+  job) that a test never drains with `run_due_jobs_now()` leaks into the *next* test's own
+  `run_due_jobs_now()` call and blows it up with a confusing `TransactionManagementError`/
+  `DoesNotExist` from a job that isn't even the failing test's own** — `pytest-django`'s
+  per-test transaction rollback does not appear to clean up already-deferred Procrastinate job
+  rows the same way it does ORM rows, at least not reliably enough to trust. Existing convention
+  (`tests/web/test_requester_portal_screens.py::TestFullEmailFlow`'s own comment) is the fix:
+  call `run_due_jobs_now()` once, explicitly, right after any `submit_request`/full-wizard-POST
+  call that creates a real `AssistanceRequest`, even in a test that has nothing to do with that
+  job's own effects — "drains the duplicate-check job so it doesn't leak into a later test's
+  `run_due_jobs_now()` call" is worth writing as a one-line comment every time.
+- **`hazard_labels`'s wrapper-note parse (`"codes (note)"`) is unambiguous with `str.partition`
+  (first occurrence), not `str.rpartition` (last occurrence), once you notice hazard codes
+  themselves never contain a parenthesis** — the codes prefix can only ever contain one kind of
+  character run (`[a-z_,\s]`), so the *first* " (" in the whole string is always the wrapper's
+  own opening paren, no matter how many further "(" / ")" pairs the requester's own note text
+  contains after that. A bare `"none_known"` code is not itself a hazard for display purposes —
+  filter it out of `hazard_labels`'s returned list entirely (not just relabel it) so the
+  caller's pre-existing "no hazards" empty-state branch (shield icon, "None that they know of")
+  renders for it automatically, rather than adding a second special case in every template that
+  calls this function.
