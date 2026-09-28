@@ -47,6 +47,29 @@ if not _base_url:
 if "localhost" in _base_url or "127.0.0.1" in _base_url:
     raise RuntimeError("HAM_BASE_URL must not point at localhost in production.")
 
+# Security review M5: `HAM_TOKEN_HMAC_KEYS` empty means `ham.platform.otp` silently falls
+# back to a SECRET_KEY-derived key (fine for dev/test, never acceptable in production --
+# rotating SECRET_KEY for an unrelated reason would then invalidate every live requester
+# link/code with no warning). Fail at boot, not the first time a link is issued.
+if not env("HAM_TOKEN_HMAC_KEYS", default=""):
+    raise RuntimeError(
+        "HAM_TOKEN_HMAC_KEYS must be set in production (requester link/code HMAC keys, "
+        "ham.platform.otp)."
+    )
+
+# Security review M5: the local-filesystem object store adapter (S2.4a) is a dev/test
+# convenience only -- it has no real access control beyond a signed URL and stores files on
+# the web dyno's own (ephemeral) disk. Refuse to boot with it configured in production; the
+# R2/S3-compatible adapter is required instead.
+_object_store_backend = env(
+    "HAM_OBJECT_STORE_BACKEND", default="ham.integrations.storage.local.LocalObjectStore"
+)
+if _object_store_backend == "ham.integrations.storage.local.LocalObjectStore":
+    raise RuntimeError(
+        "HAM_OBJECT_STORE_BACKEND must not be the local-filesystem adapter in production; "
+        "set it to the R2/S3-compatible adapter (ham.integrations.storage.s3.R2ObjectStore)."
+    )
+
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 

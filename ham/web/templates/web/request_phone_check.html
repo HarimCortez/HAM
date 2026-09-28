@@ -11,6 +11,7 @@
     <p>Call the person who asked and confirm they made this request. Then record it here.</p>
     <p class="locked-note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> {% if is_director %}Leadership only{% else %}Leadership only &middot; viewing is logged{% endif %}</p>
     <p><strong>{{ revealed.full_name }}</strong> &middot; {{ revealed.phone }}</p>
+    {% if contact_note %}<p class="text-secondary">{{ contact_note }}</p>{% endif %}
 
     <p class="disclosure">
       <details>

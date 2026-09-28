@@ -25,6 +25,7 @@ class RequesterPortalConfig(AppConfig):
         # register itself the other way round. This app does the registering instead — a
         # legal downward import (`ham.requester_portal -> ham.requests`) — wrapping
         # `ham.requests.queries`' plain-value lookups into this app's own `RequestLinkFacts`.
+        from ham.outbox import registry
         from ham.requests import queries as requests_queries
 
         from . import (
@@ -32,6 +33,9 @@ class RequesterPortalConfig(AppConfig):
             notifications,
             services,
         )
+        from .subscribers import handle_requester_portal_event
+
+        registry.register("requester_portal", handle_requester_portal_event)
 
         def _facts_lookup(request_id: Any) -> services.RequestLinkFacts:
             facts = requests_queries.request_facts_for_portal(request_id)

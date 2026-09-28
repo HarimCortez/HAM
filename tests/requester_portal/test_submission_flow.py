@@ -114,10 +114,11 @@ class TestFullEmailIntakeFlow:
         assert result.issued_link is not None
         token = result.issued_link.token
 
-        # The stored request/property rows got the *translated* (ham.requests) vocabulary,
-        # not the portal's own form codes (see `services._NEED_CATEGORY_TRANSLATION` et al).
-        assert request.need_category == "roof"
-        assert request.property.property_type == "single_family_home"
+        # PRD-guardian M1/UX M2 fix: there is now exactly one vocabulary for need category
+        # and property type (ham.requests.models), so the stored codes match the form's own
+        # codes exactly -- no more translation step.
+        assert request.need_category == "roof_or_ceiling"
+        assert request.property.property_type == "house"
         requester = Requester.objects.get(request=request)
         assert requester.email == "doris.p@example.org"
 

@@ -37,7 +37,6 @@ from ham.requester_portal import (
     services,
     verification,
 )
-from ham.requester_portal.attestation import RelationshipToProperty
 from ham.requester_portal.choices import (
     AVAILABILITY_AFTERNOONS,
     AVAILABILITY_ANY_TIME,
@@ -55,6 +54,7 @@ from ham.requester_portal.choices import (
     UrgencyReason,
 )
 from ham.requester_portal.models import RequesterVerificationChallenge
+from ham.requests.certifications import RelationshipToProperty, statement_text_for
 from ham.requests.queries import get_request_for_requester
 from ham.rules import RULES
 
@@ -91,6 +91,7 @@ _STEP_FIELDS: dict[str, set[str]] = {
         "no_email",
         "contact_preference",
         "availability",
+        "contact_note",
     },
     STEP_REVIEW: {"attested_statements"},
 }
@@ -302,6 +303,13 @@ def request_help_step(request: HttpRequest, step: str) -> HttpResponse:
         return redirect("web:request_help_step", step=_next_step(step))
 
     payload = _payload_or_empty(draft_id)
+    if step == STEP_HOME and not payload.get("state"):
+        # Q-147: prefill R3's state from the church's own state ("Florida · Change") --
+        # never stored into the draft itself, only shown as the default; the person can still
+        # change it (e.g. helping someone in a different state).
+        church_state = church_profile().state
+        if church_state:
+            payload = {**payload, "state": church_state}
     context = _step_context(request, step, payload, {})
     return render(request, _step_template(step), context)
 
@@ -367,7 +375,12 @@ def _review_step(request: HttpRequest, draft_id: UUID) -> HttpResponse:
             if bot:
                 # Anti-abuse: show the normal "saved" confirmation but write nothing further.
                 return render(request, "web/requester/r7n_saved.html", _base_context(request))
-            result = services.submit_and_issue_link(draft_id=draft_id, verification_id=None)
+            try:
+                result = services.submit_and_issue_link(draft_id=draft_id, verification_id=None)
+            except services.IntakeSubmissionRateLimited:
+                # Q-146: same shape as the honeypot trip above -- show the normal-looking
+                # "saved" confirmation, write nothing further, never reveal that a cap exists.
+                return render(request, "web/requester/r7n_saved.html", _base_context(request))
             response = redirect("web:request_help_saved")
             cookies.clear_resume_cookie(response)
             request.session[_SESSION_R7N] = {
@@ -380,23 +393,21 @@ def _review_step(request: HttpRequest, draft_id: UUID) -> HttpResponse:
 
         email = cleaned["email"] or ""
         if not bot:
-            challenge_result = verification.request_intake_verification(
+            # H2: the result is deliberately unused -- identical UI regardless of "sent",
+            # "cooldown" or "rate_limited" (see the docstring note further down).
+            verification.request_intake_verification(
                 draft_id=draft_id, email=email, ip_address=_client_ip(request)
             )
-        else:
-            challenge_result = verification.ChallengeRequestResult("sent")
 
         request.session[_SESSION_VERIFY] = {
             "purpose": RequesterVerificationChallenge.PURPOSE_INTAKE,
             "email": email,
             "draft_id": str(draft_id),
         }
-        if challenge_result.status == "rate_limited":
-            messages.error(
-                request,
-                "We can't send more codes to this email today. Your answers are saved for "
-                "24 hours on this browser. Please try again later, or call us.",
-            )
+        # H2: identical UI for "sent", "cooldown" and "rate_limited" -- showing a distinct
+        # "too many codes" message here would let someone probe whether an address already
+        # has an outstanding request/cap history. `challenge_result.status` is deliberately
+        # not branched on; every case lands on the same R8 screen with no flash message.
         return redirect("web:request_help_verify")
 
     request.session.setdefault(_SESSION_FORM_OPENED_AT, antiabuse.sign_form_opened_at())
@@ -421,6 +432,11 @@ def _review_summary(payload: dict, church) -> dict[str, Any]:
         "need_category_label": need_category_label,
         "relationship": relationship,
         "no_email": bool(payload.get("no_email")),
+        # B1: R6 renders the certification tick-box wording from the one canonical module
+        # (`ham.requests.certifications`) instead of the template hard-coding its own copy —
+        # `statement_text` maps each required code (in order: authority tick, then the shared
+        # responsibility tick) to its exact wording.
+        "statement_text": statement_text_for(relationship) if relationship is not None else {},
     }
 
 
@@ -440,29 +456,41 @@ def request_help_verify(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         if request.POST.get("resend"):
             if purpose == RequesterVerificationChallenge.PURPOSE_INTAKE:
-                resend_result = verification.request_intake_verification(
+                verification.request_intake_verification(
                     draft_id=UUID(pending["draft_id"]), email=email, ip_address=_client_ip(request)
                 )
             else:
                 request_id = _pending_link_regen_request_id(request)
-                assert request_id is not None
-                resend_result = services.request_link_regeneration_code(
+                if request_id is None:
+                    # L8: a stale/missing session key is a normal "start over" case, not a
+                    # crash -- `assert` here used to turn it into a 500.
+                    return redirect("web:request_help_start")
+                services.request_link_regeneration_code(
                     request_id=request_id, email=email, ip_address=_client_ip(request)
                 )
-            if resend_result.status == "sent":
-                messages.success(request, "Sent again. Use the newest email.")
-            elif resend_result.status == "cooldown":
-                messages.info(
-                    request, "You can resend once the current email has had a moment to arrive."
-                )
-            else:
-                messages.error(
-                    request, "Too many codes for now. Please try again later, or call us."
-                )
+            # H2: identical UI for "sent", "cooldown" and "rate_limited" (see the other
+            # `request_intake_verification` call site above for the full reasoning) -- a
+            # single, always-true message ("if we can resend, it's on its way") rather than
+            # branching on the result's status.
+            messages.success(request, "If we can send another, it's on its way.")
             return redirect("web:request_help_verify")
 
         code = request.POST.get("code", "")
-        verify_result = verification.verify_code(purpose=purpose, email=email, code=code)
+        # L6: the lockout budget is scoped per-draft (or per-request, for link regeneration)
+        # plus IP, never by the bare email address -- otherwise anyone could lock a real
+        # person's address out of intake for a day just by guessing wrong codes against
+        # drafts *they* control with the victim's email typed in.
+        is_intake = purpose == RequesterVerificationChallenge.PURPOSE_INTAKE
+        draft_id = UUID(pending["draft_id"]) if is_intake else None
+        request_id = None if draft_id is not None else _pending_link_regen_request_id(request)
+        verify_result = verification.verify_code(
+            purpose=purpose,
+            email=email,
+            code=code,
+            draft_id=draft_id,
+            request_id=request_id,
+            ip_address=_client_ip(request),
+        )
         if not verify_result.ok or verify_result.challenge is None:
             return render(
                 request,
@@ -478,7 +506,7 @@ def request_help_verify(request: HttpRequest) -> HttpResponse:
                 },
                 status=422,
             )
-        return _after_verified(request, purpose=purpose, challenge_id=verify_result.challenge.id)
+        return _after_verified(request, purpose=purpose, challenge=verify_result.challenge)
 
     return render(
         request,
@@ -511,15 +539,23 @@ def _welcome_url(token: str) -> str:
     return reverse("web:request_help_secure_page", kwargs={"token": token}) + "?welcome=1"
 
 
-def _after_verified(request: HttpRequest, *, purpose: str, challenge_id: UUID) -> HttpResponse:
+def _after_verified(
+    request: HttpRequest, *, purpose: str, challenge: RequesterVerificationChallenge
+) -> HttpResponse:
     request.session.pop(_SESSION_VERIFY, None)
     if purpose == RequesterVerificationChallenge.PURPOSE_INTAKE:
-        draft_id = _draft_id(request)
+        # H1: use the *challenge's own* `draft_id`, never the browser's resume cookie -- the
+        # cookie could (in principle, or after a stale/forged value) point at a different
+        # draft than the one the emailed code was actually sent for; the challenge row is the
+        # one thing that's tied to a specific draft at code-send time.
+        draft_id = challenge.draft_id
         if draft_id is None:
             return redirect("web:request_help_start")
         try:
-            result = services.submit_and_issue_link(draft_id=draft_id, verification_id=challenge_id)
-        except ValueError:
+            result = services.submit_and_issue_link(
+                draft_id=draft_id, verification_id=challenge.id, verification_method="email_code"
+            )
+        except (ValueError, services.IntakeSubmissionRateLimited):
             messages.error(request, "Your answers have expired. Please start again.")
             return redirect("web:request_help_start")
         assert result.issued_link is not None
@@ -531,7 +567,7 @@ def _after_verified(request: HttpRequest, *, purpose: str, challenge_id: UUID) -
     if request_id is None:
         return redirect("web:request_help_start")
     ctx = RequesterContext(request_id=request_id)
-    issued = services.regenerate_link_for_own_request(ctx, verification_id=challenge_id)
+    issued = services.regenerate_link_for_own_request(ctx, verification_id=challenge.id)
     request.session.pop("ham_intake_link_regen_request_id", None)
     return redirect("web:request_help_secure_page", token=issued.token)
 
@@ -566,9 +602,11 @@ def request_help_verify_link(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "web/not_found.html", status=404)
     try:
         submission = services.submit_and_issue_link(
-            draft_id=challenge.draft_id, verification_id=challenge.id
+            draft_id=challenge.draft_id,
+            verification_id=challenge.id,
+            verification_method="email_link",
         )
-    except ValueError:
+    except (ValueError, services.IntakeSubmissionRateLimited):
         return render(
             request,
             "web/requester/confirm_link.html",
@@ -863,16 +901,15 @@ def request_help_link_expired_send(request: HttpRequest, token: str) -> HttpResp
         context["token"] = token
         return render(request, "web/requester/r11a_link_expired.html", context)
 
-    result = services.regenerate_link(
-        token=token, email=email_on_file, ip_address=_client_ip(request)
-    )
+    # H2: identical UI regardless of `result.status` -- see `request_help_step`'s R6 send.
+    services.regenerate_link(token=token, email=email_on_file, ip_address=_client_ip(request))
     request.session[_SESSION_VERIFY] = {
         "purpose": RequesterVerificationChallenge.PURPOSE_LINK_REGENERATION,
         "email": email_on_file,
     }
     request.session["ham_intake_link_regen_request_id"] = str(request_id)
-    if result.status == "rate_limited":
-        messages.error(request, "Too many codes for now. Please try again later, or call us.")
+    # H2: identical UI regardless of `result.status` (see `request_help_step`'s R6 send for
+    # the full reasoning) -- no distinguishing message here either.
     return redirect("web:request_help_verify")
 
 

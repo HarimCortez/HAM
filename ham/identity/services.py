@@ -44,6 +44,22 @@ def mfa_enrolled(user_id: uuid.UUID) -> bool:
     return TOTPDevice.objects.filter(user_id=user_id, confirmed_at__isnull=False).exists()
 
 
+def user_holds_global_role(user_id: uuid.UUID | None, role: str) -> bool:
+    """Whether ``user_id`` (the *real*, signed-in person -- never an ``ActorContext``'s
+    already-swapped-to-the-target ``roles``) holds ``role`` as a global (unscoped) assignment
+    right now. `ActorContext.roles` reflects the *effective* (impersonation target's) roles
+    while impersonating, with no field carrying the real actor's own roles (foundation.md §1:
+    "only ham.identity reads auth tables") -- this is the one seam a caller outside
+    `ham.identity` (L7/Q-151: `ham.requests.services.reveal_requester_pii`, checking whether
+    the real actor is an Administrator) uses to ask that question without querying
+    `RoleAssignment` itself."""
+    if user_id is None:
+        return False
+    return RoleAssignment.objects.filter(
+        user_id=user_id, role=role, revoked_at__isnull=True, scope_type__isnull=True
+    ).exists()
+
+
 # S2.5 (intake.md §2, intake-contracts.md §7 "Only ham.identity reads auth tables. ham.
 # notifications gets recipients from a new identity.services.notification_recipients(roles)").
 def notification_recipients(
@@ -794,10 +810,12 @@ def update_church_profile(
     *,
     ham_phone: str | None = None,
     ham_email: str | None = None,
+    state: str | None = None,
     time_zone: str | None = None,
     website_url: str | None = None,
     serves_days: list[int] | None = None,
 ) -> CommandResult:
+    from ham.platform.church import is_valid_us_state
     from ham.platform.models import ChurchProfile
 
     if time_zone is not None and not is_valid_time_zone(time_zone):
@@ -808,12 +826,19 @@ def update_church_profile(
         if not serves_days or any(d not in range(1, 8) for d in serves_days):
             raise ValueError("serves_days must be a non-empty list of weekdays 1-7.")
         serves_days = sorted(set(serves_days))
+    if state is not None:
+        state = state.strip().upper()
+        # Q-147: blank clears it back to "not set" (the intake form then requires the person
+        # to choose their own state, no prefill); anything else must be a real USPS code.
+        if state and not is_valid_us_state(state):
+            raise ValueError(f"{state!r} is not a two-letter US state code.")
 
     profile = ChurchProfile.objects.select_for_update().get(pk=ChurchProfile.get_solo().pk)
     changed: list[str] = []
     for field, value in (
         ("ham_phone", ham_phone),
         ("ham_email", ham_email),
+        ("state", state),
         ("time_zone", time_zone),
         ("website_url", website_url),
         ("serves_days", serves_days),

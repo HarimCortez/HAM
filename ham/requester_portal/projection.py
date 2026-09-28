@@ -27,7 +27,10 @@ _CANCEL_REASON_WORDING: dict[str, str] = {
     "spam": "",
     "requester_withdrew": "You let us know it wasn't needed anymore.",
     "duplicate_submission": "It matched a request you'd already sent us.",
-    "couldnt_reach": "We weren't able to reach you to confirm it.",
+    # PRD-guardian N5: this key must match `ham.requests.states.CancelReason.
+    # COULDNT_REACH_THEM.value` exactly ("couldnt_reach_them") -- it used to be spelled
+    # "couldnt_reach" here, so this wording silently never showed for that reason.
+    "couldnt_reach_them": "We weren't able to reach you to confirm it.",
 }
 
 

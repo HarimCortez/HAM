@@ -92,6 +92,13 @@ its own page, h2 inside the list page).
     {% endif %}
   </section>
 
+  {% if detail.contact_note %}
+  <section aria-labelledby="request-detail-contact-note-{{ detail.id }}">
+    <h3 id="request-detail-contact-note-{{ detail.id }}">Reaching them</h3>
+    <p>{{ detail.contact_note }}</p>
+  </section>
+  {% endif %}
+
   <section aria-labelledby="request-detail-photos-{{ detail.id }}">
     <h3 id="request-detail-photos-{{ detail.id }}">Photos ({{ gallery.counts.photos }})</h3>
     {% if detail.photo_count_only %}

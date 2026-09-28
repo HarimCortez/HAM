@@ -13,10 +13,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ham.platform.church import ChurchProfileView
+from ham.platform.church import ChurchProfileView, is_valid_us_state
+from ham.requests.certifications import (
+    RelationshipToProperty,
+    owner_name_required,
+    statements_satisfied,
+)
 from ham.requests.matching import normalize_email, normalize_phone, zip5
 
-from .attestation import RelationshipToProperty, owner_name_required, statements_satisfied
 from .choices import (
     AVAILABILITY_AFTERNOONS,
     AVAILABILITY_ANY_TIME,
@@ -82,6 +86,9 @@ def validate_intake_payload(
             errors["contact_preference"] = "Choose how we should reach you."
     cleaned["no_email"] = no_email
 
+    # --- Anything else about reaching/visiting (Q-148, optional) -------------------------
+    cleaned["contact_note"] = str(data.get("note") or "").strip()[:_MAX_TEXT]
+
     # --- Phone (always required, Q-099) -------------------------------------------------
     raw_phone = str(data.get("phone") or "").strip()
     normalized_phone = normalize_phone(raw_phone) if raw_phone else None
@@ -111,7 +118,15 @@ def validate_intake_payload(
     cleaned["line1"] = _require_text(data, errors, "line1", label="Street address")
     cleaned["line2"] = str(data.get("line2") or "").strip()[:200]
     cleaned["city"] = _require_text(data, errors, "city", label="City")
-    cleaned["state"] = _require_text(data, errors, "state", label="State", max_len=2)
+    # Q-147: exactly one of the 50 states + DC, not just "any text up to 2 characters" --
+    # prefilled from the church's own state on R3 ("Florida · Change") so most requesters
+    # never have to touch this field at all.
+    raw_state = str(data.get("state") or "").strip().upper()
+    if not raw_state:
+        errors["state"] = "Choose a state."
+    elif not is_valid_us_state(raw_state):
+        errors["state"] = "That doesn't look like a US state."
+    cleaned["state"] = raw_state if is_valid_us_state(raw_state) else ""
     raw_zip = str(data.get("postal_code") or "").strip()
     normalized_zip = zip5(raw_zip)
     if not raw_zip:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from ham.platform.church import ChurchProfileView
-from ham.requester_portal.attestation import RelationshipToProperty, required_statements
 from ham.requester_portal.choices import (
     AVAILABILITY_ANY_TIME,
     ContactPreference,
@@ -10,6 +9,7 @@ from ham.requester_portal.choices import (
     PropertyType,
 )
 from ham.requester_portal.forms import validate_intake_payload
+from ham.requests.certifications import RelationshipToProperty, required_statements
 
 CHURCH = ChurchProfileView(
     name="Test Church",
@@ -23,6 +23,7 @@ CHURCH = ChurchProfileView(
     logo_alt="",
     phone="305-555-0100",
     email="ham@example.org",
+    state="FL",
     time_zone="America/New_York",
     website_url="",
     serves_days=(1, 2, 3, 4, 5, 7),

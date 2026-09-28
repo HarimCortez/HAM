@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-5"
+RULES_VERSION = "2026.09.28-6"
 
 
 def rule(
@@ -482,6 +482,32 @@ class IntakeRules:
             "§9) is far below what any person needs to fill in the form.",
         ),
         provisional=("Q-121",),
+    )
+    REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR: int = rule(
+        20,
+        label="Requester verification codes/links sent to any address, from one internet "
+        "address, in any rolling hour",
+        unit="emails",
+        sources=("PRD §7.1", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    # Q-146 (decided): the per-email daily submission cap (INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY)
+    # doesn't apply to Q-025's "I don't use email" path, since there is no email to key on --
+    # a separate, phone-keyed cap fills that gap (the per-IP form-start cap above still applies
+    # to this path too, same as every other draft).
+    NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY: int = rule(
+        3,
+        label="Requests sent with 'I don't use email' for one phone number in any rolling 24 hours",
+        unit="requests",
+        sources=("PRD §6", "Q-025", "Q-121", "Q-146"),
+        note=proposed(
+            "Q-146",
+            "3 per phone number per rolling 24 h, in the rules module (per-IP is the existing "
+            "INTAKE_FORMS_PER_IP_PER_HOUR, which already covers every draft including this "
+            "one).",
+        ),
+        provisional=("Q-146",),
     )
 
 

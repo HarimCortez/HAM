@@ -1,60 +1,27 @@
-"""Fixed choice lists for the public intake form (docs/ux/intake.md; Q-109, Q-110, Q-111,
-Q-113). These are UX/content, not "fixed business rules" in the ``ham.rules`` sense (no
-timedelta/limit/weight) — CLAUDE.md's rules-module requirement is for deadlines, limits,
-weights and retention periods; a fixed multiple-choice vocabulary belongs with the form that
-offers it, same as ``ham.requests.states``' enums. Kept in one place so
-``ham.requester_portal.forms`` and any later leadership screen agree on the exact codes.
+"""Fixed choice lists for the public intake form (docs/ux/intake.md; Q-111, Q-113). These are
+UX/content, not "fixed business rules" in the ``ham.rules`` sense (no timedelta/limit/weight)
+— CLAUDE.md's rules-module requirement is for deadlines, limits, weights and retention
+periods; a fixed multiple-choice vocabulary belongs with the form that offers it, same as
+``ham.requests.states``' enums. Kept in one place so ``ham.requester_portal.forms`` and any
+later leadership screen agree on the exact codes.
+
+PRD-guardian M1/UX M2: need category (Q-109) and property type (Q-110) used to have a second,
+independently-coded copy of their vocabulary here, translated into ``ham.requests.models``'
+codes only at submission time. There is now exactly ONE vocabulary for each, defined on
+``ham.requests.models.NeedCategory``/``PropertyType`` (the persisted layer) — this module
+re-exports them so existing imports of ``ham.requester_portal.choices.NeedCategory``/
+``PropertyType`` keep working without churn across every call site.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
 
-
-class NeedCategory(StrEnum):
-    """Q-109: "What kind of help?", one required choice, list per docs/ux/intake.md."""
-
-    ROOF_OR_CEILING = "roof_or_ceiling"
-    PLUMBING_OR_WATER = "plumbing_or_water"
-    ELECTRICAL = "electrical"
-    DOORS_WINDOWS_LOCKS = "doors_windows_locks"
-    FLOORS_OR_STAIRS = "floors_or_stairs"
-    RAMPS_RAILS_GRAB_BARS = "ramps_rails_grab_bars"
-    PAINTING_OR_WALLS = "painting_or_walls"
-    YARD_OR_OUTSIDE = "yard_or_outside"
-    SOMETHING_ELSE = "something_else"
-
-
-NEED_CATEGORY_LABELS: dict[NeedCategory, str] = {
-    NeedCategory.ROOF_OR_CEILING: "Roof or ceiling",
-    NeedCategory.PLUMBING_OR_WATER: "Plumbing or water",
-    NeedCategory.ELECTRICAL: "Electrical",
-    NeedCategory.DOORS_WINDOWS_LOCKS: "Doors, windows or locks",
-    NeedCategory.FLOORS_OR_STAIRS: "Floors or stairs",
-    NeedCategory.RAMPS_RAILS_GRAB_BARS: "Ramps, rails or grab bars",
-    NeedCategory.PAINTING_OR_WALLS: "Painting or walls",
-    NeedCategory.YARD_OR_OUTSIDE: "Yard or outside",
-    NeedCategory.SOMETHING_ELSE: "Something else or not sure",
-}
-
-
-class PropertyType(StrEnum):
-    """Q-110: property type choices."""
-
-    HOUSE = "house"
-    TOWNHOUSE = "townhouse"
-    APARTMENT_OR_CONDO = "apartment_or_condo"
-    MOBILE_OR_MANUFACTURED_HOME = "mobile_or_manufactured_home"
-    OTHER = "other"
-
-
-PROPERTY_TYPE_LABELS: dict[PropertyType, str] = {
-    PropertyType.HOUSE: "House",
-    PropertyType.TOWNHOUSE: "Townhouse",
-    PropertyType.APARTMENT_OR_CONDO: "Apartment or condo",
-    PropertyType.MOBILE_OR_MANUFACTURED_HOME: "Mobile or manufactured home",
-    PropertyType.OTHER: "Other",
-}
+from ham.requests.models import NeedCategory, PropertyType  # noqa: F401 - re-exported
+from ham.requests.presentation import (  # noqa: F401 - re-exported
+    NEED_CATEGORY_LABELS,
+    PROPERTY_TYPE_LABELS,
+)
 
 
 class ContactPreference(StrEnum):

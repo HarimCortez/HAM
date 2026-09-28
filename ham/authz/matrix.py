@@ -213,16 +213,11 @@ MATRIX: dict[str, ActionRule] = {
     "request.cancel": ActionRule(
         _DIR_AD, blocked_while_impersonating=True, prd=("§52", "Q-107", "Q-111")
     ),
-    # Q-025 (decided): a Director, Assistant Director or pastor may enter a request on behalf
-    # of someone with no email at all, over the phone. Blocked while impersonating: the actor
-    # is vouching, by their own account, for a phone call that happened — the same "the
-    # target's own ... decisions" pattern Q-048 blocks for accepting agreements/consents on
-    # someone else's behalf.
-    "request.create_assisted": ActionRule(
-        frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR, roles.PASTOR}),
-        blocked_while_impersonating=True,
-        prd=("Q-025",),
-    ),
+    # PRD-guardian N2: `request.create_assisted` (staff-entered request over the phone) was
+    # never wired to a real service in step 2 — it only granted Pastors an unused, unaudited
+    # staff-entry power. Removed rather than left dormant; Q-025's actual no-email path is
+    # `request.contact_verify_phone` below (the requester still submits the form themselves;
+    # a Director/AD only confirms the phone call).
     # intake.md owner-decisions box: no-email requests wait in a Director/AD-only "Needs a
     # phone check" list until verified by phone.
     "request.needs_phone_check.list": ActionRule(_DIR_AD, prd=("Q-025",)),

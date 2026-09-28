@@ -13,7 +13,7 @@ from ham import jobs
 from ham.platform.clock import now as clock_now
 from ham.rules import RULES
 
-from .models import IntakeDraft, RequesterVerificationChallenge
+from .models import FindRequestAttempt, IntakeDraft, RequesterVerificationChallenge
 
 
 @jobs.periodic_job(name="requester_portal.purge_expired_drafts", cron="0 * * * *")
@@ -35,4 +35,14 @@ def purge_expired_challenges(timestamp: int) -> int:
     past creation."""
     cutoff = clock_now() - RULES.intake.REQUESTER_CHALLENGE_RETENTION
     deleted, _ = RequesterVerificationChallenge.objects.filter(created_at__lt=cutoff).delete()
+    return deleted
+
+
+@jobs.periodic_job(name="requester_portal.purge_expired_find_attempts", cron="0 * * * *")
+def purge_expired_find_attempts(timestamp: int) -> int:
+    """M1: `FindRequestAttempt` rows exist purely to rate-limit by IP (same reasoning as
+    `purge_expired_challenges` above); kept only `RULES.intake.REQUESTER_CHALLENGE_RETENTION`
+    past creation."""
+    cutoff = clock_now() - RULES.intake.REQUESTER_CHALLENGE_RETENTION
+    deleted, _ = FindRequestAttempt.objects.filter(created_at__lt=cutoff).delete()
     return deleted

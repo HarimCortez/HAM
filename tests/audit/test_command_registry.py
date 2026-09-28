@@ -62,7 +62,6 @@ PLACEHOLDER_ACTIONS = frozenset(
         "requester.media.remove",
         "requester_link.regenerate",
         "request_media.reopen",
-        "request.create_assisted",
         "intake_source.manage",
         "system.media.process",
         "system.media.purge",
