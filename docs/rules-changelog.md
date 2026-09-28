@@ -73,3 +73,24 @@ New invariants:
 - The Q-001 ladder is now always checked (`check_reliability_penalties`).
 
 Still **Pending:** the public-embed small-group threshold (Q-027).
+
+## 2026.09.28-2
+
+Content hash: `sha256:870301de1d7d500763632d339a9bc9cf0eeabf7c8b117d32466bb2e17f3de9da`
+
+Security review follow-up (H1/M2/M3/Q-070): two new `auth` rules, both proposed defaults for
+the still-open Q-070 (sign-in email rate limit and resend cooldown):
+
+- **`SIGN_IN_REQUESTS_PER_IP_PER_HOUR`** = 20: a per-address limit alone doesn't stop one
+  visitor from cycling through many email addresses; `ham.identity.authn.request_sign_in` now
+  also throttles by requesting IP.
+- **`SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY`** = 20: a fresh sign-in email resets the
+  per-challenge 5-wrong-code limit, so without a daily cap per address an attacker could keep
+  requesting new codes to keep guessing. This is a rolling-24-hour cap across all challenges
+  for one address.
+
+New invariant: both new rules must be at least 1.
+
+- **`SIGN_IN_CHALLENGE_RETENTION`** = 7 days (security review L5): a background job purges
+  `identity_sign_in_challenge` rows older than this — they exist only to rate-limit/lock out
+  by address, not as a record worth keeping.

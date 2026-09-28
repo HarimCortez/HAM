@@ -30,7 +30,7 @@
       <div class="form-field form-field--toggle">
         <label>
           <input type="checkbox" name="trust_device" value="1">
-          Trust this device for 30 days
+          Trust this device for {{ trusted_device_days }} days
         </label>
         <p class="form-field__help">Leave this off on a shared computer.</p>
       </div>
@@ -42,5 +42,17 @@
 
   {% if not use_recovery %}
     <p><a href="{% url 'web:sign_in_mfa' %}?recovery=1">I can't use my authenticator app</a></p>
+  {% else %}
+    <p><a href="{% url 'web:sign_in_mfa' %}">Back to the authenticator code</a></p>
+    <p>No recovery codes? Contact {{ church.email }}{% if church.phone %} or {{ church.phone }}{% endif %}.
+       An Administrator will check it's you and reset two-step sign-in.</p>
+  {% endif %}
+
+  {% if can_continue_without_mfa %}
+    <form method="post" action="{% url 'web:sign_in_mfa' %}">
+      {% csrf_token %}
+      <input type="hidden" name="continue_without_mfa" value="1">
+      <button class="btn btn--secondary" type="submit">Continue with my other access for now</button>
+    </form>
   {% endif %}
 {% endblock %}

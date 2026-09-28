@@ -8,8 +8,10 @@ import datetime as dt
 import uuid
 import zoneinfo
 
+from django.contrib import messages
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from ham.audit.labels import ACTION_GROUPS
@@ -176,6 +178,15 @@ def audit_log_detail(request, event_id: uuid.UUID):
     return render(request, "web/audit_log_detail.html", {"event": event, "names": names})
 
 
+_EXPORT_STASH_SESSION_KEY = "ham_audit_export_stash"
+
+
+def _csv_response(data: bytes) -> HttpResponse:
+    response = HttpResponse(data, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="ham-audit-log.csv"'
+    return response
+
+
 @require_http_methods(["POST"])
 @requires_action("audit.export")
 def audit_export(request):
@@ -183,12 +194,58 @@ def audit_export(request):
     try:
         data = export_csv(request.actor, filters)
     except StepUpRequired:
-        return redirect_to_step_up(request, request.path, _EXPORT_KIND)
+        # UX C1: stash the filters (not the file itself — the export is re-run with the
+        # *current* data once step-up succeeds) so the person doesn't have to re-pick their
+        # filters and doesn't land back on this POST-only URL as a bare GET (a 405).
+        request.session[_EXPORT_STASH_SESSION_KEY] = dict(request.POST)
+        return redirect_to_step_up(
+            request,
+            reverse("web:audit_export_download"),
+            _EXPORT_KIND,
+            cancel_url=reverse("web:audit_log"),
+        )
     except ImpersonationBlocked:
         context = _list_context(request, export_blocked=True)
         return render(request, "web/audit_log_list.html", context)
     except PermissionDenied:
         return render(request, "web/not_found.html", status=404)
-    response = HttpResponse(data, content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = 'attachment; filename="ham-audit-log.csv"'
-    return response
+    return _csv_response(data)
+
+
+@require_http_methods(["GET"])
+@requires_action("audit.export")
+def audit_export_download(request):
+    """UX C1 continuation: reached by a GET after a successful step-up (never directly linked
+    to), so it replays the filters `audit_export` stashed rather than requiring the person to
+    resubmit the POST-only export form. Falls back to no filters (i.e. "show me the form
+    again") if there's nothing to replay, so a stray GET here is harmless."""
+    stashed = request.session.pop(_EXPORT_STASH_SESSION_KEY, None)
+    if stashed is None:
+        # No filters at all (an empty `{}`, e.g. "no filters selected") is a real, valid stash
+        # to replay -- only *no stash at all* means "nothing to do", so this must not use a
+        # plain truthiness check (an empty dict is falsy but still means "replay with no
+        # filters").
+        return redirect("web:audit_log")
+    from django.http import QueryDict
+
+    post = QueryDict(mutable=True)
+    for key, values in stashed.items():
+        post.setlist(key, values)
+    filters = _parse_filters(post)
+    try:
+        data = export_csv(request.actor, filters)
+    except StepUpRequired:
+        return redirect_to_step_up(
+            request,
+            reverse("web:audit_export_download"),
+            _EXPORT_KIND,
+            cancel_url=reverse("web:audit_log"),
+        )
+    except ImpersonationBlocked:
+        messages.error(
+            request, "Exporting the audit log isn't available while acting as someone else."
+        )
+        return redirect("web:audit_log")
+    except PermissionDenied:
+        return render(request, "web/not_found.html", status=404)
+    return _csv_response(data)

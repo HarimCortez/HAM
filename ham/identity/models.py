@@ -64,6 +64,13 @@ class User(AbstractBaseUser):
     last_sign_in_at = models.DateTimeField(null=True, blank=True)
     disabled_at = models.DateTimeField(null=True, blank=True)
     disabled_by_id = models.UUIDField(null=True, blank=True)
+    # Bumped whenever every existing session for this user must stop being privileged
+    # immediately: an Administrator resets/replaces this person's MFA, or the person uses
+    # "Sign out everywhere" (security review H3, UX M8). Checked on every request
+    # (`ham.identity.middleware`) against the value captured in the session at sign-in, so a
+    # browser that is still open elsewhere loses its two-step-satisfied state (or is signed
+    # out outright) without waiting for that session's own idle timeout.
+    session_epoch = models.PositiveIntegerField(default=0)
     # Q-037/Q-071/Q-084: baseline for the invitation's 7-day validity window. Null until an
     # invited person's leader clicks "Resend invitation"; until then the window is measured
     # from `created_at` (`ham.identity.services.invitation_is_valid`).
@@ -218,10 +225,17 @@ class SignInChallenge(models.Model):
     # Where to send the person after sign-in (never trusted as an open redirect without the
     # `url_has_allowed_host_and_scheme` check in the view).
     next_url = models.CharField(max_length=500, blank=True, default="")
+    # Security review M3: per-IP throttling on top of the per-address one (an attacker with
+    # many mailboxes but one connection is still limited). Never logged; an IP is only ever
+    # read back for this rate-limit count, and only `ham.identity` reads this table.
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     class Meta:
         db_table = "identity_sign_in_challenge"
-        indexes = [models.Index(fields=["email", "created_at"], name="sign_in_challenge_email_idx")]
+        indexes = [
+            models.Index(fields=["email", "created_at"], name="sign_in_challenge_email_idx"),
+            models.Index(fields=["ip_address", "created_at"], name="sign_in_challenge_ip_idx"),
+        ]
 
     def __str__(self) -> str:  # pragma: no cover - trivial; never logged (email is **S**)
         return f"SignInChallenge({self.id})"
@@ -237,6 +251,10 @@ class TOTPDevice(models.Model):
     secret_encrypted = models.CharField(max_length=255)
     created_at = models.DateTimeField()
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    # Replay protection (security review H2): the highest 30-second counter step already
+    # accepted for this device. A code matching a step <= this is refused even if it would
+    # otherwise still be time-valid, so a captured/observed code can't be reused.
+    last_used_step = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "identity_totp_device"

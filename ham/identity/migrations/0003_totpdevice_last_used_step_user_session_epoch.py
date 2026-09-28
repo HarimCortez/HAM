@@ -10,8 +10,13 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
+            model_name="totpdevice",
+            name="last_used_step",
+            field=models.BigIntegerField(blank=True, null=True),
+        ),
+        migrations.AddField(
             model_name="user",
-            name="invitation_resent_at",
-            field=models.DateTimeField(blank=True, null=True),
+            name="session_epoch",
+            field=models.PositiveIntegerField(default=0),
         ),
     ]

@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-1"
+RULES_VERSION = "2026.09.28-2"
 
 
 def rule(
@@ -491,6 +491,27 @@ class AuthRules:
         note=proposed("Q-070"),
         provisional=("Q-070",),
     )
+    SIGN_IN_REQUESTS_PER_IP_PER_HOUR: int = rule(
+        20,
+        label="Sign-in requests from any one IP address in any rolling hour (security "
+        "review M3: a per-address limit alone doesn't stop one visitor from cycling "
+        "through many addresses)",
+        unit="requests",
+        sources=("PRD §60.2", "Q-070"),
+        note=proposed("Q-070"),
+        provisional=("Q-070",),
+    )
+    SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY: int = rule(
+        20,
+        label="Wrong sign-in codes for one email address in any rolling 24 hours before "
+        "every further attempt for that address is refused for the day (security review "
+        "M3: on top of the 5-per-challenge limit, which a fresh challenge would otherwise "
+        "reset)",
+        unit="attempts",
+        sources=("PRD §60.2", "Q-070"),
+        note=proposed("Q-070"),
+        provisional=("Q-070",),
+    )
     ACCOUNT_INVITATION_LIFETIME: timedelta = rule(
         timedelta(days=7),
         label="An emailed HAM account invitation ('Join HAM') is valid for",
@@ -530,6 +551,13 @@ class AuthRules:
         label="Troubleshooting as another user ends after this long without activity; the "
         "Administrator returns to their own account",
         sources=("PRD §59", "Q-053"),
+    )
+    SIGN_IN_CHALLENGE_RETENTION: timedelta = rule(
+        timedelta(days=7),
+        label="A used, expired or abandoned sign-in code/link row is purged after this long "
+        "(security review L5: rows exist purely to rate-limit/lock out by address, not to be "
+        "kept — a generous margin past the rolling per-day failed-attempt window)",
+        sources=("PRD §60.2",),
     )
 
 
@@ -750,7 +778,12 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
 
     if not timedelta(0) < a.SIGN_IN_RESEND_COOLDOWN < timedelta(hours=1):
         p.append("sign-in resend cooldown must be positive and shorter than the hourly window")
-    for name in ("SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR", "MFA_CODE_MAX_ATTEMPTS"):
+    for name in (
+        "SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR",
+        "MFA_CODE_MAX_ATTEMPTS",
+        "SIGN_IN_REQUESTS_PER_IP_PER_HOUR",
+        "SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY",
+    ):
         if getattr(a, name) < 1:
             p.append(f"{name} must be at least 1")
     if not a.ACCOUNT_INVITATION_LIFETIME > a.SIGN_IN_CODE_LIFETIME:
