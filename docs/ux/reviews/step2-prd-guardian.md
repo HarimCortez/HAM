@@ -102,3 +102,20 @@ New findings, all addressed in FIX-E:
   - comments call open questions "decided";
   - extra certification codes can be stored;
   - Q-121 is missing the per-IP code cap (row updated).
+
+## Final re-check at `f1d4fb9`
+
+| Item | Status |
+|---|---|
+| M2, M4 (R11a path), M5, NEW-1 | Fixed |
+| Comment wording | Fixed |
+| Certification codes | Fixed |
+| N15 | Fixed |
+| All PRD-GAP markers resolve to a Q row | Yes |
+| N12 | Open, pending the owner's privacy statement (Q-131) |
+
+`urgency_reason` is PRD-backed (§10, Q-099). Scope is clean.
+
+**NEW-2 (Major, §7.3/§58/§70.3):** find-my-request issued a new link, revoking the old one, before anyone proved they own the inbox. It also didn't record the verification method, and it sent the email outside the outbox. This is fixed in FIX-G (see the PR).
+
+**Q-row updates:** Q-152 is new. Q-117, Q-121, Q-145 and Q-151 are updated.
