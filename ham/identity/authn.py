@@ -37,12 +37,10 @@ from ham.rules import RULES
 
 from .models import SignInChallenge, User
 
-# PRD-GAP Q-070: docs/prd-open-questions.md Q-070 is still open; using the proposed default
-# (5 emails/address/hour, 30s resend cooldown) verbatim since ham.rules.v1's
-# SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR/SIGN_IN_RESEND_COOLDOWN are `Pending` (using them raises
-# `RuleNotDecidedError` by design until the product owner decides — see ham/rules/types.py).
-SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR = 5
-SIGN_IN_RESEND_COOLDOWN = dt.timedelta(seconds=30)
+# PRD-GAP Q-070: proposed default in use; owner may change. The limit and cooldown live in
+# ham.rules (RULES.auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR / SIGN_IN_RESEND_COOLDOWN).
+# "Per hour" is part of that rule's definition, so the rolling window is fixed here as its unit.
+_SIGN_IN_RATE_WINDOW = dt.timedelta(hours=1)
 
 
 def _hash(value: str) -> str:
@@ -66,13 +64,14 @@ def request_sign_in(*, email: str, next_url: str = "") -> SignInRequestResult:
     now = clock_now()
 
     last = SignInChallenge.objects.filter(email=email).order_by("-created_at").first()
-    if last is not None and now - last.created_at < SIGN_IN_RESEND_COOLDOWN:
-        return SignInRequestResult("cooldown", last.created_at + SIGN_IN_RESEND_COOLDOWN)
+    cooldown = RULES.auth.SIGN_IN_RESEND_COOLDOWN
+    if last is not None and now - last.created_at < cooldown:
+        return SignInRequestResult("cooldown", last.created_at + cooldown)
 
-    window_start = now - dt.timedelta(hours=1)
+    window_start = now - _SIGN_IN_RATE_WINDOW
     recent_count = SignInChallenge.objects.filter(email=email, created_at__gte=window_start).count()
-    if recent_count >= SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR:
-        return SignInRequestResult("rate_limited", window_start + dt.timedelta(hours=1))
+    if recent_count >= RULES.auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR:
+        return SignInRequestResult("rate_limited", window_start + _SIGN_IN_RATE_WINDOW)
 
     code = _generate_code()
     link_token = secrets.token_urlsafe(32)

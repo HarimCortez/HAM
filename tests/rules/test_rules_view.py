@@ -62,7 +62,15 @@ class RulesViewTest(unittest.TestCase):
             "auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES": "7 days",
             "outbox.OUTBOX_BACKOFF_INITIAL": "1 minute",
             "reliability.PENALTY_EXCUSED": "0 points",
-            "reliability.PENALTY_NO_SHOW": "Not decided yet: waiting for the product owner (Q-001)",
+            "reliability.PENALTY_NO_SHOW": "20 points",
+            "reliability.RECOVERY_PER_FULFILLED_COMMITMENT": "2 points",
+            "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": "5 emails",
+            "auth.SIGN_IN_RESEND_COOLDOWN": "30 seconds",
+            "auth.ACCOUNT_INVITATION_LIFETIME": "7 days",
+            "auth.MFA_CODE_MAX_ATTEMPTS": "5 tries",
+            "operations.HEALTH_MAX_QUEUE_LAG": "5 minutes",
+            "reporting.PUBLIC_EMBED_MIN_GROUP_SIZE": "Not decided yet: waiting for the product "
+            "owner (Q-027)",
         }
         for key, expected in cases.items():
             with self.subTest(rule=key):
@@ -81,6 +89,15 @@ class RulesViewTest(unittest.TestCase):
         self.assertTrue(decided.decided)
         self.assertEqual(decided.pending_questions, ())
         self.assertEqual(decided.sources, ("PRD §28", "Q-002"))
+        self.assertFalse(decided.provisional)
+
+    def test_proposed_default_rows_are_marked(self) -> None:
+        row = _row("reliability.PENALTY_NO_SHOW")
+        self.assertTrue(row.decided)  # a real value, in use
+        self.assertTrue(row.provisional)
+        self.assertEqual(row.provisional_questions, ("Q-001", "Q-075"))
+        self.assertIn("proposed default in use", row.note)
+        self.assertEqual(_row("operations.HEALTH_MAX_QUEUE_LAG").provisional_questions, ("Q-056",))
 
     def test_format_duration(self) -> None:
         cases = [

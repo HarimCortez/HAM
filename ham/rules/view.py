@@ -43,6 +43,13 @@ class RuleRow:
     decided: bool
     pending_questions: tuple[str, ...]  # Q-ids still open for this row
     note: str
+    # Open Q-ids whose *proposed default* this value is: it is in use, but the product owner
+    # may still change it (e.g. ("Q-001",)). Empty when the value is fully decided.
+    provisional_questions: tuple[str, ...] = ()
+
+    @property
+    def provisional(self) -> bool:
+        return bool(self.provisional_questions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +122,7 @@ def rules_view(rules: Rules = RULES, version: str = RULES_VERSION) -> RulesView:
                 decided=not contains_pending(value),
                 pending_questions=pending_questions(value),
                 note=meta.get("note", ""),
+                provisional_questions=tuple(meta.get("provisional", ())),
             )
         )
     return RulesView(version=version, content_hash=content_hash(rules), rows=tuple(rows))

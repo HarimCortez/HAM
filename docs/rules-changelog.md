@@ -39,3 +39,37 @@ Initial values from the PRD and the owner decisions dated 2026-09-27 in `docs/pr
   - **Pending:** sign-in email rate limit and resend cooldown (Q-070), account invitation lifetime (Q-071), authenticator-code attempt limit (Q-072).
 - **Reporting:** the public-embed small-group threshold is **Pending (Q-027)**.
 - **Integrations (engineering):** outbox retries 8 attempts, backing off from 1 minute up to a 6-hour cap (§70.3, foundation.md §5).
+
+## 2026.09.28-1 — proposed defaults in use for open questions
+
+Content hash: `sha256:84f96591b6cae641b20e83cc70ea0eff466990850f31c207d6f0249ccd3983d7`
+
+On 2026-09-28 the product owner decided to run on the **proposed defaults** of Q-001, Q-056, Q-070, Q-071, Q-072, Q-073, Q-074, Q-075, Q-076 and Q-077 for now. These questions stay "Open" in `docs/prd-open-questions.md`, so the owner may still change them. Each affected rule lists its Q-id in `provisional`, and its note says "PRD-GAP Q-NNN: proposed default in use; owner may change". The Admin "Rules" screen labels it "Proposed default — may change".
+
+Value changes (Pending → value):
+
+- **Reliability (Q-001):** cancelling 4–6 days before costs 3 points (small), 2–3 days 6 (moderate), 1 day 10 (larger), and same day 16 (major). A no-show costs 20 (largest). Each commitment fulfilled as committed recovers 2 points. The score stays within 0–100. Rationale: the penalty roughly doubles as the project day gets closer, because a later cancellation leaves less time to find a replacement. Same-day is "substantial but slightly less than a no-show" (§33). Earning back one no-show takes 10 fulfilled commitments.
+- **Sign-in (Q-070):** at most 5 sign-in emails per address in any rolling hour, and a 30-second wait before "Resend email".
+- **Account invitation (Q-071):** 7 days. This value is declared only. Invitations currently reuse ordinary sign-in (Q-084), so no code enforces it yet.
+- **Two-step sign-in (Q-072):** after 5 wrong authenticator or recovery codes, the person has to start again from a new email sign-in.
+
+New rule:
+
+- **Operations (Q-056):** new group `operations` with `HEALTH_MAX_QUEUE_LAG` = 5 minutes. `GET /healthz` reports "degraded" once the oldest due background job has waited longer than that. This replaces the literal `MAX_HEALTHY_QUEUE_LAG_SECONDS = 300` in `ham/web/views.py`.
+
+Metadata only (no value change). These are now marked as proposed defaults in use:
+
+- **Q-073:** "N days before the project" means calendar days in the church time zone. Reminders go out at 09:00 local, and the release happens at the end of day 5. Hour-based rules use elapsed time. This covers the reconfirmation, reminder, release and cancellation-band day rules.
+- **Q-074:** incident retention counts from the last amendment. Homeowner-agreement retention counts from signing or project close, whichever is later.
+- **Q-075:** cancelling on the project day after the start time counts as a no-show unless excused.
+- **Q-076:** role grant and role revoke share one step-up kind ("role changes"), so one 5-minute step-up covers both.
+- **Q-077:** V1 has no reliability penalty for an unanswered invitation, an unconfirmed waitlist promotion, or a slot released because the volunteer did not reconfirm. This is deliberate, so no rule value exists for these.
+
+New invariants:
+- The resend cooldown is positive and under an hour.
+- The sign-in email limit and the authenticator attempt limit are each at least 1.
+- An invitation lasts longer than a sign-in code.
+- The health lag threshold is positive.
+- The Q-001 ladder is now always checked (`check_reliability_penalties`).
+
+Still **Pending:** the public-embed small-group threshold (Q-027).

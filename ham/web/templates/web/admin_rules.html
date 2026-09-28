@@ -20,7 +20,7 @@
         {% for row in group.list %}
           <tr>
             <td>{{ row.label }}</td>
-            <td>{{ row.value }}</td>
+            <td>{{ row.value }}{% if row.provisional %}<br><span class="text-secondary">Proposed default — may change ({{ row.provisional_questions|join:", " }})</span>{% endif %}</td>
             <td>{{ row.sources|join:", " }}</td>
           </tr>
         {% endfor %}

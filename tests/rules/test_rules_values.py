@@ -32,12 +32,13 @@ EXPECTED = {
     "reliability.CANCELLATION_FREE_DAYS_BEFORE": 7,
     "reliability.CANCELLATION_BAND_LOWER_BOUNDS_DAYS": (7, 4, 2, 1, 0),
     "reliability.PENALTY_CANCEL_7_PLUS_DAYS": 0,
-    "reliability.PENALTY_CANCEL_4_TO_6_DAYS": Pending("Q-001", ""),
-    "reliability.PENALTY_CANCEL_2_TO_3_DAYS": Pending("Q-001", ""),
-    "reliability.PENALTY_CANCEL_1_DAY": Pending("Q-001", ""),
-    "reliability.PENALTY_CANCEL_SAME_DAY": Pending("Q-001", ""),
-    "reliability.PENALTY_NO_SHOW": Pending("Q-001", ""),
-    "reliability.RECOVERY_PER_FULFILLED_COMMITMENT": Pending("Q-001", ""),
+    # Q-001 proposed default in use (owner, 2026-09-28): small < ... < largest, +2 recovery
+    "reliability.PENALTY_CANCEL_4_TO_6_DAYS": 3,
+    "reliability.PENALTY_CANCEL_2_TO_3_DAYS": 6,
+    "reliability.PENALTY_CANCEL_1_DAY": 10,
+    "reliability.PENALTY_CANCEL_SAME_DAY": 16,
+    "reliability.PENALTY_NO_SHOW": 20,
+    "reliability.RECOVERY_PER_FULFILLED_COMMITMENT": 2,
     "reliability.PENALTY_EXCUSED": 0,  # §33
     "reliability.PENALTY_DEACTIVATION_AUTO_CANCEL": 0,  # §21
     "reliability.PENALTY_DECLINE_LAST_MINUTE_ASSIGNMENT": 0,  # §30
@@ -88,10 +89,11 @@ EXPECTED = {
     "auth.SIGN_IN_CODE_LENGTH": 6,
     "auth.SIGN_IN_CODE_LIFETIME": M(15),
     "auth.SIGN_IN_CODE_MAX_ATTEMPTS": 5,
-    "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": Pending("Q-070", ""),
-    "auth.SIGN_IN_RESEND_COOLDOWN": Pending("Q-070", ""),
-    "auth.ACCOUNT_INVITATION_LIFETIME": Pending("Q-071", ""),
-    "auth.MFA_CODE_MAX_ATTEMPTS": Pending("Q-072", ""),
+    # Proposed defaults in use (owner, 2026-09-28)
+    "auth.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR": 5,  # Q-070
+    "auth.SIGN_IN_RESEND_COOLDOWN": timedelta(seconds=30),  # Q-070
+    "auth.ACCOUNT_INVITATION_LIFETIME": D(7),  # Q-071
+    "auth.MFA_CODE_MAX_ATTEMPTS": 5,  # Q-072
     "auth.SESSION_IDLE_LIFETIME_STANDARD": D(30),
     "auth.SESSION_IDLE_LIFETIME_MFA_ROLES": H(8),
     "auth.SESSION_ABSOLUTE_LIFETIME_MFA_ROLES": D(7),
@@ -102,6 +104,8 @@ EXPECTED = {
     "outbox.OUTBOX_MAX_ATTEMPTS": 8,
     "outbox.OUTBOX_BACKOFF_INITIAL": M(1),
     "outbox.OUTBOX_BACKOFF_MAX": H(6),
+    # Operations
+    "operations.HEALTH_MAX_QUEUE_LAG": M(5),  # Q-056 proposed default in use
 }
 
 
