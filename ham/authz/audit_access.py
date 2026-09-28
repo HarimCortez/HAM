@@ -37,6 +37,18 @@ def list_events(
     return _list_events(filters, before_seq=before_seq, limit=limit)
 
 
+def list_events_for_target(
+    ctx: ActorContext, *, target_type: str, target_id: str, limit: int = 5
+) -> list[AuditEvent]:
+    """The last `limit` events *about* one record (G2 "Recent access changes"), e.g.
+    `target_type="user"` for role grants/revokes/resets/impersonations on that person. Same
+    `audit.view` authorization as the full log (Admin and Director, foundation.md §4)."""
+    decision = authorize(ctx, "audit.view")
+    if not decision.allowed:
+        raise PermissionDenied(f"audit.view: {decision.reason}")
+    return _list_events(AuditFilter(target_type=target_type, target_id=target_id), limit=limit)
+
+
 def get_event(ctx: ActorContext, event_id) -> AuditEvent | None:
     decision = authorize(ctx, "audit.view")
     if not decision.allowed:

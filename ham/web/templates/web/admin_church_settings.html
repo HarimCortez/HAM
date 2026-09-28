@@ -1,0 +1,42 @@
+{% extends "web/base.html" %}
+
+{% block title %}Church settings · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Church settings{% endblock %}
+
+{% block content %}
+  <h1>Church settings</h1>
+  <p class="text-secondary">{{ church.name }}'s logo, colors and mission line come from the
+    church profile configuration; only contact details and time zone are editable here.</p>
+
+  {% if errors %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <ul>{% for message in errors.values %}<li>{{ message }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="form form--single-column" novalidate>
+    {% csrf_token %}
+    <div class="form-field">
+      <label for="id_ham_phone">Ministry phone <span class="form-field__optional">(optional)</span></label>
+      <input id="id_ham_phone" name="ham_phone" type="tel" value="{{ values.ham_phone }}">
+    </div>
+    <div class="form-field">
+      <label for="id_ham_email">Ministry email <span class="form-field__optional">(optional)</span></label>
+      <input id="id_ham_email" name="ham_email" type="email" value="{{ values.ham_email }}">
+    </div>
+    <div class="form-field{% if errors.time_zone %} form-field--error{% endif %}">
+      <label for="id_time_zone">Time zone</label>
+      <input id="id_time_zone" name="time_zone" type="text" value="{{ values.time_zone }}"
+             aria-describedby="id_time_zone_help">
+      <p class="form-field__help" id="id_time_zone_help">Used for every schedule and date shown
+        to staff and requesters (e.g. America/New_York).</p>
+    </div>
+    <div class="form-field">
+      <label for="id_website_url">Website <span class="form-field__optional">(optional)</span></label>
+      <input id="id_website_url" name="website_url" type="url" value="{{ values.website_url }}">
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+    </div>
+  </form>
+{% endblock %}

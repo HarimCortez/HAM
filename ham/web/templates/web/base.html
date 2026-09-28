@@ -43,14 +43,28 @@
         {% include "web/_nav_items.html" %}
       </nav>
       <nav class="nav nav--sidebar" aria-label="Primary">
+        {% comment %}
+        Bug fix (docs/ux/screenshots/step1-shell: logo appeared twice at >=1024px). The app
+        bar already carries the full lockup at desktop (components.md §1 "Desktop (>=1024):
+        full lockup left ... Sidebar sits below"), so the sidebar repeats only the text label,
+        never the logo image again.
+        {% endcomment %}
         <div class="sidebar-header">
-          <img src="{{ church.logo_on_light|brand_static }}" alt="{{ church.logo_alt }}" height="28">
           <span class="sidebar-header__label">HAM</span>
         </div>
         {% include "web/_nav_items.html" %}
       </nav>
 
       <main id="main-content" class="app-shell__main" tabindex="-1">
+        {% if messages %}
+          <ul class="messages">
+            {% for message in messages %}
+              <li class="inline-alert inline-alert--{{ message.tags|default:'info' }}" role="status">
+                {{ message }}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>

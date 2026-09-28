@@ -9,9 +9,11 @@ path): authorize -> step-up -> impersonation block -> change + audit + outbox, a
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q as models_Q
 
 from ham.audit.services import record as audit_record
 from ham.authz import roles
@@ -185,7 +187,11 @@ def invite_user(
 # ---------------------------------------------------------------------------------------
 @command("me.update", resource_from=_resource_self)
 def update_own_profile(
-    ctx: ActorContext, *, full_name: str | None = None, mobile_phone: str | None = None
+    ctx: ActorContext,
+    *,
+    full_name: str | None = None,
+    mobile_phone: str | None = None,
+    notify_email: bool | None = None,
 ) -> CommandResult:
     assert ctx.user_id is not None  # me.update requires authentication (matrix: shell.use+)
     profile = SharedIdentityProfile.objects.select_for_update().get(user_id=ctx.user_id)
@@ -199,6 +205,10 @@ def update_own_profile(
         before["mobile_phone_changed"] = True
         profile.mobile_phone = mobile_phone
         after["mobile_phone_changed"] = True
+    if notify_email is not None and notify_email != profile.notify_email:
+        before["notify_email"] = profile.notify_email
+        profile.notify_email = notify_email
+        after["notify_email"] = notify_email
     profile.save()
     return CommandResult(
         value=profile,
@@ -503,3 +513,160 @@ def revoke_task_leader(ctx: ActorContext, *, task_id: uuid.UUID) -> CommandResul
             payload={"user_id": str(assignment.user_id)},
         ),
     )
+
+
+# ---------------------------------------------------------------------------------------
+# Read queries for the Admin "Users & roles" screens (G1/G2, foundation.md §7 `GET
+# /admin/users`, `GET /admin/users/<id>`). Plain reads, no @command wrapper: the route guard
+# already checked `user.list`/`user.view` before the view runs (foundation.md §4), and
+# "Viewing the list is not an audit event" (auth-and-access.md §H1 note applies here too —
+# only writes are audited).
+# ---------------------------------------------------------------------------------------
+STATUS_ACTIVE = "active"
+STATUS_INVITED = "invited"
+STATUS_DISABLED = "disabled"
+
+
+@dataclass(frozen=True, slots=True)
+class UserListFilters:
+    role: str = ""
+    status: str = ""
+    q: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class UserRow:
+    user: User
+    profile: SharedIdentityProfile | None
+    role_codes: tuple[str, ...]
+    status: str
+
+    @property
+    def display_name(self) -> str:
+        return (self.profile.full_name if self.profile else "") or self.user.email
+
+    @property
+    def two_step(self) -> str:
+        """ "On" / "Not set up" / "Not needed" (auth-and-access.md §G1).
+
+        PRD-GAP Q-090: S3b/allauth's `mfa_authenticator` table isn't wired into this slice
+        yet, so an MFA-required role always reads "Not set up" here rather than checking real
+        enrollment state. Swap this for a real enrollment lookup once MFA lands (S3b).
+        """
+        if any(r in roles.MFA_REQUIRED_ROLES for r in self.role_codes):
+            return "Not set up"
+        return "Not needed"
+
+
+def _user_status(user: User) -> str:
+    if user.is_disabled:
+        return STATUS_DISABLED
+    if user.is_invited:
+        return STATUS_INVITED
+    return STATUS_ACTIVE
+
+
+def list_users(filters: UserListFilters | None = None) -> list[UserRow]:
+    filters = filters or UserListFilters()
+    qs = User.objects.select_related("profile").prefetch_related("role_assignments")
+    if filters.q:
+        needle = filters.q.strip()
+        if needle:
+            qs = qs.filter(
+                models_Q(email__icontains=needle) | models_Q(profile__full_name__icontains=needle)
+            )
+    rows: list[UserRow] = []
+    for user in qs:
+        role_codes = tuple(sorted(ra.role for ra in user.role_assignments.all() if ra.is_active))
+        status = _user_status(user)
+        if filters.role and filters.role not in role_codes:
+            continue
+        if filters.status and filters.status != status:
+            continue
+        rows.append(
+            UserRow(
+                user=user,
+                profile=getattr(user, "profile", None),
+                role_codes=role_codes,
+                status=status,
+            )
+        )
+    rows.sort(key=lambda r: r.display_name.lower())
+    return rows
+
+
+@dataclass(frozen=True, slots=True)
+class UserDetail:
+    user: User
+    profile: SharedIdentityProfile | None
+    active_assignments: tuple[RoleAssignment, ...]
+    scoped_assignments: tuple[RoleAssignment, ...]
+
+    @property
+    def display_name(self) -> str:
+        return (self.profile.full_name if self.profile else "") or self.user.email
+
+    @property
+    def active_global_roles(self) -> tuple[str, ...]:
+        return tuple(sorted(a.role for a in self.active_assignments if a.scope_type is None))
+
+    @property
+    def status(self) -> str:
+        return _user_status(self.user)
+
+
+def get_user_detail(user_id: uuid.UUID) -> UserDetail | None:
+    user = User.objects.select_related("profile").filter(pk=user_id).first()
+    if user is None:
+        return None
+    assignments = list(RoleAssignment.objects.filter(user=user, revoked_at__isnull=True))
+    global_assignments = tuple(a for a in assignments if a.scope_type is None)
+    scoped_assignments = tuple(a for a in assignments if a.scope_type is not None)
+    return UserDetail(
+        user=user,
+        profile=getattr(user, "profile", None),
+        active_assignments=global_assignments,
+        scoped_assignments=scoped_assignments,
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# Plain-language role descriptions (auth-and-access.md §G2 "one-line plain description").
+# ---------------------------------------------------------------------------------------
+ROLE_DESCRIPTIONS: dict[str, str] = {
+    roles.ADMINISTRATOR: "Users, roles, settings, integrations, audit log, troubleshooting.",
+    roles.HAM_DIRECTOR: ("Final say on feasibility and scope; all ministry operations; audit log."),
+    roles.ASSISTANT_DIRECTOR: (
+        "Assessments, planning, staffing, holds, budgets, credential checks. Recommends, "
+        "doesn't make final scope decisions."
+    ),
+    roles.PASTOR: "Approves requests and certifies urgent ones.",
+    roles.BOARD_REPRESENTATIVE: "Records Board decisions.",
+    roles.SOCIAL_MEDIA_SPECIALIST: "Reviews and publishes project photos with consent.",
+    roles.VOLUNTEER: "Serves on projects; own profile and commitments.",
+    roles.CONTRACTOR: "Sees only the work assigned to them.",
+}
+
+# Global roles listed in the G2 checkbox order (auth-and-access.md §G2 wireframe).
+ROLE_CHECKBOX_ORDER: tuple[str, ...] = (
+    roles.ADMINISTRATOR,
+    roles.HAM_DIRECTOR,
+    roles.ASSISTANT_DIRECTOR,
+    roles.PASTOR,
+    roles.BOARD_REPRESENTATIVE,
+    roles.SOCIAL_MEDIA_SPECIALIST,
+    roles.VOLUNTEER,
+    roles.CONTRACTOR,
+)
+
+
+def display_names_for(user_ids) -> dict[uuid.UUID, str]:
+    """Batch lookup of "Kevin T." style display names for the audit log (H1 "Who": name +
+    role at the time), so `ham.web` never queries `ham.identity.models` directly
+    (foundation.md §1: "Only identity may read auth tables")."""
+    ids = [uid for uid in set(user_ids) if uid is not None]
+    profiles = SharedIdentityProfile.objects.filter(user_id__in=ids).select_related("user")
+    out: dict[uuid.UUID, str] = {}
+    for profile in profiles:
+        out[profile.user_id] = profile.display_name or profile.user.email
+    return out

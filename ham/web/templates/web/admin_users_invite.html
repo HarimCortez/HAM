@@ -1,0 +1,41 @@
+{% extends "web/base.html" %}
+
+{% block title %}Invite someone · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Invite someone{% endblock %}
+
+{% block content %}
+  <h1>Invite someone</h1>
+  <p class="text-secondary">They'll get an email with a sign-in link. New invitations start
+    as a Volunteer; add other roles from their profile once they've signed in.</p>
+
+  {% if errors %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <p>Please fix the following:</p>
+      <ul>
+        {% for field, message in errors.items %}
+          <li>{{ message }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="form form--single-column" novalidate>
+    {% csrf_token %}
+    <div class="form-field{% if errors.first_name %} form-field--error{% endif %}">
+      <label for="id_first_name">First name</label>
+      <input id="id_first_name" name="first_name" type="text" value="{{ values.first_name }}" autocomplete="given-name">
+    </div>
+    <div class="form-field">
+      <label for="id_last_name">Last name <span class="form-field__optional">(optional)</span></label>
+      <input id="id_last_name" name="last_name" type="text" value="{{ values.last_name }}" autocomplete="family-name">
+    </div>
+    <div class="form-field{% if errors.email %} form-field--error{% endif %}">
+      <label for="id_email">Email</label>
+      <input id="id_email" name="email" type="email" value="{{ values.email }}" autocomplete="email">
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Send invitation</button>
+      <a class="btn btn--secondary" href="{% url 'web:admin_users' %}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

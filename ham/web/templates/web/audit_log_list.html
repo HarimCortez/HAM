@@ -1,0 +1,66 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Audit log · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Audit log{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Audit log</h1>
+      <p class="text-secondary">Audit history goes back one year.</p>
+    </div>
+    <form method="post" action="{% url 'web:audit_export' %}">
+      {% csrf_token %}
+      {% for key, value in request_get.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+      <button class="btn btn--secondary" type="submit">Export</button>
+    </form>
+  </div>
+
+  {% if export_blocked %}
+    <div class="inline-alert inline-alert--attention" role="status">
+      <p>Exporting the audit log isn't available while you're acting as someone else.
+        Return to your account to do this.</p>
+    </div>
+  {% endif %}
+
+  <form method="get" class="filter-bar" role="search">
+    <label class="visually-hidden" for="id_from">From</label>
+    <input id="id_from" type="date" name="from" value="{{ request_get.from }}">
+    <label class="visually-hidden" for="id_to">To</label>
+    <input id="id_to" type="date" name="to" value="{{ request_get.to }}">
+    <label class="visually-hidden" for="id_action">Action</label>
+    <input id="id_action" type="text" name="action" value="{{ request_get.action }}" placeholder="Action (e.g. role.granted)">
+    <label class="visually-hidden" for="id_role">Role</label>
+    <input id="id_role" type="text" name="role" value="{{ request_get.role }}" placeholder="Role at the time">
+    <button class="btn btn--secondary" type="submit">Filter</button>
+  </form>
+
+  <p class="filter-bar__summary">{{ events|length }} events</p>
+
+  <div class="list-detail">
+    <table class="data-table">
+      <thead>
+        <tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Subject</th></tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+          <tr>
+            <td><a href="{% url 'web:audit_log_detail' event_id=event.id %}">{{ event.occurred_at }}</a></td>
+            <td>
+              {% if event.acting_as_user_id %}
+                {{ names|get_item:event.actor_user_id }} as {{ names|get_item:event.acting_as_user_id }}
+              {% else %}
+                {{ names|get_item:event.actor_user_id|default:event.actor_type }}
+              {% endif %}
+            </td>
+            <td>{{ event.action }}</td>
+            <td>{{ event.target_type }} {{ event.target_id }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">No events match these filters. Try a wider date range.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

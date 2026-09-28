@@ -28,13 +28,13 @@ class NavItem:
 _ITEMS: tuple[NavItem, ...] = (
     NavItem("home", "Home", "web:home", "home", True, "shell.use"),
     NavItem("inbox", "Inbox", "web:inbox", "mail", True, "shell.use"),
-    NavItem("admin_users", "Users & roles", "web:admin_users", "users", False, "user.list"),
+    NavItem("admin_users", "Users & roles", "web:admin_users", "users", True, "user.list"),
     NavItem(
         "admin_church",
         "Church settings",
         "web:admin_church_settings",
         "settings",
-        False,
+        True,
         "church_profile.update",
     ),
     NavItem(
@@ -42,12 +42,12 @@ _ITEMS: tuple[NavItem, ...] = (
         "Integrations",
         "web:admin_integrations",
         "plug",
-        False,
+        True,
         "integrations.view_status",
     ),
-    NavItem("admin_rules", "Rules", "web:admin_rules", "book", False, "rules.view"),
-    NavItem("audit_log", "Audit log", "web:audit_log", "scroll-text", False, "audit.view"),
-    NavItem("me", "Me", "web:me", "circle-user", False, "me.view"),
+    NavItem("admin_rules", "Rules", "web:admin_rules", "book", True, "rules.view"),
+    NavItem("audit_log", "Audit log", "web:audit_log", "scroll-text", True, "audit.view"),
+    NavItem("me", "Me", "web:me", "circle-user", True, "me.view"),
 )
 
 

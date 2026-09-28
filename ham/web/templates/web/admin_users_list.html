@@ -1,0 +1,75 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Users &amp; roles · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Users &amp; roles{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <h1>Users &amp; roles</h1>
+    <a class="btn btn--primary" href="{% url 'web:admin_users_invite' %}">Invite someone</a>
+  </div>
+
+  <form method="get" class="filter-bar" role="search">
+    <label class="visually-hidden" for="id_q">Search by name or email</label>
+    <input id="id_q" type="search" name="q" value="{{ filters.q }}" placeholder="Search name or email">
+    <label class="visually-hidden" for="id_role">Role</label>
+    <select id="id_role" name="role">
+      <option value="">All roles</option>
+      {% for role in role_choices %}
+        <option value="{{ role }}" {% if filters.role == role %}selected{% endif %}>{{ role_labels|get_item:role }}</option>
+      {% endfor %}
+    </select>
+    <label class="visually-hidden" for="id_status">Status</label>
+    <select id="id_status" name="status">
+      <option value="">All statuses</option>
+      <option value="active" {% if filters.status == "active" %}selected{% endif %}>Active</option>
+      <option value="invited" {% if filters.status == "invited" %}selected{% endif %}>Invited</option>
+      <option value="disabled" {% if filters.status == "disabled" %}selected{% endif %}>Turned off</option>
+    </select>
+    <button class="btn btn--secondary" type="submit">Filter</button>
+  </form>
+
+  <p class="filter-bar__summary">{{ rows|length }} people</p>
+
+  {% if rows %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Email</th>
+          <th scope="col">Roles</th>
+          <th scope="col">Two-step</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><a href="{% url 'web:admin_user_detail' user_id=row.user.id %}">{{ row.display_name }}</a></td>
+            <td>{{ row.user.email }}</td>
+            <td>
+              {% for code in row.role_codes %}
+                <span class="chip chip--neutral">{{ role_labels|get_item:code }}</span>
+              {% empty %}
+                <span class="text-tertiary">No roles</span>
+              {% endfor %}
+            </td>
+            <td>{{ row.two_step }}</td>
+            <td>
+              {% if row.status == "active" %}<span class="chip chip--success">Active</span>{% endif %}
+              {% if row.status == "invited" %}<span class="chip chip--attention">Invited</span>{% endif %}
+              {% if row.status == "disabled" %}<span class="chip chip--neutral">Turned off</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <section class="empty-state">
+      <h3>No one matches these filters</h3>
+      <p>Check the spelling or clear filters.</p>
+      <a class="btn btn--secondary" href="{% url 'web:admin_users' %}">Clear filters</a>
+    </section>
+  {% endif %}
+{% endblock %}

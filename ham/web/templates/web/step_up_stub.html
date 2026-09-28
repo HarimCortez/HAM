@@ -1,0 +1,22 @@
+{% extends "web/base.html" %}
+
+{% block title %}Confirm it's you · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Confirm it's you{% endblock %}
+
+{% block content %}
+  {% comment %}
+  Stand-in for S3b's real step-up screen (auth-and-access.md §D "Confirm it's you") — see
+  ham/web/stepup.py's module docstring. No TOTP check happens here yet.
+  {% endcomment %}
+  <section class="card" aria-labelledby="stepup-title" style="max-width: var(--ham-size-form-max, 420px); margin: var(--ham-space-8) auto;">
+    <h1 id="stepup-title">Confirm it's you</h1>
+    <p>Please confirm it's you before this action continues. (Development stand-in: S3b's
+      real authenticator-app check will replace this screen.)</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <button class="btn btn--primary" type="submit">Confirm and continue</button>
+    </form>
+  </section>
+{% endblock %}

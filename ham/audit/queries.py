@@ -27,6 +27,11 @@ class AuditFilter:
     project_id: UUID | None = None
     action: str | None = None
     role: str | None = None
+    # Not exposed on the H1 filter bar (auth-and-access.md §H1 lists date/user/project/action/
+    # role only); used internally by G2 "Recent access changes" to pull the last events about
+    # one person (target_type="user") without matching every event that person merely acted on.
+    target_type: str | None = None
+    target_id: str | None = None
 
     def as_dict(self) -> dict[str, str]:
         """PII-free filter summary for the `audit.exported` event's `context` (Q-050: IDs and
@@ -61,6 +66,10 @@ def _queryset(filters: AuditFilter):
         qs = qs.filter(action=filters.action)
     if filters.role:
         qs = qs.filter(actor_roles__contains=[filters.role])
+    if filters.target_type:
+        qs = qs.filter(target_type=filters.target_type)
+    if filters.target_id:
+        qs = qs.filter(target_id=filters.target_id)
     return qs
 
 
