@@ -5,6 +5,6 @@
 {% block app_bar_title %}{{ detail.display_number }}{% endblock %}
 
 {% block content %}
-  <p><a href="{% url 'web:requests' %}">&larr; Back to Requests</a></p>
+  <p><a href="{% url 'web:requests' %}{% if back_tab %}?tab={{ back_tab }}{% endif %}">&larr; Back to Requests</a></p>
   {% include "web/_request_detail.html" %}
 {% endblock %}

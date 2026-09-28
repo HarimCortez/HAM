@@ -11,7 +11,7 @@ import uuid
 
 from django.contrib import messages
 from django.shortcuts import redirect, render
-from django.urls import reverse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from ham.authz import roles
@@ -66,14 +66,19 @@ def _tabs_for(ctx) -> list[dict]:
 
 
 def _rows_for_tab(ctx, tab: str, *, reference_number: int | None, category: str, status: str):
+    # Usability M11: the search box and category select apply on every tab, not only "All"
+    # -- a Director who types a HAM # or picks a category on "Needs a phone check" or
+    # "Awaiting approval" expects it to actually filter, not silently do nothing.
     if tab == "phone_check":
-        return needs_phone_check_list(ctx)
-    if tab == "awaiting":
-        return list_requests(
+        rows = needs_phone_check_list(ctx)
+    elif tab == "awaiting":
+        rows = list_requests(
             ctx, status=RequestStatus.AWAITING_APPROVAL.value, reference_number=reference_number
         )
-    # "all"
-    rows = list_requests(ctx, status=status or None, reference_number=reference_number)
+    else:  # "all"
+        rows = list_requests(ctx, status=status or None, reference_number=reference_number)
+    if tab == "phone_check" and reference_number is not None:
+        rows = [r for r in rows if r.reference_number == reference_number]
     if category:
         rows = [r for r in rows if r.need_category == category]
     return rows
@@ -136,8 +141,10 @@ def requests_list(request, *, forced_tab: str | None = None):
             "need_category_labels": presentation.NEED_CATEGORY_LABELS,
             "status_labels": presentation.STATUS_LABELS,
             "status_tones": presentation.STATUS_TONES,
+            "status_icons": presentation.STATUS_ICONS,
             "selected_id": str(selected_detail["detail"].id) if selected_detail else "",
             "selected": selected_detail,
+            "filter_count": sum(1 for v in (category, status) if v),
         },
     )
 
@@ -175,7 +182,6 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         contact_state = ""
 
     gallery = media_gallery_for(ctx, request_id)
-    matches = outcome_summary(request_row)
     history = request_history(request_row)
     history_names = display_names_for([e.actor_user_id for e in history if e.actor_user_id])
 
@@ -185,7 +191,24 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         and authorize(ctx, "request.contact_verify_phone", request_row).allowed
     )
     can_reopen_media = authorize(ctx, "request_media.reopen", request_row).allowed
+    # Usability M11 (L11): a no-email request can't be asked for more photos by email -- show
+    # the trigger disabled with the reason instead of leading to a dead-end sheet.
+    from ham.requests.models import Requester as _Requester
+
+    has_email = _Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
     can_view_history = authorize(ctx, "request.history.view", request_row).allowed
+    # PRD guardian M2 / visual QA M15 / usability M12: the earlier-request panel is gated on
+    # the same `request.history.view` action as the History section -- the Administrator
+    # (view-only, §9) never holds it, so `matches` stays `[]` and L5 doesn't render for them.
+    # Pastors/Board reps hold it but must not see a match that's still stuck in
+    # NEEDS_PHONE_CHECK (they can't open it -- "Open" would be a dead end).
+    can_view_matches = can_view_history
+    matches = outcome_summary(request_row) if can_view_matches else []
+    pastor_only = ctx.effective_roles & _PAS_BRD and not (
+        ctx.effective_roles & (_DIR_AD | {roles.ADMINISTRATOR})
+    )
+    if pastor_only:
+        matches = [m for m in matches if m.status != RequestStatus.NEEDS_PHONE_CHECK.value]
 
     return {
         "detail": detail,
@@ -198,6 +221,7 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         "need_category_label": presentation.need_category_label(detail.need_category),
         "status_label": presentation.status_label(detail.status),
         "status_tone": presentation.status_tone(detail.status),
+        "status_icon": presentation.status_icon(detail.status),
         "property_type_label": presentation.PROPERTY_TYPE_LABELS.get(
             detail.property_type, detail.property_type
         ),
@@ -208,10 +232,15 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         if detail.cancel_reason_code
         else "",
         "gallery": gallery,
+        "hazards": presentation.hazard_labels(detail.known_hazards),
+        "availability_labels": presentation.availability_labels(detail.preferred_availability),
+        "can_view_matches": can_view_matches,
         "matches": [
             {
                 "request_id": m.request_id,
                 "display_number": m.display_number,
+                "need_category_label": presentation.need_category_label(m.need_category),
+                "submitted_at": m.submitted_at,
                 "status_label": presentation.status_label(m.status),
                 "status_tone": presentation.status_tone(m.status),
                 "cancel_reason_label": presentation.cancel_reason_label(m.cancel_reason_code)
@@ -221,6 +250,9 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
             }
             for m in matches
         ],
+        # M14: one "Close this one as a duplicate..." action at the panel's end, preselected
+        # with the newest match -- not repeated on every match card.
+        "newest_match_id": matches[0].request_id if matches else None,
         "history": [
             {
                 "label": e.label,
@@ -235,6 +267,7 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
         "can_cancel": can_cancel,
         "can_verify_phone": can_verify_phone,
         "can_reopen_media": can_reopen_media,
+        "has_email": has_email,
         "revealed": revealed,
         "is_director": roles.HAM_DIRECTOR in ctx.effective_roles,
     }
@@ -242,17 +275,23 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
 
 @require_http_methods(["GET"])
 @requires_action("request.view")
+@never_cache
 def request_detail(request, request_id: uuid.UUID):
     ctx = request.actor
     context = _build_detail_context(ctx, request_id)
     if context is None:
         return render(request, "web/not_found.html", status=404)
     context["standalone"] = True
+    context["heading_tag"] = "h2"
+    # Usability M11: "Back to Requests" returns to the tab this row came from, instead of the
+    # default tab, so a Director triaging "Needs a phone check" doesn't lose their place.
+    context["back_tab"] = request.GET.get("tab", "")
     return render(request, "web/request_detail.html", context)
 
 
 @require_http_methods(["POST"])
 @requires_action("request.view")
+@never_cache
 def request_reveal_contact(request, request_id: uuid.UUID):
     """The deliberate "Show contact details" button (Q-024, Q-124). `reveal_requester_pii`
     both authorizes (raises `PermissionDenied` for the Administrator/anyone unauthorized) and
@@ -266,6 +305,7 @@ def request_reveal_contact(request, request_id: uuid.UUID):
     if context is None:
         return render(request, "web/not_found.html", status=404)
     context["standalone"] = True
+    context["heading_tag"] = "h2"
     return render(request, "web/request_detail.html", context)
 
 
@@ -274,6 +314,7 @@ def request_reveal_contact(request, request_id: uuid.UUID):
 # --------------------------------------------------------------------------------------
 @require_http_methods(["GET", "POST"])
 @requires_action("request.contact_verify_phone")
+@never_cache
 def request_phone_check(request, request_id: uuid.UUID):
     ctx = request.actor
     request_row = get_request_by_id(ctx, request_id)
@@ -322,6 +363,17 @@ def request_phone_check(request, request_id: uuid.UUID):
 # --------------------------------------------------------------------------------------
 # L10 close sheet
 # --------------------------------------------------------------------------------------
+def _close_reasons(request_row) -> list[tuple[str, str]]:
+    reasons = list(presentation.CANCEL_REASON_LABELS.items())
+    if request_row.status != RequestStatus.NEEDS_PHONE_CHECK.value:
+        reasons = [
+            (code, label)
+            for code, label in reasons
+            if code != CancelReason.COULDNT_REACH_THEM.value
+        ]
+    return reasons
+
+
 @require_http_methods(["GET", "POST"])
 @requires_action("request.cancel")
 def request_close(request, request_id: uuid.UUID):
@@ -344,25 +396,46 @@ def request_close(request, request_id: uuid.UUID):
         else:
             messages.success(request, f"{request_row.display_number} closed")
             return redirect("web:request_detail", request_id=request_id)
-        return redirect(
-            f"{reverse('web:request_close', args=[request_id])}?reason={reason_code}&note={note}"
+        # H3 (privacy/security): never put the free-text note in a redirect URL (Location
+        # header, access logs, browser history, Referer). Re-render the form directly with
+        # the posted values and a 422, the same PRG-avoidance pattern R6 already uses for its
+        # own error case.
+        return render(
+            request,
+            "web/request_close.html",
+            {
+                "request_row": request_row,
+                "reasons": _close_reasons(request_row),
+                "preselected_reason": reason_code,
+                "prefilled_note": note,
+                "is_impersonating": ctx.is_impersonating,
+            },
+            status=422,
         )
 
-    reasons = list(presentation.CANCEL_REASON_LABELS.items())
-    if request_row.status != RequestStatus.NEEDS_PHONE_CHECK.value:
-        reasons = [
-            (code, label)
-            for code, label in reasons
-            if code != CancelReason.COULDNT_REACH_THEM.value
-        ]
+    # The L5 "Close this one as a duplicate..." link passes the matched request's id only
+    # (never its free text) -- this view resolves the display number itself so nothing a
+    # client sends ends up verbatim in the prefilled note.
+    prefilled_note = ""
+    duplicate_of = request.GET.get("duplicate_of", "")
+    if duplicate_of:
+        try:
+            duplicate_uuid = uuid.UUID(duplicate_of)
+        except ValueError:
+            duplicate_uuid = None
+        if duplicate_uuid is not None:
+            duplicate_row = get_request_by_id(ctx, duplicate_uuid)
+            if duplicate_row is not None:
+                prefilled_note = f"Same as {duplicate_row.display_number}"
+
     return render(
         request,
         "web/request_close.html",
         {
             "request_row": request_row,
-            "reasons": reasons,
+            "reasons": _close_reasons(request_row),
             "preselected_reason": request.GET.get("reason", ""),
-            "prefilled_note": request.GET.get("note", ""),
+            "prefilled_note": prefilled_note,
             "is_impersonating": ctx.is_impersonating,
         },
     )

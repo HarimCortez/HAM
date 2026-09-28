@@ -150,7 +150,10 @@ class TestFullEmailFlow:
         secure_url = resp.redirect_chain[-1][0]
         assert secure_url.startswith("/request-help/r/")
         assert b"HAM #" in resp.content
-        assert b"We've received your request" in resp.content
+        # FIX-C: the greeting/status now render through `status_sentence` (a template
+        # variable) on the welcome page too, not literal template text, so the apostrophe is
+        # HTML-escaped like everywhere else a variable renders it.
+        assert b"We&#x27;ve received your request" in resp.content
 
         # Drains the duplicate-check job `submit_request` deferred, so it doesn't leak into a
         # later test's `run_due_jobs_now()` call.

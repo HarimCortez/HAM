@@ -1,5 +1,5 @@
 {% extends "web/base.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Requests · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Requests{% endblock %}
@@ -17,28 +17,37 @@
     {% endfor %}
   </nav>
 
-  <form method="get" class="filter-bar" role="search">
-    <input type="hidden" name="tab" value="{{ active_tab }}">
-    <label for="id_q">Request number</label>
-    <input id="id_q" type="search" name="q" value="{{ q }}" placeholder="Request number">
-    <label for="id_category">Category</label>
-    <select id="id_category" name="category">
-      <option value="">All categories</option>
-      {% for code, label in category_choices %}
-        <option value="{{ code }}" {% if category == code %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    {% if active_tab == "all" %}
-      <label for="id_status">Status</label>
-      <select id="id_status" name="status">
-        <option value="">Any status</option>
-        {% for code, label in status_choices %}
-          <option value="{{ code }}" {% if status == code %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    {% endif %}
-    <button class="btn btn--secondary" type="submit">Filter</button>
-  </form>
+  <details class="filter-bar-sheet">
+    <summary class="filter-bar-sheet__trigger">Filters{% if category or status %} · {{ filter_count }}{% endif %}</summary>
+    <form method="get" class="filter-bar" role="search">
+      <input type="hidden" name="tab" value="{{ active_tab }}">
+      <div class="filter-bar__field filter-bar__field--search">
+        <label for="id_q">Request number</label>
+        <input id="id_q" type="search" name="q" value="{{ q }}" placeholder="Request number">
+      </div>
+      <div class="filter-bar__field">
+        <label for="id_category">Category</label>
+        <select id="id_category" name="category">
+          <option value="">All categories</option>
+          {% for code, label in category_choices %}
+            <option value="{{ code }}" {% if category == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if active_tab == "all" %}
+        <div class="filter-bar__field">
+          <label for="id_status">Status</label>
+          <select id="id_status" name="status">
+            <option value="">Any status</option>
+            {% for code, label in status_choices %}
+              <option value="{{ code }}" {% if status == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      <button class="btn btn--secondary filter-bar__submit" type="submit">Filter</button>
+    </form>
+  </details>
 
   <div class="list-detail">
     <div>
@@ -46,24 +55,25 @@
         <ul class="request-rows">
           {% for row in rows %}
             <li>
-              <a class="request-row" href="{% url 'web:request_detail' request_id=row.id %}?tab={{ active_tab }}"
+              <a class="request-row" data-request-id="{{ row.id }}"
+                 href="{% url 'web:request_detail' request_id=row.id %}?tab={{ active_tab }}"
                  {% if row.id|stringformat:"s" == selected_id %}aria-current="true"{% endif %}>
                 <span class="request-row__line1">
-                  {% if row.urgent_requested %}<span class="chip chip--danger">Urgent</span>{% endif %}
-                  {{ row.display_number }} &middot; {{ need_category_labels|get_item:row.need_category }}
+                  {% if row.urgent_requested %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
+                  <span class="request-row__number">{{ row.display_number }}</span> &middot; {{ need_category_labels|get_item:row.need_category }}
                 </span>
                 <span class="request-row__line2">
                   {% if active_tab == "phone_check" %}
-                    Saved {{ row.submitted_at|church_time }}
+                    <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">Saved {{ row.submitted_at|date:"M j" }} &middot; waiting {{ row.submitted_at|relative_age }}</time>
                   {% else %}
-                    <span class="chip chip--tag">{{ status_labels|get_item:row.status }}</span>
-                    {{ row.submitted_at|church_time }}
+                    <span class="chip chip--{{ status_tones|get_item:row.status }} chip--outline"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icons|get_item:row.status }}"></use></svg></span> {{ status_labels|get_item:row.status }}</span>
+                    <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">{{ row.submitted_at|relative_age }}</time>
                   {% endif %}
                 </span>
                 {% if row.has_possible_duplicate or active_tab == "phone_check" %}
                   <span class="request-row__markers">
-                    {% if row.has_possible_duplicate %}<span class="marker">Earlier request</span>{% endif %}
-                    {% if active_tab == "phone_check" %}<span class="marker marker--attention">Phone check needed</span>{% endif %}
+                    {% if row.has_possible_duplicate %}<span class="marker"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-copy"></use></svg> Earlier request</span>{% endif %}
+                    {% if active_tab == "phone_check" %}<span class="marker marker--attention"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-call"></use></svg> Phone check needed</span>{% endif %}
                   </span>
                 {% endif %}
               </a>
@@ -72,7 +82,7 @@
         </ul>
       {% else %}
         <div class="empty-state" aria-labelledby="requests-empty-title">
-          <h3 id="requests-empty-title">
+          <h2 id="requests-empty-title" class="type-h3">
             {% if q or category or status %}
               No requests match.
             {% elif active_tab == "phone_check" %}
@@ -82,16 +92,33 @@
             {% else %}
               No requests yet.
             {% endif %}
-          </h3>
+          </h2>
           {% if q or category or status %}<p><a href="?tab={{ active_tab }}">Clear filters</a></p>{% endif %}
         </div>
       {% endif %}
     </div>
 
     {% if selected %}
-      <div class="split-detail">
-        {% include "web/_request_detail.html" with detail=selected.detail request_row=selected.request_row contact_state=selected.contact_state updates_by=selected.updates_by source_label=selected.source_label need_category_label=selected.need_category_label status_label=selected.status_label status_tone=selected.status_tone property_type_label=selected.property_type_label relationship_label=selected.relationship_label cancel_reason_label=selected.cancel_reason_label gallery=selected.gallery matches=selected.matches history=selected.history can_view_history=selected.can_view_history can_cancel=selected.can_cancel can_verify_phone=selected.can_verify_phone can_reopen_media=selected.can_reopen_media revealed=selected.revealed is_director=selected.is_director standalone=False %}
+      <div class="split-detail" role="region" aria-label="{{ selected.detail.display_number }} details">
+        {% include "web/_request_detail.html" with detail=selected.detail request_row=selected.request_row contact_state=selected.contact_state updates_by=selected.updates_by source_label=selected.source_label need_category_label=selected.need_category_label status_label=selected.status_label status_tone=selected.status_tone status_icon=selected.status_icon property_type_label=selected.property_type_label relationship_label=selected.relationship_label cancel_reason_label=selected.cancel_reason_label gallery=selected.gallery hazards=selected.hazards availability_labels=selected.availability_labels can_view_matches=selected.can_view_matches matches=selected.matches newest_match_id=selected.newest_match_id history=selected.history can_view_history=selected.can_view_history can_cancel=selected.can_cancel can_verify_phone=selected.can_verify_phone can_reopen_media=selected.can_reopen_media has_email=selected.has_email revealed=selected.revealed is_director=selected.is_director standalone=False heading_tag="h3" %}
       </div>
     {% endif %}
   </div>
+
+  {# M12: at >=1280 a row click should update the split view, not leave it for the standalone
+     page. Progressive enhancement only -- every row's real href is the standalone page
+     (works with JS off, at any width, and is what "Back to Requests" returns to); this just
+     rewrites hrefs to the same list URL with `&id=` once we know we're at the split-view
+     width, so `aria-current`/scroll position/tabs/filters all stay intact. #}
+  <script>
+    (function () {
+      if (!window.matchMedia || !window.matchMedia("(min-width: 1280px)").matches) return;
+      var params = new URLSearchParams(window.location.search);
+      document.querySelectorAll(".request-row[data-request-id]").forEach(function (a) {
+        var next = new URLSearchParams(params);
+        next.set("id", a.getAttribute("data-request-id"));
+        a.setAttribute("href", "?" + next.toString());
+      });
+    })();
+  </script>
 {% endblock %}

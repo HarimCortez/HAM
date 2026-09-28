@@ -148,6 +148,28 @@ def notification_acknowledge(request, notification_id):
     return redirect(next_url)
 
 
+_NOTIFICATION_SUBJECT_URL_NAMES = {
+    "request": "web:request_detail",
+}
+
+
+@require_GET
+@requires_action("shell.use")
+def notification_open(request, notification_id):
+    """Usability M13: an Inbox "Updates" row is a link, not inert text -- opens the
+    notification's subject (marking it read on the way) instead of leaving the pastor to find
+    the request themselves on the Requests list."""
+    from ham.notifications.services import mark_read
+
+    notification = mark_read(request.actor, notification_id)
+    if notification is None:
+        return redirect("web:inbox")
+    url_name = _NOTIFICATION_SUBJECT_URL_NAMES.get(notification.subject_type)
+    if url_name is None:
+        return redirect("web:inbox")
+    return redirect(url_name, request_id=notification.subject_id)
+
+
 @require_GET
 @requires_action("shell.use")
 def admin_index(request):

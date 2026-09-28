@@ -20,8 +20,10 @@
           <h2 id="home-attention-title">Needs your attention</h2>
           <ul class="attention-list">
             {% for item in attention_items %}
-              <li class="attention-card{% if item.urgent %} attention-card--urgent{% endif %}{% if item.muted %} attention-card--muted{% endif %}">
-                {% if item.urgent %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg></span> Urgent</span>{% endif %}
+              <li class="attention-card{% if item.urgent and not item.muted %} attention-card--urgent{% endif %}{% if item.muted %} attention-card--muted{% endif %}">
+                {# M17: an awareness-only row is never actionable, so a danger chip on it
+                   sends a mixed signal -- Urgent only decorates rows someone can act on. #}
+                {% if item.urgent and not item.muted %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
                 <span class="attention-card__title">{{ item.title }}</span>
                 {% if item.muted %}
                   <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>

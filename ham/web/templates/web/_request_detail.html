@@ -10,9 +10,9 @@ its own page, h2 inside the list page).
   <div class="page-header">
     <div>
       {% if detail.urgent_requested %}
-        <span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg></span> Urgent</span>
+        <span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>
       {% endif %}
-      <span class="chip chip--{{ status_tone }}">{{ status_label }}</span>
+      <span class="chip chip--{{ status_tone }}"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icon }}"></use></svg></span> {{ status_label }}</span>
       {% if standalone %}
         <h1 id="request-detail-heading-{{ detail.id }}">{{ detail.display_number }} &middot; {{ need_category_label }}</h1>
       {% else %}
@@ -28,7 +28,12 @@ its own page, h2 inside the list page).
         <a class="btn btn--primary" href="{% url 'web:request_phone_check' request_id=detail.id %}">Record phone check</a>
       {% endif %}
       {% if can_reopen_media %}
-        <a class="btn btn--secondary" href="{% url 'web:request_more_photos' request_id=detail.id %}">Ask for more photos</a>
+        {% if has_email %}
+          <a class="btn btn--secondary" href="{% url 'web:request_more_photos' request_id=detail.id %}">Ask for more photos</a>
+        {% else %}
+          <span class="btn btn--secondary" aria-disabled="true">Ask for more photos</span>
+          <p class="text-secondary type-label">No email on file. We'll take photos at the visit.</p>
+        {% endif %}
       {% endif %}
       {% if can_cancel %}
         <a class="btn btn--secondary" href="{% url 'web:request_close' request_id=detail.id %}">Close request&hellip;</a>
@@ -50,53 +55,76 @@ its own page, h2 inside the list page).
     </div>
   {% endif %}
 
-  {% if matches %}
+  {% if can_view_matches and matches %}
+    {# L5 (M14): a collapsed disclosure, not an always-expanded stack of tall cards -- the
+       alert itself carries the "View" action that opens it in place. #}
     <section aria-labelledby="request-detail-dup-{{ detail.id }}">
       <div class="inline-alert inline-alert--info">
-        <h3 id="request-detail-dup-{{ detail.id }}">Earlier request found ({{ matches|length }})</h3>
-        <p>This doesn't rule anything out. Each request is looked at on its own.</p>
-      </div>
-      <ul class="duplicate-panel">
-        {% for m in matches %}
-          <li class="duplicate-panel__item">
-            <p><strong>{{ m.display_number }}</strong></p>
-            <p>
-              {% for reason in m.reasons %}<span class="chip chip--tag">{{ reason }}</span> {% endfor %}
-            </p>
-            <p class="text-secondary">
-              <span class="chip chip--{{ m.status_tone }}">{{ m.status_label }}</span>
-              {% if m.cancel_reason_label %} &middot; {{ m.cancel_reason_label }}{% endif %}
-            </p>
-            <a href="{% url 'web:request_detail' request_id=m.request_id %}">Open</a>
-            {% if can_cancel %}
-              &middot; <a href="{% url 'web:request_close' request_id=detail.id %}?reason=duplicate_submission&amp;note=Same as {{ m.display_number }}">Close this one as a duplicate&hellip;</a>
+        <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-copy"></use></svg></span>
+        <div>
+          <{{ heading_tag }} id="request-detail-dup-{{ detail.id }}">Earlier request found ({{ matches|length }})</{{ heading_tag }}>
+          <p>This doesn't rule anything out. Each request is looked at on its own.</p>
+          <details class="disclosure">
+            <summary>View</summary>
+            <ul class="duplicate-panel">
+              {% for m in matches %}
+                <li class="duplicate-panel__item">
+                  <p class="duplicate-panel__item-title">{{ m.display_number }} &middot; {{ m.need_category_label }} &middot; sent {{ m.submitted_at|church_time }}</p>
+                  <p>
+                    {% for reason in m.reasons %}<span class="chip chip--tag">{{ reason }}</span> {% endfor %}
+                  </p>
+                  <p class="text-secondary">
+                    <span class="chip chip--{{ m.status_tone }}">{{ m.status_label }}</span>
+                    {% if m.cancel_reason_label %} &middot; {{ m.cancel_reason_label }}{% endif %}
+                  </p>
+                  <a href="{% url 'web:request_detail' request_id=m.request_id %}">Open</a>
+                </li>
+              {% endfor %}
+            </ul>
+            {% if can_cancel and newest_match_id %}
+              <p><a href="{% url 'web:request_close' request_id=detail.id %}?reason=duplicate_submission&amp;duplicate_of={{ newest_match_id }}">Close this one as a duplicate&hellip;</a></p>
             {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
+          </details>
+        </div>
+      </div>
     </section>
   {% endif %}
 
   <section aria-labelledby="request-detail-need-{{ detail.id }}">
-    <h3 id="request-detail-need-{{ detail.id }}">What's needed</h3>
+    <{{ heading_tag }} id="request-detail-need-{{ detail.id }}">What's needed</{{ heading_tag }}>
     <p>{{ detail.description }}</p>
     {% if detail.urgent_requested %}<p class="text-secondary">Urgent: {{ detail.urgency_justification }}</p>{% endif %}
   </section>
 
   <section aria-labelledby="request-detail-safety-{{ detail.id }}">
-    <h3 id="request-detail-safety-{{ detail.id }}">Safety at the home</h3>
-    {% if detail.known_hazards %}
-      <p>{{ detail.known_hazards }}</p>
+    <{{ heading_tag }} id="request-detail-safety-{{ detail.id }}">Safety at the home</{{ heading_tag }}>
+    {% if hazards %}
+      <ul class="hazard-list">
+        {% for h in hazards %}
+          <li class="hazard-list__item">
+            {% if h.label %}
+              <svg width="20" height="20" aria-hidden="true" class="hazard-list__icon"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg>
+              <span>
+                <span class="type-label">{{ h.label }}</span>
+                {% if h.note %} &mdash; &ldquo;{{ h.note }}&rdquo;{% endif %}
+              </span>
+            {% else %}
+              <span class="text-secondary">&ldquo;{{ h.note }}&rdquo;</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
     {% else %}
-      <p class="text-secondary">None that they know of.</p>
+      <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-shield-check"></use></svg> None that they know of.</p>
     {% endif %}
   </section>
 
   <section aria-labelledby="request-detail-photos-{{ detail.id }}">
-    <h3 id="request-detail-photos-{{ detail.id }}">Photos ({{ gallery.counts.photos }})</h3>
+    <{{ heading_tag }} id="request-detail-photos-{{ detail.id }}">Photos ({{ gallery.counts.photos }})</{{ heading_tag }}>
     {% if detail.photo_count_only %}
-      <p class="text-secondary">{{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }} &middot; not shown to the Administrator role.</p>
+      <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-image-off"></use></svg> {{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }} &middot; not shown to the Administrator role.</p>
     {% elif gallery.items %}
+      {# FIX-B adds the read-only thumbnail gallery partial here. #}
       <ul class="request-row__markers">
         {% for item in gallery.items %}<li>{{ item.media_kind }} &middot; {{ item.status }}</li>{% endfor %}
       </ul>
@@ -106,7 +134,7 @@ its own page, h2 inside the list page).
   </section>
 
   <section aria-labelledby="request-detail-home-{{ detail.id }}">
-    <h3 id="request-detail-home-{{ detail.id }}">The home</h3>
+    <{{ heading_tag }} id="request-detail-home-{{ detail.id }}">The home</{{ heading_tag }}>
     <p>{{ relationship_label }} &middot; {{ property_type_label }}</p>
     {% if detail.relationship_to_property == "tenant" %}
       <div class="inline-alert inline-alert--info"><p>Landlord's written OK needed before work begins.</p></div>
@@ -114,12 +142,12 @@ its own page, h2 inside the list page).
   </section>
 
   <section aria-labelledby="request-detail-visits-{{ detail.id }}">
-    <h3 id="request-detail-visits-{{ detail.id }}">Visits and contact preference</h3>
-    <p>{{ detail.preferred_availability|default:"Not given" }} &middot; prefers {{ updates_by|lower }}</p>
+    <{{ heading_tag }} id="request-detail-visits-{{ detail.id }}">Visits and contact preference</{{ heading_tag }}>
+    <p>{% if availability_labels %}{{ availability_labels|join:", " }}{% else %}Not given{% endif %} &middot; prefers {{ updates_by|lower }}</p>
   </section>
 
   <section aria-labelledby="request-detail-contact-{{ detail.id }}">
-    <h3 id="request-detail-contact-{{ detail.id }}">Requester &amp; contact</h3>
+    <{{ heading_tag }} id="request-detail-contact-{{ detail.id }}">Requester &amp; contact</{{ heading_tag }}>
     {% if detail.is_masked_view %}
       <div class="masked-block">
         <p class="masked-block__note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Hidden &middot; Not shown to the Administrator role.</p>
@@ -129,7 +157,10 @@ its own page, h2 inside the list page).
       <div class="masked-block masked-block--revealed">
         <p class="masked-block__note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Leadership only{% if not is_director %} &middot; viewing is logged{% endif %}</p>
         <p>{{ revealed.full_name }}</p>
-        <p><a href="tel:{{ revealed.phone }}">{{ revealed.phone }}</a></p>
+        <p>
+          <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+          <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+        </p>
         {% if revealed.email %}<p><a href="mailto:{{ revealed.email }}">{{ revealed.email }}</a></p>{% endif %}
         <p>{{ revealed.line1 }}{% if revealed.line2 %}, {{ revealed.line2 }}{% endif %}, {{ revealed.city }}, {{ revealed.state }} {{ revealed.postal_code }}</p>
         {% if revealed.owner_name %}<p>Owner: {{ revealed.owner_name }}</p>{% endif %}
@@ -148,7 +179,7 @@ its own page, h2 inside the list page).
 
   {% if can_view_history and history %}
     <section aria-labelledby="request-detail-history-{{ detail.id }}">
-      <h3 id="request-detail-history-{{ detail.id }}">History</h3>
+      <{{ heading_tag }} id="request-detail-history-{{ detail.id }}">History</{{ heading_tag }}>
       <ul class="status-timeline">
         {% for entry in history %}
           <li>{{ entry.label }}{% if entry.actor %} &middot; {{ entry.actor }}{% endif %} &middot; {{ entry.occurred_at|church_time }}</li>

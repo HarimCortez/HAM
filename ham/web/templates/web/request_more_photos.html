@@ -29,6 +29,7 @@
           {{ max_photos }} more photos.
         </p>
         <div class="form-actions">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Ask for photos</button>
         </div>
       </form>

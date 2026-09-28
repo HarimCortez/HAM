@@ -21,14 +21,55 @@ _STATUS_WORDING: dict[str, str] = {
     "AWAITING_APPROVAL": "Our pastors or Board are reviewing your request.",
 }
 
+# C§26: the requester-facing chip word/tone/icon for each status this step shows (staff status
+# -> requester word, per the table in design-system/components.md C§26). Tone tokens are the
+# `.chip--<tone>` suffix; icon names are from `ham/web/static/web/icons.svg`.
+REQUESTER_STATUS_CHIPS: dict[str, tuple[str, str, str]] = {
+    "SUBMITTED": ("Received", "info", "inbox"),
+    "NEEDS_PHONE_CHECK": ("Received", "info", "inbox"),
+    "AWAITING_APPROVAL": ("Being reviewed", "info", "hourglass"),
+    "CANCELLED": ("Closed", "neutral", "ban"),
+}
+
+# usability M14: "What happens next" per status -- the welcome page (R7) and the plain secure
+# page (R10) share this list instead of R7 hard-coding its own and R10 having none at all.
+STATUS_NEXT_STEPS: dict[str, list[str]] = {
+    "SUBMITTED": [
+        "Our pastors or Board review your request, usually within a few days.",
+        "If it's approved, someone from HAM will call you to arrange a visit.",
+    ],
+    "NEEDS_PHONE_CHECK": [
+        "A HAM leader will call you to confirm it's you who asked.",
+        "After that call, our pastors or Board review your request.",
+    ],
+    "AWAITING_APPROVAL": [
+        "Our pastors or Board are looking at your request now.",
+        "If it's approved, someone from HAM will call you to arrange a visit.",
+    ],
+}
+
 # Q-107/Q-140: pre-decision cancel reasons, in the requester's own words (never "spam", which
-# gets no note at all per docs/ux/intake.md).
+# gets no note at all per docs/ux/intake.md). Usability M14: a duplicate close must not invite
+# a second copy of the same still-open request, so it gets its own closing line instead of the
+# generic "always welcome to submit a new request." every other reason keeps.
 _CANCEL_REASON_WORDING: dict[str, str] = {
     "spam": "",
     "requester_withdrew": "You let us know it wasn't needed anymore.",
-    "duplicate_submission": "It matched a request you'd already sent us.",
+    "duplicate_submission": (
+        "It matched a request you'd already sent us. Your other request is still open. If "
+        "that's not right, please call us."
+    ),
     "couldnt_reach": "We weren't able to reach you to confirm it.",
 }
+
+_ALWAYS_WELCOME = "You're always welcome to submit a new request."
+
+
+def cancel_reason_offers_new_request(cancel_reason: str | None) -> bool:
+    """Usability M14: "Ask for help again" only makes sense once someone actually confirms
+    they don't need HAM anymore -- not after a duplicate close (their other request is still
+    open, asking again would just make a second duplicate)."""
+    return cancel_reason == "requester_withdrew"
 
 
 def status_wording(status: str, *, cancel_reason: str | None = None) -> str:
@@ -38,7 +79,10 @@ def status_wording(status: str, *, cancel_reason: str | None = None) -> str:
     if status == "CANCELLED":
         reason_text = _CANCEL_REASON_WORDING.get(cancel_reason or "", "")
         base = "This request has been closed."
-        return f"{base} {reason_text}".strip() + " You're always welcome to submit a new request."
+        sentence = f"{base} {reason_text}".strip()
+        if cancel_reason != "duplicate_submission":
+            sentence = f"{sentence} {_ALWAYS_WELCOME}"
+        return sentence
     return _STATUS_WORDING.get(status, "")
 
 
@@ -101,6 +145,9 @@ def masked_contact(
 
 __all__ = [
     "MaskedContact",
+    "REQUESTER_STATUS_CHIPS",
+    "STATUS_NEXT_STEPS",
+    "cancel_reason_offers_new_request",
     "mask_email",
     "mask_phone",
     "mask_street",

@@ -157,3 +157,76 @@ def test_requester_screens(live_server, settings, tmp_path):
         context.close()
 
         browser.close()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requester_screens_200pct_text(live_server, settings, tmp_path):
+    """FIX-C (step 2 fix round): 390x844 with the root font-size doubled, to prove B1 (the
+    sticky action bar's Back relocation / no clipped primary) and B2 (no horizontal scroll on
+    long unbroken values) hold at 200% text, not only at 200% *page* zoom (which Playwright
+    can't drive directly -- `document.documentElement.style.fontSize` is the same "200% text"
+    condition S§0.2 describes: the browser's own text-size setting, independent of layout
+    zoom)."""
+    from playwright.sync_api import sync_playwright
+
+    settings.HAM_LOCAL_STORAGE_ROOT = str(tmp_path)
+    settings.HAM_OBJECT_STORE_BACKEND = "ham.integrations.storage.local.LocalObjectStore"
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(viewport={"width": 390, "height": 844})
+        page = context.new_page()
+        page.add_init_script("document.documentElement.style.fontSize = '200%';")
+
+        page.goto(f"{live_server.url}/request-help")
+        page.click("text=Start")
+        page.wait_for_url("**/request-help/step/need")
+        page.check("input[name=need_category][value=roof_or_ceiling]")
+        page.fill(
+            "#id_description",
+            "Water comes through the bedroom ceiling when it rains (visual QA seed data).",
+        )
+        page.click("text=Continue")
+        page.wait_for_url("**/request-help/step/home")
+
+        # R3 at 200% text: proves the fieldset reset (B3) restores the 2-column choice grid
+        # and the state "Change" control doesn't overflow.
+        page.check("input[name=relationship_to_property][value=owner]")
+        page.fill("#id_line1", "1400 NW Example Ave")
+        page.fill("#id_city", "Miami")
+        page.fill("#id_postal_code", "33125")
+        page.fill("#id_state", "FL")
+        page.check("input[name=property_type][value=house]")
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (
+            "R3 scrolls sideways at 200% text"
+        )
+        page.screenshot(path=str(OUT_DIR / "request-home-390-text200.png"), full_page=True)
+        page.click("text=Continue")
+        page.wait_for_url("**/request-help/step/safety")
+
+        page.check("input[name=hazards][value=none_known]")
+        page.click("text=Continue")
+        page.wait_for_url("**/request-help/step/reaching-you")
+
+        email = "qa-text200@example.org"
+        page.fill("#id_full_name", "Visual QA Requester")
+        page.fill("#id_phone", "(305) 555-0142")
+        page.fill("#id_email", email)
+        page.check("input[name=contact_preference][value=email]")
+        page.check("input[name=availability][value=any_time]")
+        page.click("text=Continue")
+        page.wait_for_url("**/request-help/step/review")
+
+        # R6 at 200% text: proves the action bar (B1) keeps Send reachable and the email/phone
+        # values (B2) wrap instead of forcing the page wider than the viewport.
+        page.check("input[name=attested_statements][value=owner_authority]")
+        page.check("input[name=attested_statements][value=responsibility]")
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (
+            "R6 scrolls sideways at 200% text"
+        )
+        page.screenshot(path=str(OUT_DIR / "request-review-390-text200.png"), full_page=True)
+
+        context.close()
+        browser.close()
