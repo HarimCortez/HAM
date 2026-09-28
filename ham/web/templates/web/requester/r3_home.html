@@ -17,9 +17,11 @@
   <form method="post" novalidate>
     {% csrf_token %}
 
-    <fieldset class="form-field{% if errors.relationship_to_property %} form-field--error{% endif %}">
+    <fieldset class="form-field{% if errors.relationship_to_property %} form-field--error{% endif %}"
+              id="id_relationship_to_property"
+              {% if errors.relationship_to_property %}aria-invalid="true" aria-describedby="id_relationship_to_property-error"{% endif %}>
       <legend>Whose home is it?</legend>
-      {% if errors.relationship_to_property %}<p class="form-field__error">{{ errors.relationship_to_property }}</p>{% endif %}
+      {% if errors.relationship_to_property %}<p class="form-field__error" id="id_relationship_to_property-error">{{ errors.relationship_to_property }}</p>{% endif %}
       <div class="choice-grid choice-grid--single">
         {% for value in relationship_choices %}
           <label class="choice-card">
@@ -36,18 +38,30 @@
       </div>
     </fieldset>
 
+    {% comment %}
+    FIX-D (usability M9 remainder): shown/required only for "It's a family member's home".
+    `#owner-name-field { display: none }` + the `:has()` rule in shell.css do the actual
+    showing/hiding, so this works with JS disabled too -- the `hidden` attribute here is only
+    a same-request fallback for the very first render of a fresh draft (no answer yet), and
+    the onchange above is a same-frame nicety once JS is available. Never authoritative: the
+    server still requires/accepts `owner_name` purely from the submitted relationship
+    (ham.requester_portal.forms.validate_intake_payload).
+    {% endcomment %}
     <div class="form-field{% if errors.owner_name %} form-field--error{% endif %}" id="owner-name-field"
          {% if payload.relationship_to_property != "authorized_family_member" %}hidden{% endif %}>
       <label for="id_owner_name">Owner's full name</label>
-      <p class="form-field__help">The person who owns the home.</p>
-      <input type="text" id="id_owner_name" name="owner_name" value="{{ payload.owner_name|default:'' }}">
-      {% if errors.owner_name %}<p class="form-field__error">{{ errors.owner_name }}</p>{% endif %}
+      <p class="form-field__help" id="id_owner_name-help">The person who owns the home.</p>
+      <input type="text" id="id_owner_name" name="owner_name" value="{{ payload.owner_name|default:'' }}"
+             aria-describedby="id_owner_name-help{% if errors.owner_name %} id_owner_name-error{% endif %}"
+             {% if errors.owner_name %}aria-invalid="true"{% endif %}>
+      {% if errors.owner_name %}<p class="form-field__error" id="id_owner_name-error">{{ errors.owner_name }}</p>{% endif %}
     </div>
 
     <div class="form-field{% if errors.line1 %} form-field--error{% endif %}">
       <label for="id_line1">Street address</label>
-      <input type="text" id="id_line1" name="line1" autocomplete="address-line1" value="{{ payload.line1|default:'' }}">
-      {% if errors.line1 %}<p class="form-field__error">{{ errors.line1 }}</p>{% endif %}
+      <input type="text" id="id_line1" name="line1" autocomplete="address-line1" value="{{ payload.line1|default:'' }}"
+             {% if errors.line1 %}aria-invalid="true" aria-describedby="id_line1-error"{% endif %}>
+      {% if errors.line1 %}<p class="form-field__error" id="id_line1-error">{{ errors.line1 }}</p>{% endif %}
     </div>
     <div class="form-field">
       <label for="id_line2">Apartment or unit <span class="form-field__optional">(optional)</span></label>
@@ -55,24 +69,29 @@
     </div>
     <div class="form-field{% if errors.city %} form-field--error{% endif %}">
       <label for="id_city">City</label>
-      <input type="text" id="id_city" name="city" autocomplete="address-level2" value="{{ payload.city|default:'' }}">
-      {% if errors.city %}<p class="form-field__error">{{ errors.city }}</p>{% endif %}
+      <input type="text" id="id_city" name="city" autocomplete="address-level2" value="{{ payload.city|default:'' }}"
+             {% if errors.city %}aria-invalid="true" aria-describedby="id_city-error"{% endif %}>
+      {% if errors.city %}<p class="form-field__error" id="id_city-error">{{ errors.city }}</p>{% endif %}
     </div>
     <div class="form-field{% if errors.postal_code %} form-field--error{% endif %}">
       <label for="id_postal_code">ZIP code</label>
       <input type="text" id="id_postal_code" name="postal_code" inputmode="numeric" autocomplete="postal-code"
-             value="{{ payload.postal_code|default:'' }}">
-      {% if errors.postal_code %}<p class="form-field__error">{{ errors.postal_code }}</p>{% endif %}
+             value="{{ payload.postal_code|default:'' }}"
+             {% if errors.postal_code %}aria-invalid="true" aria-describedby="id_postal_code-error"{% endif %}>
+      {% if errors.postal_code %}<p class="form-field__error" id="id_postal_code-error">{{ errors.postal_code }}</p>{% endif %}
     </div>
     <div class="form-field{% if errors.state %} form-field--error{% endif %}">
       <label for="id_state">State</label>
-      <input type="text" id="id_state" name="state" maxlength="2" value="{{ payload.state|default:'' }}">
-      {% if errors.state %}<p class="form-field__error">{{ errors.state }}</p>{% endif %}
+      <input type="text" id="id_state" name="state" maxlength="2" value="{{ payload.state|default:'' }}"
+             {% if errors.state %}aria-invalid="true" aria-describedby="id_state-error"{% endif %}>
+      {% if errors.state %}<p class="form-field__error" id="id_state-error">{{ errors.state }}</p>{% endif %}
     </div>
 
-    <fieldset class="form-field{% if errors.property_type %} form-field--error{% endif %}">
+    <fieldset class="form-field{% if errors.property_type %} form-field--error{% endif %}"
+              id="id_property_type"
+              {% if errors.property_type %}aria-invalid="true" aria-describedby="id_property_type-error"{% endif %}>
       <legend>Type of home</legend>
-      {% if errors.property_type %}<p class="form-field__error">{{ errors.property_type }}</p>{% endif %}
+      {% if errors.property_type %}<p class="form-field__error" id="id_property_type-error">{{ errors.property_type }}</p>{% endif %}
       <div class="choice-grid">
         {% for value in property_type_choices %}
           <label class="choice-card">
@@ -91,4 +110,6 @@
       </div>
     </div>
   </form>
+
+  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

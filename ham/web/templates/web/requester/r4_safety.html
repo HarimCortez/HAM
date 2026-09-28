@@ -16,9 +16,11 @@
 
   <form method="post" novalidate>
     {% csrf_token %}
-    <fieldset class="form-field{% if errors.hazards %} form-field--error{% endif %}">
-      <legend class="visually-hidden">Hazards</legend>
-      {% if errors.hazards %}<p class="form-field__error" id="id_hazards">{{ errors.hazards }}</p>{% endif %}
+    <fieldset class="form-field{% if errors.hazards %} form-field--error{% endif %}"
+              id="id_hazards"
+              {% if errors.hazards %}aria-invalid="true" aria-describedby="id_hazards-error"{% endif %}>
+      <legend>Choose at least one, or &ldquo;None that I know of.&rdquo;</legend>
+      {% if errors.hazards %}<p class="form-field__error" id="id_hazards-error">{{ errors.hazards }}</p>{% endif %}
       <div class="choice-grid" id="hazard-grid">
         {% for value in hazard_choices %}
           <label class="choice-card">
@@ -41,8 +43,9 @@
     <div class="form-field{% if errors.hazard_note %} form-field--error{% endif %}" id="hazard-note-field"
          {% if not payload.hazards or "none_known" in payload.hazards %}hidden{% endif %}>
       <label for="id_hazard_note">Tell us more <span class="form-field__optional">(optional)</span></label>
-      <textarea id="id_hazard_note" name="hazard_note" rows="2">{{ payload.hazard_note|default:"" }}</textarea>
-      {% if errors.hazard_note %}<p class="form-field__error">{{ errors.hazard_note }}</p>{% endif %}
+      <textarea id="id_hazard_note" name="hazard_note" rows="2"
+                {% if errors.hazard_note %}aria-invalid="true" aria-describedby="id_hazard_note-error"{% endif %}>{{ payload.hazard_note|default:"" }}</textarea>
+      {% if errors.hazard_note %}<p class="form-field__error" id="id_hazard_note-error">{{ errors.hazard_note }}</p>{% endif %}
     </div>
 
     <div class="action-bar">
@@ -52,4 +55,6 @@
       </div>
     </div>
   </form>
+
+  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends "web/base_public.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Reaching you &middot; {{ church.short_name }} HAM{% endblock %}
 
@@ -18,30 +18,35 @@
 
     <div class="form-field{% if errors.full_name %} form-field--error{% endif %}">
       <label for="id_full_name">Your name</label>
-      <input type="text" id="id_full_name" name="full_name" autocomplete="name" value="{{ payload.full_name|default:'' }}">
-      {% if errors.full_name %}<p class="form-field__error">{{ errors.full_name }}</p>{% endif %}
+      <input type="text" id="id_full_name" name="full_name" autocomplete="name" value="{{ payload.full_name|default:'' }}"
+             {% if errors.full_name %}aria-invalid="true" aria-describedby="id_full_name-error"{% endif %}>
+      {% if errors.full_name %}<p class="form-field__error" id="id_full_name-error">{{ errors.full_name }}</p>{% endif %}
     </div>
 
     <div class="form-field{% if errors.phone %} form-field--error{% endif %}">
       <label for="id_phone">Phone number</label>
-      <p class="form-field__help">A mobile number is best, but any number where we can reach you works.</p>
-      <input type="tel" id="id_phone" name="phone" autocomplete="tel" value="{{ payload.phone|default:'' }}">
-      {% if errors.phone %}<p class="form-field__error">{{ errors.phone }}</p>{% endif %}
+      <p class="form-field__help" id="id_phone-help">A mobile number is best, but any number where we can reach you works.</p>
+      <input type="tel" id="id_phone" name="phone" autocomplete="tel" value="{{ payload.phone|default:'' }}"
+             aria-describedby="id_phone-help{% if errors.phone %} id_phone-error{% endif %}"
+             {% if errors.phone %}aria-invalid="true"{% endif %}>
+      {% if errors.phone %}<p class="form-field__error" id="id_phone-error">{{ errors.phone }}</p>{% endif %}
     </div>
 
     <div class="form-field{% if errors.email %} form-field--error{% endif %}" id="email-field"
          {% if payload.no_email %}hidden{% endif %}>
       <label for="id_email">Email</label>
-      <p class="form-field__help">We'll email you a code to confirm it's you, then send updates
+      <p class="form-field__help" id="id_email-help">We'll email you a code to confirm it's you, then send updates
         and a link to check on your request.</p>
-      <input type="email" id="id_email" name="email" autocomplete="email" value="{{ payload.email|default:'' }}">
-      {% if errors.email %}<p class="form-field__error">{{ errors.email }}</p>{% endif %}
+      <input type="email" id="id_email" name="email" autocomplete="email" value="{{ payload.email|default:'' }}"
+             aria-describedby="id_email-help{% if errors.email %} id_email-error{% endif %}"
+             {% if errors.email %}aria-invalid="true"{% endif %}>
+      {% if errors.email %}<p class="form-field__error" id="id_email-error">{{ errors.email }}</p>{% endif %}
     </div>
 
     <label class="choice-card">
       <input type="checkbox" name="no_email" value="1" id="id_no_email"
              {% if payload.no_email %}checked{% endif %}
-             onchange="document.getElementById('email-field').hidden = this.checked; document.getElementById('no-email-note').hidden = !this.checked; document.getElementById('contact-pref-fieldset').hidden = this.checked;">
+             onchange="document.getElementById('email-field').hidden = this.checked; document.getElementById('no-email-note').hidden = !this.checked; document.getElementById('id_contact_preference').hidden = this.checked; document.getElementById('contact-pref-locked').hidden = !this.checked; if (this.checked) { var r = document.querySelector('input[name=contact_preference][value=phone_call]'); if (r) { r.checked = true; } }">
       <span>I don't use email</span>
     </label>
 
@@ -50,10 +55,19 @@
         We'll keep you updated by phone and take any photos we need when we visit.</p>
     </div>
 
+    {% comment %}
+    FIX-D (visual M4 remainder / usability M9): "I don't use email" doesn't remove this group
+    -- it's replaced by a locked, read-only card so the answer stays visible. The server
+    always forces `contact_preference = phone_call` when `no_email` is set
+    (ham.requester_portal.forms.validate_intake_payload), whatever radio value (if any) gets
+    submitted alongside it, so this is presentation only, not the source of truth.
+    {% endcomment %}
     <fieldset class="form-field{% if errors.contact_preference %} form-field--error{% endif %}"
-              id="contact-pref-fieldset" {% if payload.no_email %}hidden{% endif %}>
+              id="id_contact_preference" {% if payload.no_email %}hidden{% endif %}
+              {% if errors.contact_preference %}aria-invalid="true" aria-describedby="id_contact_preference-error"{% endif %}>
       <legend>How should we contact you?</legend>
-      {% if errors.contact_preference %}<p class="form-field__error">{{ errors.contact_preference }}</p>{% endif %}
+      <p class="form-field__help">HAM's automatic messages always come by email.</p>
+      {% if errors.contact_preference %}<p class="form-field__error" id="id_contact_preference-error">{{ errors.contact_preference }}</p>{% endif %}
       <div class="choice-grid">
         {% for value in contact_preference_choices %}
           <label class="choice-card">
@@ -65,9 +79,16 @@
       </div>
     </fieldset>
 
-    <fieldset class="form-field{% if errors.availability %} form-field--error{% endif %}">
+    <div class="choice-card choice-card--locked" id="contact-pref-locked" {% if not payload.no_email %}hidden{% endif %}>
+      <svg class="choice-card__icon" width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg>
+      <span>Phone call<br><span class="text-secondary">We'll call you</span></span>
+    </div>
+
+    <fieldset class="form-field{% if errors.availability %} form-field--error{% endif %}"
+              id="id_availability"
+              {% if errors.availability %}aria-invalid="true" aria-describedby="id_availability-error"{% endif %}>
       <legend>When could someone visit?</legend>
-      {% if errors.availability %}<p class="form-field__error">{{ errors.availability }}</p>{% endif %}
+      {% if errors.availability %}<p class="form-field__error" id="id_availability-error">{{ errors.availability }}</p>{% endif %}
       <div class="choice-chip-group">
         {% for value, label in weekday_choices %}
           <label class="choice-chip">
@@ -106,4 +127,6 @@
       </div>
     </div>
   </form>
+
+  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

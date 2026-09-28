@@ -172,6 +172,85 @@
   R5 "I don't use email" not locking the contact-preference group, per-request urgent Home
   cards (see above).
 
+## Step 2 (Intake) fix round FIX-D (leftover Majors from FIX-C's visual/UX reports)
+- **`{# ... #}` is a single-line Django comment tag.** The tokenizer regex is `{#.*?#}`
+  *without* `re.DOTALL`, so `.` never matches `\n` — a `{# #}` comment that spans more than one
+  physical line is never recognized as a tag at all, and the literal comment text (including
+  internal dev notes) renders straight into the page. This was already present in several
+  templates from earlier fix rounds (`home.html`, `requests_list.html`, `_request_detail.html`,
+  `_error_summary.html`, `r6_review.html`, `r9_photos.html`, `r10_secure_page.html` — the R10
+  one put a stray paragraph of dev notes right above the real `<h1>`) and I reintroduced it
+  twice myself before catching it. Always use the block form for anything that doesn't fit one
+  line: `{% comment %}...{% endcomment %}`. `tests/web/test_fix_d_no_leaking_template_comments
+  .py` now scans every template in `ham/` for this pattern so it can't regress silently again.
+- **M2 remainder (secondary links/Back/Resend/Start over below the sticky bar):** fixed by
+  moving the secondary `<form>` (Start over, Resend) to live *outside* the primary `<form>`,
+  with the button living inside `.action-bar__inner`/`.form-actions` via `form="<id>"` (a
+  submit button's `form=` attribute overrides which `<form>` it submits, regardless of DOM
+  nesting) — R1, R2, R8. Other secondary content (R1's "Already asked"/"Prefer to talk" links)
+  just needed reordering above the form in the template; wrapped in `.public-card__links` (new,
+  `shell.css`) for consistent spacing, not a new component.
+- **R3 "Owner's full name" / R5 "I don't use email" locking contact preference:** both are
+  progressive enhancement done with CSS `:has()`, not JS-only — `#owner-name-field { display:
+  none } fieldset:has(input[value="authorized_family_member"]:checked) + #owner-name-field {
+  display: block }` in shell.css. R5's lock instead swaps a `.choice-card--locked` (new
+  modifier: `bg.sunken`, dashed border, non-interactive) in for the fieldset via the existing
+  JS pattern (matches R2/R4's precedent for reveal groups) since the real enforcement is
+  already 100% server-side (`ham.requester_portal.forms.validate_intake_payload` always forces
+  `contact_preference = phone_call` when `no_email` is set, regardless of what's posted) — the
+  UI only needed to *look* locked, not actually block a value from being submitted.
+- **Per-field `aria-invalid`/`aria-describedby` + error-summary anchors (R2-R5):** every
+  fieldset that can error now has `id="id_<field>"` (some, like R4's hazards or R5's contact
+  preference, previously had no id or a different one — `_error_summary.html`'s generic
+  `href="#id_{{field}}"` link depends on that id existing verbatim); help/error `<p>`s got
+  matching `id="id_<field>-help"`/`-error"` ids referenced from the input's
+  `aria-describedby`. R6 is the one step that *doesn't* use `#id_<field>` anchors (the field
+  isn't on the review page) — it already had its own `review_errors` → step Edit-URL scheme
+  from FIX-C; left that alone.
+- **Wizard desktop 2-column (visual M9 remainder), no real spec-matched step rail:** `base_
+  public.html` grew one new hook, `{% block card_modifier %}` on the `.public-card` div, so a
+  template can opt into a modifier class without editing the shared shell. `.public-card:has(>
+  .wizard-aside)` becomes a `size.wizard-max` 2-column grid at >=1280 (all direct children
+  except the aside forced to `grid-column: 1`, since CSS Grid's default auto-placement would
+  otherwise scatter them across both columns) — R1-R5 and R9 each `{% include "web/requester/
+  _wizard_aside.html" %}` after their form, with `aside_heading`/`aside_body` context set in
+  `views_requester.py`'s `_STEP_ASIDE` map (`_step_context` looks it up per step). R6 has no
+  aside by design (per spec); instead `public-card--review` widens the card to `wizard-max`
+  and `.summary-card-grid` turns the 4 summary cards 2x2. R7/R10 (`r10_secure_page.html`) got
+  its own, different 2-column treatment (`size.requester-wide-max`, `3fr 2fr`,
+  `public-card--request-status`/`.request-status-grid`) since that page has no aside at all —
+  don't reuse `.wizard-aside`'s grid rules for it. The step rail itself was *not* built (an
+  accepted simplification per both visual QA passes).
+- **Home attention cards, one per urgent+actionable request (visual M17 remainder):**
+  `ham.requests.attention.awaiting_approval_cards` (renamed from the old singular
+  `awaiting_approval_card`) now returns a list: one `AttentionCard` per urgent request in
+  `AWAITING_APPROVAL` (title `"{display_number} · {need_category_label}"`, `href=
+  "/requests/<uuid>"` straight to that request, PII-free per Q-132) for Pastor/Board rep, plus
+  one aggregate card for the rest ("N requests are/is waiting for a decision"). Director/AD's
+  muted awareness row stays a single card and is now *never* urgent-flagged (no more danger
+  chip on a non-actionable row) — the home.html template's chip logic (`item.urgent and not
+  item.muted`) was already correct; the bug was the provider always setting `urgent=True` on
+  the shared aggregate regardless of `muted`. No `AttentionItem`/`AttentionCard` shape change
+  was needed — `title`/`url`/`urgent`/`muted` already supported this; only how many cards a
+  provider returns, and what it puts in each one's `href`.
+- **Shared `.filter-bar` (M16) on `audit_log_list.html`:** wrapped each bare `<label>`+
+  `<select>`/`<input>` pair in its own `.filter-bar__field` (same fix L1's requests list
+  already had), since `.filter-bar select, .filter-bar input { width: 100% }` at <768 was
+  forcing every bare control full width with no wrapper to keep its label attached, separating
+  them onto different rows. `admin_users_list.html` did **not** need the same treatment — its
+  labels are `.visually-hidden`, so there was nothing visible to separate in the first place;
+  confirmed with a test rather than changed.
+- **Test DB transaction gotcha, take 2:** a *new* test file marked `pytest.mark.django_db(
+  transaction=True)` that drives the requester wizard through a review-step POST (which defers
+  a "send verification code" Procrastinate job) without ever draining that job will leak an
+  undrained `status='todo'` row into whatever `run_due_jobs_now()` call happens to run next in
+  the same pytest process — even in a completely unrelated test file — and that test then sees
+  an extra, unexpected email in `mail.outbox`. If a new view-level test doesn't specifically
+  need `transaction=True` (real cross-request session/cookie continuity works fine under the
+  default rollback-per-test `django_db` marker — `transaction=True` is only for tests that
+  themselves call `run_due_jobs_now()`/need Procrastinate to see committed rows), just use
+  plain `@pytest.mark.django_db`; it rolls back and nothing leaks.
+
 ## Known open item (handed back, not fixed)
 - Audit log at >=1280 (visual QA M3): chose fix option (b) — dropped the `.list-detail`
   wrapper so the table fills the width — over building a real split-pane detail view (option

@@ -97,6 +97,26 @@ _STEP_FIELDS: dict[str, set[str]] = {
     STEP_REVIEW: {"attested_statements"},
 }
 
+# FIX-D (visual M9): the >=1280 wizard "Good to know" aside (design-system/screens/intake.md
+# S§1.2) for each step. R6 has none by design (its form card spans the aside column instead,
+# see r6_review.html's `public-card--review` modifier), so it's absent from this map on
+# purpose, not an oversight.
+_STEP_ASIDE: dict[str, tuple[str, list[str]]] = {
+    STEP_NEED: ("Good to know", ["Big or small, tell us. There's no job too small to ask about."]),
+    STEP_HOME: (
+        "Good to know",
+        ["Filling this in for someone else? Answer for them — we'll contact you about it."],
+    ),
+    STEP_SAFETY: (
+        "Why we ask",
+        ["This keeps everyone safe, including you. It won't stop us from helping."],
+    ),
+    STEP_REACHING_YOU: (
+        "Good to know",
+        ["We'll only use this to reach you about this request and to arrange a visit."],
+    ),
+}
+
 _STEP_LABELS: dict[str, str] = {
     STEP_NEED: "Your need",
     STEP_HOME: "The home",
@@ -196,6 +216,8 @@ def request_help_start(request: HttpRequest) -> HttpResponse:
     has_resume = draft_id is not None and drafts.draft_exists_and_live(draft_id)
     context = _base_context(request)
     context["has_resume"] = has_resume
+    context["aside_heading"] = "What happens after you ask"
+    context["aside_body"] = projection.STATUS_NEXT_STEPS["SUBMITTED"]
     return render(request, "web/requester/r1_start.html", context)
 
 
@@ -387,6 +409,9 @@ def _step_context(
             "availability_labels": _availability_labels(church),
         }
     )
+    aside = _STEP_ASIDE.get(step)
+    if aside is not None:
+        context["aside_heading"], context["aside_body"] = aside
     return context
 
 
@@ -844,6 +869,11 @@ def request_help_photos(request: HttpRequest, token: str) -> HttpResponse:
             "video_types": ",".join(RULES.media.REQUESTER_VIDEO_TYPES),
             "reserve_url": reverse("web:request_help_media_reserve", kwargs={"token": token}),
             "secure_page_url": reverse("web:request_help_secure_page", kwargs={"token": token}),
+            "aside_heading": "Good to know",
+            "aside_body": [
+                "Only the people handling your request will see these.",
+                "You can add more later if you need to.",
+            ],
         }
     )
     return render(request, "web/requester/r9_photos.html", context)

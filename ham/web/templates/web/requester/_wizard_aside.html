@@ -1,0 +1,20 @@
+{% comment %}
+FIX-D (visual M9): the "Good to know" aside for the wizard (R1-R6, R9) at >=1280
+(design-system/screens/intake.md S§1.2). A direct child of `.public-card`, styled by
+`.wizard-aside` in shell.css (`.public-card:has(> .wizard-aside)` switches the card to a
+2-column grid at >=1280; the step rail is intentionally not built, per the visual QA "Minimum
+to accept" note). Context: aside_heading (str), aside_body (safe-ish list of plain strings,
+rendered as short paragraphs), church.
+{% endcomment %}
+<aside class="wizard-aside" aria-label="Good to know">
+  <h2 class="type-h3">{{ aside_heading }}</h2>
+  {% for line in aside_body %}<p>{{ line }}</p>{% endfor %}
+  {% if church.phone or church.email %}
+    <p class="text-secondary">
+      Prefer to talk?
+      {% if church.phone %}<a href="tel:{{ church.phone }}">Call {{ church.phone }}</a>{% endif %}
+      {% if church.phone and church.email %}&middot;{% endif %}
+      {% if church.email %}<a href="mailto:{{ church.email }}">{{ church.email }}</a>{% endif %}
+    </p>
+  {% endif %}
+</aside>
