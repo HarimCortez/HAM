@@ -3,7 +3,7 @@
 {% block title %}Confirm it's you · {{ church.short_name }} HAM{% endblock %}
 
 {% block public_content %}
-  <h2>Confirm it's you</h2>
+  <h1>Confirm it's you</h1>
   <p>Before {{ label }}, enter the code from your authenticator app.</p>
 
   {% if error %}
@@ -21,7 +21,7 @@
     </div>
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Confirm</button>
-      <button class="btn btn--secondary" type="submit" name="cancel" value="1">Cancel</button>
+      <button class="btn btn--ghost" type="submit" name="cancel" value="1">Cancel</button>
     </div>
   </form>
   <p>Lost your phone? You can type a recovery code in the same box instead.</p>

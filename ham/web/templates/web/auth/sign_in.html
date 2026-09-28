@@ -24,7 +24,7 @@
   </form>
 
   <p class="text-secondary">
-    Asked HAM for help with your home? You don't need to sign in. Use the link we emailed you,
-    or call {{ church.phone }}.
+    Asked HAM for help with your home? You don't need to sign in. Use the link we emailed
+    you{% if church.phone %}, or call {{ church.phone }}{% endif %}.
   </p>
 {% endblock %}
