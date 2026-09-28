@@ -142,3 +142,24 @@ New findings, fixed in FIX-G:
   - a find-path timing difference;
   - the intake cooldown is keyed by email only;
   - one flaky test file.
+
+## Confirmation at `b76a637` (after FIX-G)
+
+**Fixed (all proofs of concept re-run):**
+- **NH1:** a session-only browser gets no HAM # and no link, and no path decrypts the token to show it.
+- **NM1:** find sends a one-time link. The access link is issued and revoked only on the POST, and the audit records `email_link` plus the challenge id.
+- **Cooldown Low:** the intake cooldown is now keyed by email and draft.
+- **Flaky test:** the suite passed three times in a row.
+
+**New code reviewed and OK:**
+- the leadership media viewer: masked, scoped, no-store;
+- the find challenge: 15 minutes, single use, and rate-capped per request and per address;
+- the R11b honeypot and minimum fill time.
+
+**Critical, High and Medium:** none.
+
+**Open Lows (follow-ups):**
+- The find-path timing difference: move the work into a job.
+- **N-L1:** `consume_link` doesn't check `purpose`.
+- **N-L2:** a find link doesn't re-check the email on file when it is clicked.
+- **N-L3:** sibling find challenges aren't invalidated when one is consumed.
