@@ -18,6 +18,11 @@ dependencies = [
   "uuid6>=2024.7.10",
   # Duplicate matching phone keys (ham/requests/matching.py, Q-115). Pure library, no I/O.
   "phonenumbers>=8.13",
+  # S2.4a object storage adapter: R2/S3-compatible presigned URLs (ham/integrations/storage).
+  "boto3>=1.34",
+  # S2.4b media processing job: re-encode + strip metadata (ham/media/processing.py, Q-120).
+  "pillow>=11.0",
+  "pillow-heif>=0.18",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +31,9 @@ dev = [
   "pytest-django>=4.9",
   "factory-boy>=3.3",
   "time-machine>=2.16",
+  # Test-only: builds a JPEG with real GPS/EXIF tags so tests/media/test_processing.py can
+  # prove ham.media.processing actually strips them (Q-120), not just that it doesn't crash.
+  "piexif>=1.1",
   "ruff>=0.7",
   "mypy>=1.13",
   "django-stubs[compatible-mypy]>=5.1",

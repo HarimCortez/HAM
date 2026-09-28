@@ -87,6 +87,59 @@ make dev-db      # first time: initdb + start + createdb
 make dev-db-stop # pg_ctl stop
 ```
 
+## Object storage (S2.4a: requester media uploads, PRD §45, §69)
+
+Dev/test default to the local-filesystem adapter (`HAM_OBJECT_STORE_BACKEND` defaults to
+`ham.integrations.storage.local.LocalObjectStore`; files live under `HAM_LOCAL_STORAGE_ROOT`,
+default `var/object_storage/`, gitignored). Nothing to configure for `make run`/`make test`.
+
+Production uses Cloudflare R2 (S3-compatible). Set:
+
+```
+HAM_OBJECT_STORE_BACKEND=ham.integrations.storage.s3.R2ObjectStore
+HAM_S3_BUCKET=<bucket name>
+HAM_S3_ENDPOINT_URL=https://<account id>.r2.cloudflarestorage.com
+HAM_S3_REGION=auto
+HAM_S3_ACCESS_KEY_ID=<R2 access key id, from the secret store>
+HAM_S3_SECRET_ACCESS_KEY=<R2 secret access key, from the secret store>
+```
+
+### Bucket setup runbook (one-time, per environment)
+
+1. **Create the bucket** in the Cloudflare dashboard (R2 → Create bucket). One bucket per
+   environment (e.g. `ham-media-prod`); never share a bucket between prod and a staging/dev
+   deployment.
+2. **CORS**, so a requester's browser can PUT directly to a presigned URL from
+   `HAM_BASE_URL`'s origin (`ham.media`'s upload flow, S2.7's client-side upload module):
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://<your HAM_BASE_URL host>"],
+       "AllowedMethods": ["PUT", "GET"],
+       "AllowedHeaders": ["content-type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+   Do not use `"AllowedOrigins": ["*"]` in production — that would let any site's script
+   upload to a presigned URL a HAM user's browser was handed (the URL itself is still
+   short-lived and single-key, but CORS is a second, free layer of defense).
+3. **Lifecycle rule**: delete objects under `quarantine/` (the original, pre-processing
+   upload — `ham.media`'s processing job deletes these itself once re-encoding finishes, Q-120
+   "delete originals, serve only HAM-made copies") after **2 days** if the job never ran (a
+   stuck/crashed worker, or a reservation that was never completed) — a safety net, not the
+   primary deletion path. Add a bucket lifecycle rule scoped to the `quarantine/` prefix,
+   "Expire objects", 2 days. Do not add a lifecycle rule under the `media/` prefix (processed,
+   served derivatives) — their retention is `ham.media`'s own retention-sweep job (§47,
+   Q-128), driven by request/project state, not a fixed bucket-wide clock.
+4. **No public bucket access.** Every read goes through `presign_get` (short-lived, per-key);
+   there is no "public bucket" or CDN mapping in V1 (§48 public-use consent is deferred,
+   CLAUDE.md scope).
+5. **Access keys**: create one R2 API token scoped to *only* this bucket (Object Read & Write),
+   not an account-wide token. Store `HAM_S3_ACCESS_KEY_ID`/`HAM_S3_SECRET_ACCESS_KEY` in
+   Render's secret store, never in `render.yaml` or committed anywhere (CLAUDE.md "secrets
+   come from environment variables").
+
 ## Common commands
 
 See the Makefile: `make install`, `make migrate`, `make run`, `make worker`, `make test`,

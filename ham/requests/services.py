@@ -42,3 +42,25 @@ def submit_request(
     - Raises `NotImplementedError` until S2.2 lands.
     """
     raise NotImplementedError("S2.2 implements ham.requests.services.submit_request")
+
+
+def is_request_open(request_id: UUID) -> bool:
+    """PLACEHOLDER, built against `ham.requests.models`' placeholder model (see that file's
+    docstring) — S2.4b (`ham.media`) needs this to enforce "no upload after the request is
+    decided/closed" (intake.md §4 "Batch: open -> closed ... request decided in step 3, or
+    request closed") without importing `ham.media` back into `ham.requests` (intake.md §2 "a
+    module calls another only through its services.py ... media asks requests.services
+    whether a request is open. requests never imports media.").
+
+    **Orchestrator: replace this with S2.2's real implementation** (it likely already has an
+    equivalent notion of "is this request past a terminal/decided state", probably keyed off
+    `RequestStatus` rather than a bare `closed_at`, once step 3's APPROVED/REJECTED states are
+    reachable) when merging S2.2 and S2.4b.
+    """
+    from .models import AssistanceRequest
+
+    try:
+        request = AssistanceRequest.objects.only("closed_at").get(id=request_id)
+    except AssistanceRequest.DoesNotExist:
+        return False
+    return request.closed_at is None

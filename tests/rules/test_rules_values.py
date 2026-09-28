@@ -14,6 +14,7 @@ from ham.rules import RULES, CalendarYears, Pending, iter_rules
 H = lambda n: timedelta(hours=n)  # noqa: E731
 D = lambda n: timedelta(days=n)  # noqa: E731
 M = lambda n: timedelta(minutes=n)  # noqa: E731
+S = lambda n: timedelta(seconds=n)  # noqa: E731
 
 EXPECTED = {
     # Staffing (§28–§32, §76)
@@ -88,6 +89,9 @@ EXPECTED = {
         "image/webp",
     ),
     "media.REQUESTER_VIDEO_TYPES": ("video/mp4", "video/quicktime"),
+    "media.MEDIA_UPLOAD_INTENT_LIFETIME": H(1),  # architecture plan §9
+    "media.PRESIGNED_UPLOAD_URL_LIFETIME": M(15),  # architecture plan §9
+    "media.PRESIGNED_VIEW_URL_LIFETIME": S(60),  # architecture plan §9
     # Retention (§41, §42, §56, §58)
     "retention.AUDIT_RETENTION": CalendarYears(1),  # Q-036
     "retention.INCIDENT_RETENTION": CalendarYears(7),
