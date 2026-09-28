@@ -29,6 +29,7 @@ class RequesterPortalConfig(AppConfig):
 
         from . import (
             jobs,  # noqa: F401
+            notifications,
             services,
         )
 
@@ -39,3 +40,7 @@ class RequesterPortalConfig(AppConfig):
         services.register_request_facts_lookup(_facts_lookup)
         services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
         services.register_email_to_request_ids_lookup(requests_queries.request_ids_for_portal_email)
+
+        # S2.6 (intake.md §6, docs/ux/intake.md §7): requester email builders (E2/E2u, E3, E5,
+        # E6, E7), registered onto the shared email subscriber.
+        notifications.register()
