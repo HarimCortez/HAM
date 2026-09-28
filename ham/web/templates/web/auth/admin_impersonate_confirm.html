@@ -1,0 +1,36 @@
+{% extends "web/base.html" %}
+
+{% block title %}Troubleshoot as {{ target.profile.full_name|default:target.email }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Troubleshoot as someone else{% endblock %}
+
+{% block content %}
+  <section class="sheet" aria-labelledby="impersonate-title">
+    <h2 id="impersonate-title">
+      Troubleshoot as {{ target.profile.full_name|default:target.email }}?
+    </h2>
+    <p>
+      You'll see HAM exactly as they do. Everything you do is recorded as you acting as them.
+    </p>
+    <p class="text-secondary">
+      While you're acting as them you can't: change roles or permissions, reset two-step
+      sign-in, export the audit log, accept their agreements or give consent for them, or
+      start another troubleshooting session.
+    </p>
+
+    {% if error %}
+      <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-field">
+        <label for="id_reason">Reason</label>
+        <input type="text" name="reason" id="id_reason" required minlength="5">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit">Start troubleshooting</button>
+        <a class="btn btn--secondary" href="{% url 'web:admin_user_detail' user_id=target.id %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

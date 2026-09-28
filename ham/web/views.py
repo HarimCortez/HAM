@@ -137,25 +137,3 @@ def not_found(request, exception=None):
 def server_error(request):
     """Generic 500 (foundation.md §10)."""
     return render(request, "web/server_error.html", status=500)
-
-
-@require_GET
-def dev_shell_preview(request, role: str = "volunteer"):
-    """DEBUG-only preview of the signed-in shell for visual QA before sign-in exists
-    (S5 build note: 'a DEBUG-only preview route that's clearly marked and never mounted
-    outside HAM_ENV=development'). Never mounted when `HAM_ENV=production` — see
-    `ham/web/urls.py`, which only adds this path when `settings.DEBUG` and not
-    `is_production()`.
-    """
-    return render(request, "web/home.html")
-
-
-@require_GET
-def dev_not_found_preview(request):
-    """DEBUG-only preview of the neutral not-found page (200, not 404) so it can be
-    screenshotted with a real browser without `runserver`'s own DEBUG=True 404 debug page
-    getting in the way. The actual 404 behavior (status code, copy) is covered by
-    `tests/web/test_shell_pages.py` against `DEBUG=False` test settings, not this route.
-    Never mounted outside `HAM_ENV=development` — see `ham/web/urls.py`.
-    """
-    return render(request, "web/not_found.html")

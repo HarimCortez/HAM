@@ -12,10 +12,12 @@
 
   <form method="post" action="{% url 'web:mfa_setup_codes' %}">
     {% csrf_token %}
-    <label class="field__checkbox-label">
-      <input type="checkbox" name="confirmed" value="1" required>
-      <span>I've saved my recovery codes somewhere safe</span>
-    </label>
+    <div class="form-field form-field--toggle">
+      <label>
+        <input type="checkbox" name="confirmed" value="1" required>
+        I've saved my recovery codes somewhere safe
+      </label>
+    </div>
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Finish</button>
     </div>

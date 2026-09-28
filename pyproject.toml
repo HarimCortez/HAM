@@ -27,6 +27,10 @@ dev = [
   "django-stubs[compatible-mypy]>=5.1",
   "pip-audit>=2.7",
   "import-linter>=2.1",
+  # Visual QA / e2e screenshots (tests/e2e/, opt-in via HAM_SCREENSHOTS=1). Pinned to match
+  # the Chromium build preinstalled at /opt/pw-browsers in the dev image — never run
+  # `playwright install` (foundation.md §8 S5 build note).
+  "playwright==1.56.0",
 ]
 
 [build-system]

@@ -203,6 +203,15 @@ a:hover {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Bug fix (docs/ux/screenshots/step1-shell/home-390.png): the outer <nav class="nav
+   nav--bottom"> was flex, but its one child is the <ul class="nav"> rendered by
+   _nav_items.html, which stayed block/list-item and stacked the <li>s vertically. The row
+   itself — the <ul> — needs to be the flex container. */
+.nav--bottom > .nav {
+  display: flex;
+  width: 100%;
+}
+
 .nav--bottom .nav__link {
   flex: 1;
   flex-direction: column;
@@ -402,65 +411,367 @@ a:hover {
   }
 }
 
-/* --- Forms (S3b auth screens; components.md-style basics, UI designer to polish) -------- */
-.field {
-  display: block;
-  text-align: left;
-  margin-block-end: var(--ham-space-4);
+/* --- S5 screens: forms, alerts, tables, chips, filter bar (components.md §5, §9, §10, §11) */
+.form--single-column {
+  max-width: var(--ham-size-form-max);
 }
 
-.field__label {
-  display: block;
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  margin-bottom: var(--ham-space-5);
+}
+
+.form-field label {
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
-  color: var(--ham-text-primary);
-  margin-block-end: var(--ham-space-2);
 }
 
-.field__input {
-  display: block;
-  width: 100%;
-  min-height: var(--ham-size-target-min);
-  padding-inline: var(--ham-space-4);
-  border: 1.5px solid var(--ham-border-default);
+.form-field__optional {
+  color: var(--ham-text-tertiary);
+  font-weight: 400;
+}
+
+.form-field input[type="text"],
+.form-field input[type="email"],
+.form-field input[type="tel"],
+.form-field input[type="url"],
+.form-field input[type="search"],
+.form-field select,
+.form-field textarea {
+  min-height: var(--ham-size-control-md);
+  padding-inline: var(--ham-space-3);
+  border: 1.5px solid var(--ham-border-strong);
   border-radius: var(--ham-radius-md);
-  font: var(--ham-type-body-lg-weight) var(--ham-type-body-lg-size) /
-    var(--ham-type-body-lg-line-height) var(--ham-font-ui);
   background: var(--ham-bg-surface);
   color: var(--ham-text-primary);
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
 }
 
-.field__helper {
+.form-field input:focus-visible,
+.form-field select:focus-visible,
+.form-field textarea:focus-visible {
+  border-color: var(--ham-border-selected);
+}
+
+.form-field--error input {
+  border-color: var(--ham-tone-danger-icon);
+}
+
+.form-field__error {
+  color: var(--ham-tone-danger-fg);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  margin: 0;
+}
+
+.form-field--toggle label {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  font-weight: 400;
+}
+
+.form-field--toggle input[type="checkbox"],
+.role-row input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.form-field__help {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  margin: 0;
+}
+
+.form-actions {
+  display: flex;
+  gap: var(--ham-space-3);
+  margin-top: var(--ham-space-6);
+}
+
+.inline-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  border-radius: var(--ham-radius-md);
+  border: 1px solid;
+  padding: var(--ham-space-3) var(--ham-space-4);
+  margin-bottom: var(--ham-space-5);
+}
+
+.inline-alert p,
+.inline-alert ul {
+  margin: 0;
+}
+
+.inline-alert--info {
+  background: var(--ham-tone-info-bg);
+  color: var(--ham-tone-info-fg);
+  border-color: var(--ham-tone-info-border);
+}
+
+.inline-alert--success {
+  background: var(--ham-tone-success-bg);
+  color: var(--ham-tone-success-fg);
+  border-color: var(--ham-tone-success-border);
+}
+
+.inline-alert--attention {
+  background: var(--ham-tone-attention-bg);
+  color: var(--ham-tone-attention-fg);
+  border-color: var(--ham-tone-attention-border);
+}
+
+.inline-alert--danger {
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border-color: var(--ham-tone-danger-border);
+}
+
+/* Status/role chip (components.md §5) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+  height: 28px;
+  padding-inline: var(--ham-space-3);
+  border-radius: var(--ham-radius-pill);
+  border: 1px solid;
+  font: var(--ham-type-chip-weight) var(--ham-type-chip-size) / var(--ham-type-chip-line-height)
+    var(--ham-font-ui);
+}
+
+.chip--neutral {
+  background: var(--ham-tone-neutral-bg);
+  color: var(--ham-tone-neutral-fg);
+  border-color: var(--ham-tone-neutral-border);
+}
+
+.chip--info {
+  background: var(--ham-tone-info-bg);
+  color: var(--ham-tone-info-fg);
+  border-color: var(--ham-tone-info-border);
+}
+
+.chip--attention {
+  background: var(--ham-tone-attention-bg);
+  color: var(--ham-tone-attention-fg);
+  border-color: var(--ham-tone-attention-border);
+}
+
+.chip--success {
+  background: var(--ham-tone-success-bg);
+  color: var(--ham-tone-success-fg);
+  border-color: var(--ham-tone-success-border);
+}
+
+.chip--danger {
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border-color: var(--ham-tone-danger-border);
+}
+
+/* Filter bar (patterns.md §3) */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-2);
+  align-items: center;
+  margin-bottom: var(--ham-space-5);
+}
+
+.filter-bar select,
+.filter-bar input[type="search"] {
+  min-height: var(--ham-size-control-md);
+  padding-inline: var(--ham-space-3);
+  border: 1.5px solid var(--ham-border-strong);
+  border-radius: var(--ham-radius-md);  background: var(--ham-bg-surface);
+  color: var(--ham-text-primary);
+}
+
+.filter-bar__summary {  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+/* Table (desktop) / stacked list (mobile) — components.md §9 */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  font: 600 var(--ham-type-small-size) / var(--ham-type-small-line-height) var(--ham-font-ui);
+  padding: var(--ham-space-3);
+}
+
+.data-table td {
+  padding: var(--ham-space-3);
+  border-top: 1px solid var(--ham-border-subtle);
+  vertical-align: middle;
+}
+
+.data-table tr:hover td {
+  background: var(--ham-bg-hover);
+}
+
+@media (max-width: 1023px) {
+  .data-table,
+  .data-table thead,
+  .data-table tbody,
+  .data-table tr,
+  .data-table th,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table thead {
+    position: absolute;
+    left: -9999px;
+  }
+
+  .data-table tr {
+    border: 1px solid var(--ham-border-default);
+    border-radius: var(--ham-radius-md);
+    margin-bottom: var(--ham-space-3);
+    padding: var(--ham-space-2);
+  }
+
+  .data-table td {
+    border: none;
+  }
+}
+
+.list-detail {
   display: block;
-  margin-block-start: var(--ham-space-2);
+}
+
+@media (min-width: 1280px) {
+  .list-detail {
+    display: grid;
+    grid-template-columns: minmax(360px, 420px) 1fr;
+    gap: var(--ham-space-6);
+    align-items: start;
+  }
+}
+
+.sheet {
+  background: var(--ham-bg-surface-raised);
+  border-radius: var(--ham-radius-lg);
+  box-shadow: var(--ham-shadow-lg);
+  padding: var(--ham-space-6);
+  max-width: 480px;
+  margin: var(--ham-space-8) auto;
+}
+
+.pending-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ham-space-3);
+  background: var(--ham-bg-surface);
+  border-top: 1px solid var(--ham-border-default);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  margin-top: var(--ham-space-6);
+}
+
+.role-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-3);
+  padding: var(--ham-space-3) 0;
+  border-bottom: 1px solid var(--ham-border-subtle);
+}
+
+.role-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+}
+
+.role-row__desc {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  margin: 0;
+}
+
+.locked-note {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-1);
   color: var(--ham-text-secondary);
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
     var(--ham-font-ui);
 }
 
-.field__checkbox-label {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ham-space-2);
-  text-align: left;
-  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+.kv-list {
+  margin: 0;
+}
+
+.kv-list dt {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
     var(--ham-font-ui);
 }
 
-.form-error {
+.kv-list dd {
+  margin: 0 0 var(--ham-space-3);
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ham-space-3);
+  margin-bottom: var(--ham-space-2);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.text-tertiary {
+  color: var(--ham-text-tertiary);
+}
+
+.text-secondary {
+  color: var(--ham-text-secondary);
+}
+
+.messages {
+  list-style: none;
+  margin: 0 0 var(--ham-space-4);
+  padding: 0;
+}
+
+.inline-alert--error {
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
-  border: 1px solid var(--ham-tone-danger-border);
-  border-radius: var(--ham-radius-md);
-  padding: var(--ham-space-3) var(--ham-space-4);
-  margin-block-end: var(--ham-space-4);
-  text-align: left;
+  border-color: var(--ham-tone-danger-border);
 }
 
-.form-actions {
-  margin-block-start: var(--ham-space-5);
-}
-
+/* --- S3b auth: recovery codes grid (docs/ux/auth-and-access.md C3, F) -------------------- */
 .recovery-codes {
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   text-align: left;

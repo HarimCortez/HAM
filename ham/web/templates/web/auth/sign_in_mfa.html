@@ -12,26 +12,28 @@
   {% endif %}
 
   {% if error %}
-    <p class="form-error" role="alert">{{ error }}</p>
+    <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
   {% endif %}
 
   <form method="post" action="{% url 'web:sign_in_mfa' %}" novalidate>
     {% csrf_token %}
     {% if use_recovery %}<input type="hidden" name="use_recovery" value="1">{% endif %}
-    <div class="field">
-      <label class="field__label" for="id_code">
+    <div class="form-field">
+      <label for="id_code">
         {% if use_recovery %}Recovery code{% else %}Code from your authenticator app{% endif %}
       </label>
-      <input class="field__input" type="text" name="code" id="id_code"
+      <input type="text" name="code" id="id_code"
              inputmode="{% if use_recovery %}text{% else %}numeric{% endif %}"
              autocomplete="one-time-code" required autofocus>
     </div>
     {% if not use_recovery %}
-      <label class="field__checkbox-label">
-        <input type="checkbox" name="trust_device" value="1">
-        <span>Trust this device for 30 days<br>
-          <span class="field__helper">Leave this off on a shared computer.</span></span>
-      </label>
+      <div class="form-field form-field--toggle">
+        <label>
+          <input type="checkbox" name="trust_device" value="1">
+          Trust this device for 30 days
+        </label>
+        <p class="form-field__help">Leave this off on a shared computer.</p>
+      </div>
     {% endif %}
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Verify</button>

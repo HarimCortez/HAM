@@ -4,10 +4,6 @@
 {% block app_bar_title %}Sign-in & security{% endblock %}
 
 {% block content %}
-  {% if messages %}
-    {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
-  {% endif %}
-
   <section class="card">
     <h3>Two-step sign-in</h3>
     {% if mfa_required %}

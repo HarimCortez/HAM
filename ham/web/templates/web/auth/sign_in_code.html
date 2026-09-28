@@ -8,16 +8,16 @@
   <p><a href="{% url 'web:sign_in' %}">Wrong email? Change it</a></p>
 
   {% if error %}
-    <p class="form-error" role="alert">{{ error }}</p>
+    <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
   {% endif %}
 
   <form method="post" action="{% url 'web:sign_in_code' %}" novalidate>
     {% csrf_token %}
-    <div class="field">
-      <label class="field__label" for="id_code">Code from your email</label>
-      <input class="field__input" type="text" name="code" id="id_code"
+    <div class="form-field">
+      <label for="id_code">Code from your email</label>
+      <input type="text" name="code" id="id_code"
              inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus>
-      <span class="field__helper">The code works for {{ minutes|default:15 }} minutes.</span>
+      <p class="form-field__help">The code works for {{ minutes|default:15 }} minutes.</p>
     </div>
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Sign in</button>

@@ -397,33 +397,61 @@ def me_forget_devices(request: HttpRequest) -> HttpResponse:
 # ---------------------------------------------------------------------------------------
 # Admin: MFA reset (item 4) and impersonation (item 5)
 # ---------------------------------------------------------------------------------------
-@require_http_methods(["POST"])
+@require_http_methods(["GET", "POST"])
 @handle_command_errors
 @requires_action("user.mfa_reset")
 def admin_mfa_reset(request: HttpRequest, user_id: uuid.UUID) -> HttpResponse:
     from ham.identity.mfa import reset_mfa
 
-    reset_mfa(
-        actor_of(request),
-        user_id=user_id,
-        verification_method=request.POST.get("verification_method", ""),
-        note=request.POST.get("note", ""),
-    )
-    messages.success(request, "Two-step sign-in reset.")
-    return redirect(safe_next_url(request))
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        return render(request, "web/not_found.html", status=404)
+
+    if request.method == "POST":
+        try:
+            reset_mfa(
+                actor_of(request),
+                user_id=user_id,
+                verification_method=request.POST.get("verification_method", ""),
+                note=request.POST.get("note", ""),
+            )
+        except ValueError as exc:
+            return render(
+                request,
+                "web/auth/admin_mfa_reset_confirm.html",
+                {"target": target, "error": str(exc)},
+            )
+        messages.success(request, "Two-step sign-in reset.")
+        return redirect(reverse("web:admin_user_detail", kwargs={"user_id": user_id}))
+
+    return render(request, "web/auth/admin_mfa_reset_confirm.html", {"target": target})
 
 
-@require_http_methods(["POST"])
+@require_http_methods(["GET", "POST"])
 @handle_command_errors
 @requires_action("impersonation.start")
 def admin_impersonate(request: HttpRequest, user_id: uuid.UUID) -> HttpResponse:
     from ham.identity.services import start_impersonation
 
-    session = start_impersonation(
-        actor_of(request), target_user_id=user_id, reason=request.POST.get("reason", "")
-    )
-    request.session["ham_impersonation_id"] = str(session.id)
-    return redirect(reverse("web:home"))
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        return render(request, "web/not_found.html", status=404)
+
+    if request.method == "POST":
+        try:
+            session = start_impersonation(
+                actor_of(request), target_user_id=user_id, reason=request.POST.get("reason", "")
+            )
+        except ValueError as exc:
+            return render(
+                request,
+                "web/auth/admin_impersonate_confirm.html",
+                {"target": target, "error": str(exc)},
+            )
+        request.session["ham_impersonation_id"] = str(session.id)
+        return redirect(reverse("web:home"))
+
+    return render(request, "web/auth/admin_impersonate_confirm.html", {"target": target})
 
 
 @require_http_methods(["POST"])

@@ -1,14 +1,18 @@
-from django.conf import settings
 from django.urls import path
 
-from ham.platform.env import is_production
-
-from . import auth_views, views
+from . import (
+    auth_views,
+    views,
+    views_admin_settings,
+    views_admin_users,
+    views_audit,
+    views_me,
+)
 
 app_name = "web"
 
 # PUBLIC_ROUTES per foundation.md §7; the route-guard middleware itself lands with S3a. Views
-# below carry `# S3a: @requires_action(...)` where a guard will attach.
+# below carry `@requires_action(...)` where a guard attaches; sign-in family (S3b) is public.
 urlpatterns = [
     path("healthz", views.healthz, name="healthz"),
     path("", views.home, name="home"),
@@ -32,25 +36,58 @@ urlpatterns = [
         name="me_recovery_codes_regenerate",
     ),
     path("me/security/forget-devices", auth_views.me_forget_devices, name="me_forget_devices"),
-    path(
-        "admin/users/<uuid:user_id>/mfa-reset", auth_views.admin_mfa_reset, name="admin_mfa_reset"
-    ),
+    path("admin/users/<uuid:user_id>/mfa-reset", auth_views.admin_mfa_reset, name="user_mfa_reset"),
     path(
         "admin/users/<uuid:user_id>/impersonate",
         auth_views.admin_impersonate,
-        name="admin_impersonate",
+        name="impersonation_start",
     ),
     path("impersonation/stop", auth_views.impersonation_stop, name="impersonation_stop"),
+    # Me (auth-and-access.md §F, non-security parts).
+    path("me", views_me.me, name="me"),
+    # Admin -> Users & roles (auth-and-access.md §G).
+    path("admin/users", views_admin_users.admin_users_list, name="admin_users"),
+    path("admin/users/new", views_admin_users.admin_users_invite, name="admin_users_invite"),
+    path(
+        "admin/users/<uuid:user_id>",
+        views_admin_users.admin_user_detail,
+        name="admin_user_detail",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/roles/confirm",
+        views_admin_users.admin_user_roles_confirm,
+        name="admin_user_roles_confirm",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/roles/resume",
+        views_admin_users.admin_user_roles_resume,
+        name="admin_user_roles_resume",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/disable",
+        views_admin_users.admin_user_disable,
+        name="admin_user_disable",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/enable",
+        views_admin_users.admin_user_enable,
+        name="admin_user_enable",
+    ),
+    # Admin -> Church settings, Integrations, Rules.
+    path(
+        "admin/settings/church",
+        views_admin_settings.admin_church_settings,
+        name="admin_church_settings",
+    ),
+    path("admin/integrations", views_admin_settings.admin_integrations, name="admin_integrations"),
+    path(
+        "admin/integrations/deliveries/<uuid:delivery_id>/retry",
+        views_admin_settings.admin_integrations_retry,
+        name="admin_integrations_retry",
+    ),
+    path("admin/rules", views_admin_settings.admin_rules, name="admin_rules"),
+    # Audit log.
+    path("audit", views_audit.audit_log_list, name="audit_log"),
+    path("audit/<uuid:event_id>", views_audit.audit_log_detail, name="audit_log_detail"),
+    path("audit/export", views_audit.audit_export, name="audit_export"),
 ]
-
-# Dev-only preview of the signed-in shell, for visual QA before sign-in exists (S5 build
-# note). Never mounted in production, regardless of DEBUG.
-if settings.DEBUG and not is_production():
-    urlpatterns += [
-        path("__dev__/shell-preview/", views.dev_shell_preview, name="dev_shell_preview"),
-        path(
-            "__dev__/shell-preview/not-found/",
-            views.dev_not_found_preview,
-            name="dev_not_found_preview",
-        ),
-    ]

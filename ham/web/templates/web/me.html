@@ -1,0 +1,56 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Me · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Me{% endblock %}
+
+{% block content %}
+  <h1>Me</h1>
+
+  {% if errors %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <p>Please fix the following before saving:</p>
+      <ul>
+        {% for field, message in errors.items %}
+          <li><a href="#id_{{ field }}">{{ message }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="form form--single-column" novalidate>
+    {% csrf_token %}
+    <div class="form-field{% if errors.full_name %} form-field--error{% endif %}">
+      <label for="id_full_name">Name</label>
+      <input id="id_full_name" name="full_name" type="text" value="{{ profile.full_name }}"
+             autocomplete="name" {% if errors.full_name %}aria-invalid="true" aria-describedby="id_full_name_error"{% endif %}>
+      {% if errors.full_name %}
+        <p class="form-field__error" id="id_full_name_error">{{ errors.full_name }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-field">
+      <label for="id_mobile_phone">Mobile phone <span class="form-field__optional">(optional)</span></label>
+      <input id="id_mobile_phone" name="mobile_phone" type="tel" value="{{ profile.mobile_phone }}"
+             autocomplete="tel">
+    </div>
+
+    <div class="form-field form-field--toggle">
+      <label for="id_notify_email">
+        <input id="id_notify_email" name="notify_email" type="checkbox" {% if notify_email %}checked{% endif %}>
+        Email me about invitations, reminders and updates
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+    </div>
+  </form>
+
+  {% maybe_url "web:me_security" as security_url %}
+  {% if security_url %}
+    <p><a href="{{ security_url }}">Sign-in &amp; security</a></p>
+  {% else %}
+    <p class="text-tertiary">Sign-in &amp; security settings are coming soon.</p>
+  {% endif %}
+{% endblock %}
