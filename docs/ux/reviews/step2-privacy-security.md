@@ -101,3 +101,27 @@
 - Reveal audits carry field names only.
 - `Referrer-Policy: same-origin` is set.
 - The service worker doesn't cache pages.
+
+## Re-check at `255a586` (after FIX-A/B/C)
+
+The two original proof-of-concept exploits no longer work. The verify-swap now returns 422 and creates no request. "Find my request" enumeration now gives identical output whether or not a request exists.
+
+| ID | Status |
+|---|---|
+| H1–H4 | Fixed |
+| M1–M4 | Fixed |
+| M6 | Fixed |
+| L1–L5 | Fixed |
+| M5 | Partly fixed; the worker config is covered by new finding N2 |
+| L7 | Partly fixed; covered by new finding N5 |
+| L8 | Partly fixed; the regeneration method is still missing |
+| L6 | Not fixed; its intent was defeated (new finding N3) |
+
+New findings, all addressed in FIX-E:
+- **N1 (Medium):** the leader media routes skip record scope.
+- **N2 (Medium):** the worker service is missing the env vars that `prod.py` now requires.
+- **N3 (Medium):** `verify_code` picks the challenge by email only.
+- **N4 (Low):** `value_key` is erased through `.update()`.
+- **N5 (Low):** Q-151 isn't applied to the gallery.
+- **N6 (Low):** media purge hook edge cases.
+- **N7 (Low):** `notification_open` issues on GET.

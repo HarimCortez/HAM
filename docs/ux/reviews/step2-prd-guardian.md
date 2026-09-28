@@ -84,3 +84,21 @@ Q-144 to Q-150 have been logged in `docs/prd-open-questions.md`.
 | 3 | Partly met (B1, M1, M3) |
 | 28 | Helped (M4, N6 open) |
 | 30 | Helped (M2, M8 open) |
+
+## Re-check at `255a586` (after FIX-A/B/C)
+
+| ID | Status |
+|---|---|
+| B1 | Fixed |
+| M1, M3, M6–M9 | Fixed |
+| M2 | Partly fixed: the list-row "Earlier request" marker still shows to the Administrator |
+| M4 | Not fixed: the regeneration verification method isn't recorded |
+| M5 | Not fixed: availability isn't required |
+| Minors | Mostly fixed. N15 partly: the settings screen field is missing. N12 open: pending the privacy statement text (Q-131). |
+
+New findings, all addressed in FIX-E:
+- **NEW-1 (Major):** the Administrator sees the contact note.
+- **Minors:**
+  - comments call open questions "decided";
+  - extra certification codes can be stored;
+  - Q-121 is missing the per-IP code cap (row updated).
