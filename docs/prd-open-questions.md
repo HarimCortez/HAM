@@ -70,6 +70,7 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 | Q-075 | §33, §34.1 | Cancelling on the project day after the start time: same-day cancellation or no-show? | same-day / no-show | No-show unless excused | Open |
 | Q-076 | Q-046 | Do role grant and revoke share one 5-minute step-up window? | shared / separate | Shared | Open |
 | Q-077 | §28, §29, §32, §34 | Any reliability penalty for unanswered invitations, unconfirmed waitlist promotions, or release for not reconfirming? | none / small | None in V1 (§34.1 lists only cancellations and no-shows) | Open |
+| Q-078 | §35, §36.4 | Mechanism by which a domain module's outbox event becomes a specific notification email (recipient, subject, body) | The `email` outbox subscriber resolves everything itself from the payload / each domain module registers a per-`event_type` builder that resolves the recipient+copy through its own services and hands back a ready-to-send message | S4 (integrations engineer): `ham.integrations.email.notifications.register_notification(event_type, builder)`; no step-1 module registers one yet (notifications land "with staffing"), so today the subscriber logs event type + ids only, same as the calendar/fitness/drive stubs | Open (S4: proposed default implemented; needs product-owner sign-off before the first real builder is registered) |
 
 ## Owner action items (not PRD questions)
 - (Open, default) Confirm Miami Temple communications approves HAM's use of the church logo files in `design-system/brands/miami-temple/`, and ask whether a brand guide exists.

@@ -66,11 +66,43 @@ addopts = "-ra"
 
 [tool.importlinter]
 root_package = "ham"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "web depends on domain modules, not the reverse"
 type = "layers"
 layers = [
   "ham.web",
+  "ham.outbox",
   "ham.platform",
+]
+
+[[tool.importlinter.contracts]]
+name = "only ham.integrations imports anymail"
+type = "forbidden"
+source_modules = [
+  "ham.web",
+  "ham.outbox",
+  "ham.platform",
+]
+forbidden_modules = [
+  "anymail",
+]
+
+[[tool.importlinter.contracts]]
+name = "domain modules never import ham.integrations directly"
+# foundation.md §1: only ham.integrations talks to third parties, only as an outbox
+# subscriber, with one documented exception — S3b's ham.identity calling
+# ham.integrations.email.service.send_transactional_email for sign-in codes/links. When
+# ham.identity lands, add it to `source_modules` here and add its one call site to
+# `ignore_imports` (e.g. "ham.identity.services -> ham.integrations.email.service"), rather
+# than removing this contract.
+type = "forbidden"
+source_modules = [
+  "ham.web",
+  "ham.outbox",
+  "ham.platform",
+]
+forbidden_modules = [
+  "ham.integrations",
 ]
