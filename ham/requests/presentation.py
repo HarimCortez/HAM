@@ -66,7 +66,8 @@ CONTACT_METHOD_LABELS: dict[str, str] = dict(PreferredContactMethod.choices)
 STATUS_LABELS: dict[str, str] = {
     RequestStatus.NEEDS_PHONE_CHECK.value: "Needs a phone check",
     RequestStatus.SUBMITTED.value: "Submitted",
-    RequestStatus.AWAITING_APPROVAL.value: "Awaiting Approval",
+    # FIX-F1 status casing: sentence case everywhere ("Needs a phone check", not title case).
+    RequestStatus.AWAITING_APPROVAL.value: "Awaiting approval",
     RequestStatus.CANCELLED.value: "Cancelled",
     RequestStatus.APPROVED.value: "Approved",
     RequestStatus.REJECTED.value: "Rejected",

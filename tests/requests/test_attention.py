@@ -69,6 +69,47 @@ class TestAttentionCards:
             assert "jane@example.org" not in card.title
             assert "Jane Test" not in card.title
 
+    def test_urgent_card_title_includes_waiting_context(
+        self, requester_ctx, system_ctx, pastor_ctx
+    ):
+        """FIX-F1 M17 remainder: each per-request urgent card gets a "waiting N h" line, not
+        just the aggregate needs-phone-check card."""
+        req = submit_request(
+            requester_ctx,
+            draft_id=uuid.uuid4(),
+            verification_id=uuid.uuid4(),
+            payload=make_payload(urgent_requested=True, urgency_justification="Water everywhere"),
+        )
+        complete_intake_checks(system_ctx, request_id=req.id)
+        cards = attention_cards(pastor_ctx)
+        urgent_card = next(c for c in cards if c.key == f"requests.awaiting_approval.{req.id}")
+        assert "waiting" in urgent_card.title
+
+    def test_urgent_cards_capped_with_a_more_urgent_card(
+        self, requester_ctx, system_ctx, pastor_ctx
+    ):
+        """FIX-F1 minor 1: more than `MAX_URGENT_CARDS` urgent+actionable requests fold into
+        one "N more urgent" card instead of one primary-button card per request."""
+        from ham.requests.attention import MAX_URGENT_CARDS
+
+        for _ in range(MAX_URGENT_CARDS + 2):
+            req = submit_request(
+                requester_ctx,
+                draft_id=uuid.uuid4(),
+                verification_id=uuid.uuid4(),
+                payload=make_payload(
+                    urgent_requested=True, urgency_justification="Water everywhere"
+                ),
+            )
+            complete_intake_checks(system_ctx, request_id=req.id)
+
+        cards = attention_cards(pastor_ctx)
+        per_request_cards = [c for c in cards if c.key.startswith("requests.awaiting_approval.")]
+        assert len(per_request_cards) == MAX_URGENT_CARDS + 1  # +1 for the "N more urgent" card
+        more_card = next(c for c in per_request_cards if c.key.endswith("more_urgent"))
+        assert more_card.title == "2 more urgent"
+        assert more_card.urgent is True
+
     def test_registered_with_the_real_notifications_registry(
         self, requester_ctx, system_ctx, pastor_ctx
     ):

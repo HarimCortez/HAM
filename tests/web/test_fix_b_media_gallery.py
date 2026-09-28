@@ -108,6 +108,96 @@ def test_leadership_can_view_thumb_and_full(client, make_user, role):
     assert full["Cache-Control"] == "no-store"
 
 
+def test_gallery_viewer_opens_in_same_tab(client, make_user):
+    """FIX-F1 Gallery: `target="_blank"` used to strand a leader in a new tab with no "Back"
+    on a phone."""
+    req, _item = _make_request_with_a_ready_photo()
+    _login(client, make_user, email="director3@example.org", full_name="Dir3", role="HAM_DIRECTOR")
+    resp = client.get(reverse("web:request_detail", args=[req.id]))
+    assert resp.status_code == 200
+    assert b'target="_blank"' not in resp.content
+
+
+def test_gallery_has_one_role_status_region():
+    """FIX-F1 Gallery: one shared `role="status"` region for the whole gallery, not one per
+    processing chip (each was separately announced on load, and every chip re-announcing on
+    load was the actual bug -- a single request with 2+ processing items reproduces it)."""
+    from dataclasses import dataclass
+
+    from django.template.loader import render_to_string
+
+    @dataclass
+    class FakeItem:
+        id: str
+        media_kind: str
+        status: str
+        index: int
+        failure_code: str = ""
+
+    @dataclass
+    class FakeCounts:
+        photos: int
+        videos: int
+
+    @dataclass
+    class FakeGallery:
+        counts: FakeCounts
+        items: tuple
+
+    gallery = FakeGallery(
+        counts=FakeCounts(photos=2, videos=0),
+        items=(
+            FakeItem(id="a", media_kind="photo", status="processing", index=1),
+            FakeItem(id="b", media_kind="photo", status="processing", index=2),
+        ),
+    )
+    html = render_to_string(
+        "web/_request_media_gallery.html",
+        {"detail": {"id": "req-1", "display_number": "HAM #001"}, "gallery": gallery},
+    )
+    assert html.count('role="status"') == 1
+
+
+def test_gallery_fallback_chip_shows_a_label_not_the_raw_status():
+    """FIX-F1 Gallery: the fallback chip's status code used to render verbatim
+    (`{{ item.status }}`) instead of through a label map. `media_gallery_for` doesn't
+    currently surface a status that hits this branch (only ready/processing/uploaded/
+    rejected+processing_unavailable reach the template) -- render the partial directly with a
+    synthetic item, as a defensive-code guarantee for any future status."""
+    from dataclasses import dataclass
+
+    from django.template.loader import render_to_string
+
+    @dataclass
+    class FakeItem:
+        id: str
+        media_kind: str
+        status: str
+        index: int
+        failure_code: str = ""
+
+    @dataclass
+    class FakeCounts:
+        photos: int
+        videos: int
+
+    @dataclass
+    class FakeGallery:
+        counts: FakeCounts
+        items: tuple
+
+    gallery = FakeGallery(
+        counts=FakeCounts(photos=1, videos=0),
+        items=(FakeItem(id="x", media_kind="photo", status="purged", index=1),),
+    )
+    html = render_to_string(
+        "web/_request_media_gallery.html",
+        {"detail": {"id": "req-1", "display_number": "HAM #001"}, "gallery": gallery},
+    )
+    assert "Purged" in html
+    assert "&middot; purged<" not in html
+
+
 def test_administrator_cannot_view_individual_media(client, make_user):
     """PRD guardian M3: the Administrator holds `request_media.view` (route guard passes,
     count only -- Q-138) but must never reach an individual item."""

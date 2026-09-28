@@ -213,12 +213,12 @@ def validate_intake_payload(
     accepted = set(data.get("attested_statements") or [])
     if relationship is None:
         if not accepted:
-            errors["attested_statements"] = "Please read and tick both statements."
+            errors["attested_statements"] = "Tick both statements."
         # No relationship yet to check codes against -- store nothing rather than guess.
         cleaned["attested_statements"] = []
     else:
         if not statements_satisfied(relationship, accepted):
-            errors["attested_statements"] = "Please read and tick both statements."
+            errors["attested_statements"] = "Tick both statements."
         # PRD-guardian cert-codes fix: store only codes within this relationship's own
         # `required_statements(relationship)` -- a stray/forged code in the POST body (one
         # that isn't even offered for this relationship) is dropped, never persisted

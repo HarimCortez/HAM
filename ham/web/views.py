@@ -90,7 +90,13 @@ def home(request):
     # urgent banner itself is app-wide (see ham.web.context_processors.shell), not set here.
     from ham.notifications.services import needs_response_for
 
-    context["attention_items"] = needs_response_for(ctx)
+    items = needs_response_for(ctx)
+    context["attention_items"] = items
+    # FIX-F1 minor 1: only the first urgent+actionable card is a primary (solid) button --
+    # a whole column of solid-primary "Open" buttons (seen with a lot of urgent awaiting-
+    # approval requests at once) breaks the "one primary action" pattern.
+    first_urgent = next((item for item in items if item.urgent and not item.muted), None)
+    context["first_urgent_kind"] = first_urgent.kind if first_urgent else None
     return render(request, "web/home.html", context)
 
 

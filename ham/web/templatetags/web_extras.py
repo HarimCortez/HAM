@@ -70,8 +70,28 @@ def theme_color_hex() -> str:
 
 @register.filter
 def get_item(mapping: dict, key: str) -> str:
-    """`{{ some_dict|get_item:key }}` — Django templates have no `dict[key]` syntax."""
-    return mapping.get(key, key)
+    """`{{ some_dict|get_item:key }}` — Django templates have no `dict[key]` syntax.
+
+    FIX-F1 cheap minor: a value the label map doesn't know about (e.g. a pre-FIX-A seed row
+    with a retired code) used to render the raw snake_case code verbatim ("roof",
+    "yard_outdoor"). Fall back to a humanized label instead -- still not the "true" label, but
+    readable, never a code.
+    """
+    if key in mapping:
+        return mapping[key]
+    if not isinstance(key, str):
+        return key
+    return key.replace("_", " ").capitalize()
+
+
+@register.filter
+def media_status_label(status: str) -> str:
+    """`{{ item.status|media_status_label }}` -- the gallery's fallback chip (Gallery item 2)
+    used to print the raw status code (e.g. "rejected") verbatim; label it like every other
+    status word in the app."""
+    from ham.media.models import STATUS_CHOICES
+
+    return dict(STATUS_CHOICES).get(status, status.replace("_", " ").capitalize())
 
 
 @register.filter

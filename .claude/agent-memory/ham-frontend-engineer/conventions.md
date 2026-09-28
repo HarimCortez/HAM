@@ -321,3 +321,100 @@
   `run_due_jobs_now()`, which tries to *execute* stale rows too, including ones a previous
   interrupted run of the same test already left behind, and needs an ambient transaction for
   `select_for_update()` that a bare test function doesn't have).
+
+## Step 2 (Intake) fix round FIX-F1 (final visual pass, step2-ui-visual-qa.md / -ux-usability.md
+"Re-check at 90f28d8")
+- **B1 (sticky action bar clipped at 200% text / 195px):** `.action-bar { container-type:
+  inline-size }` + `@container (max-width: 22em) { .action-bar__inner { flex-direction:
+  column } }`, with `flex-wrap: wrap` on `.action-bar__inner` itself as the no-container-query
+  fallback. The earlier "fixed" commit (FIX-C) never actually added this — always verify a
+  claimed fix by reading the CSS diff, not the commit message.
+- **N3 (the 200%-text proof script never enlarged anything):** `page.add_init_script(...)`
+  runs before `<html>` exists, so `document.documentElement.style.fontSize = ...` at the top
+  level throws and is silently swallowed by Playwright — wrap it in `document
+  .addEventListener('DOMContentLoaded', () => { ... })`. Proof: assert
+  `getComputedStyle(document.documentElement).fontSize === '32px'` after navigation, not just
+  that the screenshot "looks" bigger — compare the regenerated PNG's height to a same-page
+  non-200% screenshot (a real fix makes a `full_page` screenshot 2-3x taller from wrapped
+  text/stacked rows).
+- **N1 (leadership filter bar invisible at >=768):** don't rely on `.filter-bar-sheet:not(
+  [open]) .filter-bar { display: flex }` to override a closed `<details>` — Chromium 131+
+  hides closed `<details>` content through its `::details-content` slot in a way `display`
+  can't reach, so `checkVisibility()` stays false even though the element "looks" laid out
+  (76px box, per the QA report). Fix: render the `<details open>` server-side always (so it
+  works with JS off and at every width), then a small inline script removes the `open`
+  attribute on mobile viewports only (`matchMedia("(max-width: 767px)")`) to restore the
+  "starts collapsed" behaviour — the opposite direction from the old (broken) "closed by
+  default, JS/CSS opens it at desktop" approach.
+- **N2 (wizard aside stretching row 1, ~130px dead space above the h1 at >=1280):**
+  `.wizard-aside { grid-row: 1 / -1 }` inside a grid with no explicit `grid-template-rows`
+  doesn't reliably span "all the rows the other column needs" — `-1` doesn't resolve the way
+  you'd expect without an explicit row template. Fixed *without* touching any per-step
+  template (several, e.g. r2_need.html, were a parallel fix's file-ownership) by making it a
+  pure CSS change on the shared `.public-card:has(> .wizard-aside)` selector: `row-gap: 0`
+  (so the aside spanning multiple auto rows doesn't also inherit a full `gap` between every
+  column-1 child) + `.wizard-aside { grid-row: 1 / span 99 }` (spans comfortably past any
+  realistic number of rows instead of relying on `-1`). A `.wizard-main` wrapper div was the
+  UI designer's first suggestion but would have required editing every per-step template
+  (including ones this fix round didn't own) and would have silently broken the `:has(>
+  .wizard-aside)` selector for any template that still nested the aside include one level
+  deeper — the CSS-only fix has neither problem. Proved with a Playwright test measuring
+  `h1.getBoundingClientRect().top - .public-card.getBoundingClientRect().top` before/after.
+- **N4 (`scrollable-region-focusable`, axe serious):** `tabindex="0"` on `.split-detail`
+  (it already had `role="region"` + `aria-label`) — axe wants a scrollable region to be
+  reachable by keyboard even with no focusable content inside it.
+- **N-M2/M10 (L9 primary button hidden behind the fixed bottom nav at <1024):** gave
+  `base.html`'s bottom nav its own `{% block bottom_nav %}` (default: the real nav) so a
+  full-screen-sheet template (`request_phone_check.html`) can override it to nothing —
+  simpler than trying to offset one sticky bar around another with `calc()` and safe-area
+  insets, and it's the only page in this slice that's a true full-screen sheet. Proved with
+  `document.elementFromPoint()` at the primary button's center, comparing against an
+  `element_handle()` (not `document.querySelector('button')` again inside `page.evaluate` —
+  that can resolve to a *different* button on a page with more than one).
+- **N5 (urgent banner squeezed to ~170px text column at 390):** the bug wasn't really "flex: 1
+  shrinks it" — it was that `min-width: var(--ham-size-target-min)` resolves to `48px` (a
+  tap-target token, not a text-readability one); the `, 200px` in the old rule was a CSS `var()`
+  *fallback* that never applied because the variable **is** defined. `flex: 1 1 16em; min-width:
+  0` fixed it. Wrapped the two banner actions (`<a>` + `<form>`) in one `<span
+  class="urgent-banner__actions">` so they move to their own row as a unit instead of each
+  wrapping independently.
+- **Home urgent-card cap:** `AttentionCard`/`AttentionItem` still don't carry enough shape for
+  a "which card is first" flag (see FIX-D's note above) — solved by having the *view*
+  (`ham.web.views.home`) compute `first_urgent_kind` (the first urgent+non-muted item's
+  `.kind`) once and pass it as a separate context var, rather than changing the shared
+  dataclass. `ham.requests.attention.MAX_URGENT_CARDS` (module constant, not `ham.rules` — a
+  display cap isn't a business rule) folds anything past 3 individual urgent cards into one
+  "N more urgent" card.
+- **Icons:** `icons.svg` had no `key-round`/`building`/`building-2`/`caravan`/`dog`/
+  `droplets`/`zap`/`bug`/`circle-ellipsis`/`file-x` before this round (R3/R4 choice-card icons
+  + the R9 rejected-upload-tile icon, all named exactly per design-system/screens/intake.md).
+  R2's icons (also specified there) were **not** added — r2_need.html was a parallel fix's
+  file-ownership this round.
+- **`get_item` template filter (`ham/web/templatetags/web_extras.py`) now humanizes an
+  unknown key** (`"yard_outdoor"` -> `"Yard outdoor"`) instead of returning the raw code
+  verbatim, for any label-map lookup app-wide (visual QA minor: pre-fix seed rows with a
+  retired code showed the snake_case code). New `media_status_label` filter (same file) for
+  the gallery's fallback chip, backed by `ham.media.models.STATUS_CHOICES`.
+- **Gallery (`_request_media_gallery.html`) is its own file, not part of
+  `_request_detail.html`** — the wave-brief's exclusion list only named `_request_detail.html`
+  for the parallel fix, so the gallery partial (viewer `target="_blank"` removal, one shared
+  `role="status"` region instead of one per processing chip, fallback status label) was fair
+  game. `media_gallery_for`'s query only ever returns `ready`/`processing`/`uploaded`/
+  `rejected+processing_unavailable` items, so the template's final `{% else %}` fallback
+  branch is legitimately unreachable through the real service today — tested by rendering the
+  partial directly with `render_to_string` and a synthetic dataclass item instead of driving
+  the full view (that also sidesteps needing a real request/media fixture for a defensive-code
+  path).
+- **Upload picker layout (`data-icons-url`):** `frontend/src/upload.ts`'s `addRejectedTile`
+  needed an icon (`file-x`), but the module has no way to know the *hashed* static URL for
+  `icons.svg` (whitenoise may rename it) — passed it through as a `data-icons-url` attribute
+  on the same `data-upload-root` div that already carries `data-reserve-url`, read once in the
+  constructor, not a hardcoded path in the TS module.
+- **Proof-test discipline this round:** for every item, reverted just that one change (CSS
+  block, template line, or an `origin/feature/step-2-intake:<path>` `git show` dump for a
+  whole file) via a plain file copy/restore — never `git stash` on a shared worktree stash
+  stack — reran the new test to confirm it failed, then restored the fix and reran to confirm
+  it passed. Caught two cases where a first-draft test *didn't* actually fail pre-fix (N5's
+  first "banner height < 140px" threshold, N1's "processing" count of 1 with only one item) —
+  worth budgeting time for this "does it actually fail" step, not just writing an
+  assertion that looks plausible.

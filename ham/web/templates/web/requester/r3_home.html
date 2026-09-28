@@ -1,5 +1,5 @@
 {% extends "web/base_public.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}The home &middot; {{ church.short_name }} HAM{% endblock %}
 
@@ -28,6 +28,8 @@
             <input type="radio" name="relationship_to_property" value="{{ value }}"
                    {% if payload.relationship_to_property == value %}checked{% endif %}
                    onchange="document.getElementById('owner-name-field').hidden = (this.value !== 'authorized_family_member');">
+            {% comment %}M3/design-system/screens/intake.md R3: key-round (own), house (rent), users (family).{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'owner' %}key-round{% elif value == 'tenant' %}home{% else %}users{% endif %}"></use></svg>
             <span>
               {% if value == "owner" %}I own it
               {% elif value == "tenant" %}I rent it
@@ -73,18 +75,19 @@
              {% if errors.city %}aria-invalid="true" aria-describedby="id_city-error"{% endif %}>
       {% if errors.city %}<p class="form-field__error" id="id_city-error">{{ errors.city }}</p>{% endif %}
     </div>
+    {% comment %}Cheap minor: postal order is City, State, ZIP.{% endcomment %}
+    <div class="form-field{% if errors.state %} form-field--error{% endif %}">
+      <label for="id_state">State</label>
+      <input type="text" id="id_state" name="state" maxlength="2" autocomplete="address-level1" value="{{ payload.state|default:'' }}"
+             {% if errors.state %}aria-invalid="true" aria-describedby="id_state-error"{% endif %}>
+      {% if errors.state %}<p class="form-field__error" id="id_state-error">{{ errors.state }}</p>{% endif %}
+    </div>
     <div class="form-field{% if errors.postal_code %} form-field--error{% endif %}">
       <label for="id_postal_code">ZIP code</label>
       <input type="text" id="id_postal_code" name="postal_code" inputmode="numeric" autocomplete="postal-code"
              value="{{ payload.postal_code|default:'' }}"
              {% if errors.postal_code %}aria-invalid="true" aria-describedby="id_postal_code-error"{% endif %}>
       {% if errors.postal_code %}<p class="form-field__error" id="id_postal_code-error">{{ errors.postal_code }}</p>{% endif %}
-    </div>
-    <div class="form-field{% if errors.state %} form-field--error{% endif %}">
-      <label for="id_state">State</label>
-      <input type="text" id="id_state" name="state" maxlength="2" value="{{ payload.state|default:'' }}"
-             {% if errors.state %}aria-invalid="true" aria-describedby="id_state-error"{% endif %}>
-      {% if errors.state %}<p class="form-field__error" id="id_state-error">{{ errors.state }}</p>{% endif %}
     </div>
 
     <fieldset class="form-field{% if errors.property_type %} form-field--error{% endif %}"
@@ -97,6 +100,8 @@
           <label class="choice-card">
             <input type="radio" name="property_type" value="{{ value }}"
                    {% if payload.property_type == value %}checked{% endif %}>
+            {% comment %}M3/design-system/screens/intake.md R3: house, building, building-2, caravan, circle-help.{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'house' %}home{% elif value == 'townhouse' %}building{% elif value == 'apartment_or_condo' %}building-2{% elif value == 'mobile_or_manufactured_home' %}caravan{% else %}circle-help{% endif %}"></use></svg>
             <span>{{ property_type_labels|get_item:value }}</span>
           </label>
         {% endfor %}

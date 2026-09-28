@@ -26,11 +26,18 @@
                 mixed signal -- Urgent only decorates rows someone can act on.
                 {% endcomment %}
                 {% if item.urgent and not item.muted %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
+                {% comment %}M17/design-system/screens/intake.md: the phone-check card carries a phone-call icon.{% endcomment %}
+                {% if item.kind == "requests.needs_phone_check" %}<svg class="attention-card__icon" width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-call"></use></svg>{% endif %}
                 <span class="attention-card__title">{{ item.title }}</span>
                 {% if item.muted %}
                   <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>
                 {% else %}
-                  <a class="btn {% if item.urgent %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}">Open</a>
+                  {% comment %}
+                  FIX-F1 minor 1: only the first urgent card is a primary button -- a column
+                  of solid-primary buttons (with a lot of urgent requests at once) breaks the
+                  "one primary action" pattern.
+                  {% endcomment %}
+                  <a class="btn {% if item.urgent and item.kind == first_urgent_kind %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}">Open</a>
                 {% endif %}
               </li>
             {% endfor %}
