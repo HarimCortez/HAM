@@ -181,3 +181,116 @@ builds a real `RequesterContext`/`SystemContext` (not a plain `ActorContext`) wh
 `row["role"]` is `"REQUESTER"`/`"SYSTEM"`.
 
 Regenerate after any further change: `PYTHONPATH=. python tests/authz/generate_expected_matrix.py`.
+
+## 8. S2.3 (requester portal) — what S2.7/S2.6/S2.2 build against
+
+Owner: ham-backend-engineer (S2.3), `ham/requester_portal/*` (except `validity.py`, S2.1's).
+
+### 8.1 Draft + form (`ham/requester_portal/drafts.py`, `.forms.py`, `.cookies.py`)
+
+- `drafts.start_draft(*, ip_address="", email=None) -> DraftStartResult` (`.status`
+  `"created"`/`"rate_limited"`, `.draft`). Rate limit: `RULES.intake.INTAKE_FORMS_PER_IP_PER_HOUR`.
+- `drafts.save_step(draft_id, step_data: dict, *, email=None) -> IntakeDraft | None` — merges
+  `step_data` into the draft's encrypted payload (shallow dict update); `None` for an unknown/
+  consumed/expired draft (never raises, never leaks which).
+- `drafts.load_payload(draft_id, *, now=None) -> dict | None` — **server-side only**; never
+  call this from a view whose response goes back to the browser (Q-139 "resume shows no
+  details" — the whole point of a draft is that its contents are never echoed back).
+- `cookies.set_resume_cookie(response, draft_id=...)` / `read_resume_draft_id(request)` /
+  `clear_resume_cookie(response)`: the Q-139 "same browser" resume handle. S2.7's form view
+  should call `set_resume_cookie` once a draft exists, and on a fresh GET check
+  `read_resume_draft_id` + `drafts.draft_exists_and_live(draft_id)` to offer "Continue where
+  you left off?" with **no field values shown** — only that a resumable draft exists.
+- `forms.validate_intake_payload(data: dict, *, church: ChurchProfileView) -> (cleaned |
+  None, errors: dict[str, str])`. Validates the **whole** merged payload at once (call this
+  right before sending the verification code, not per-step) — see its module docstring for
+  why a per-step Django `Form` wasn't the right split for a multi-step draft. Field keys match
+  `ham.requester_portal.choices`/`.attestation` value strings exactly.
+- `choices.py` / `attestation.py`: the fixed vocabularies (category, property type, hazards,
+  contact preference, relationship, certification codes) S2.7's templates render as radio
+  cards / checkboxes, keyed by these exact string values.
+- `antiabuse.HONEYPOT_FIELD_NAME`, `sign_form_opened_at()` (render into a hidden field at GET),
+  `min_fill_time_ok(token)` (check at POST, before creating a draft/sending a code — on
+  failure, show the **same** "Check your email" success page and send nothing).
+
+### 8.2 Verification (`ham/requester_portal/verification.py`)
+
+- `request_intake_verification(*, draft_id, email, ip_address="") -> ChallengeRequestResult`
+  (`.status` `"sent"`/`"cooldown"`/`"rate_limited"`).
+- `verify_code(*, purpose="intake", email, code) -> VerifyResult` (`.ok`, `.reason`
+  `"wrong"`/`"expired"`/`"locked"`/`"no_challenge"`, `.attempts_left`, `.challenge`). On
+  success, `.challenge.id` is the `verification_id` to pass to
+  `ham.requester_portal.services.submit_and_issue_link`.
+- `consume_link(token=...)` (POST-only) / `link_is_valid(token=...)` (GET-safe, never
+  consumes) for the scanner-safe email link, same shape as `ham.identity.authn`.
+- **Routes this module hard-codes** (not yet built; S2.7 must add exactly these `path()`s in
+  `ham/web/urls_requester.py` + `views_requester.py` — see `verification._CONFIRM_PATH_TEMPLATES`):
+  `GET,POST /request-help/verify/link/<token>` (intake) and
+  `GET,POST /request-help/new-link/<token>` (link regeneration). Until those exist the emailed
+  link 404s; the code path works standalone.
+
+### 8.3 Links (`ham/requester_portal/services.py`)
+
+- `issue_link(*, request_id, kind, verification_id=None) -> IssuedLink` (implements the S2.0
+  stub) and `resolve_token(token, *, now=None) -> RequesterContext | None` (implements the
+  S2.0 stub) — S2.2/S2.7 code against these two signatures unchanged.
+- `regenerate_link(*, token, email, ip_address="") -> ChallengeRequestResult`: the "your link
+  expired" flow (old token still identifies the request; only sends if `email` matches the
+  address on file — no enumeration).
+- `find_my_request(*, email, ip_address="") -> ChallengeRequestResult`: the "Check on your
+  request" flow (Q-117: one email per matching request, none for an unknown address).
+- `regenerate_link_for_own_request` is the `@command("requester_link.regenerate")`-wrapped
+  entry point for a requester who is *already* holding a valid (or about-to-expire but still
+  resolvable) `RequesterContext` and re-verifies in place.
+
+**Required integration from `ham.requests` (S2.2), registered from `RequestsConfig.ready()`**
+(mirrors `ham.authz.commands`'s own audit/outbox registration pattern — see each function's
+docstring in `ham/requester_portal/services.py` for the exact callable shape):
+
+```python
+from ham.requester_portal.services import (
+    register_request_facts_lookup,       # request_id -> RequestLinkFacts(status, closed_at, completed_at)
+    register_request_contact_lookup,     # request_id -> normalized email on file, or None
+    register_email_to_request_ids_lookup,  # normalized email -> list[request_id]
+)
+```
+
+Without these three calls, `issue_link`/`resolve_token`/`regenerate_link`/`find_my_request`
+raise `RuntimeError` (fail loud, not silently) — tests register fakes directly.
+
+**Coordination note (flagging, not silently resolving):** S2.2's committed `submit_request`
+stub types `verification_id: UUID` (required). The Q-025 "I don't use email" path
+(`SUBMIT_WITHOUT_EMAIL`, `ham/requests/states.py`) has no challenge at all to reference.
+`ham.requester_portal.services.submit_and_issue_link` calls `submit_request` with
+`verification_id=None` for that path today (`# type: ignore[arg-type]`) — S2.2 should either
+relax the parameter to `UUID | None` or confirm a different no-email contract at merge.
+
+### 8.4 Secure-page projection (`ham/requester_portal/projection.py`)
+
+Pure functions only (no DB access) for S2.7's secure-page view, which loads the real
+request/requester/property fields itself (via S2.2's authorized queries) and passes them in:
+
+- `status_wording(status, *, cancel_reason=None) -> str` (navigation.md §5; step-2 statuses
+  `SUBMITTED`/`NEEDS_PHONE_CHECK`/`AWAITING_APPROVAL`/`CANCELLED` only — returns `""` for a
+  status this module doesn't know, e.g. a later-step status).
+- `masked_contact(*, email, phone, line1, city, postal_code) -> MaskedContact` (Q-137: email/
+  phone/street masked, city/ZIP shown as-is). This is **not** the leadership reveal card —
+  that's `ham.requests.services.reveal_requester_pii` (S2.2), gated by `requester_pii.reveal`.
+
+### 8.5 Jobs (`ham/requester_portal/jobs.py`)
+
+`purge_expired_drafts` / `purge_expired_challenges`, hourly `periodic_job`s, wired at Django
+startup via `RequesterPortalConfig.ready()`. S2.10 may relocate/extend these alongside the
+media/retention sweeps; nothing else depends on where they live as long as they keep running.
+
+### 8.6 IntakeSource merge note
+
+`IntakeSource` (Q-114 church-issued codes) is defined here
+(`ham.requester_portal.models.IntakeSource`, table `requester_portal_intake_source`) with a
+read-only lookup only (no management screen — that's `intake_source.manage`, a later slice).
+intake.md §3 places this model under `ham.requests` (`requests_intake_source`) instead, since
+that app generally owns request-side leadership screens; it was built here to avoid a
+cross-worktree model collision with S2.2 (a different worktree, developed in parallel, with no
+`IntakeSource` model of its own as of this writing). **At merge, keep exactly one
+`IntakeSource` model** (whichever app the orchestrator prefers) and repoint the other side's
+references; there is no data yet in either since no management screen exists.

@@ -132,11 +132,13 @@ ignore_imports = [
   # role-change, impersonation-ended notices, Q-055/Q-049/Q-084) the same way authn/mfa do for
   # sign-in codes; it is the one place identity registers builders with the email subscriber.
   "ham.identity.notifications -> ham.integrations.email.notifications",
-  # intake.md §2 pre-approves the same documented exception for step 2's own modules
-  # (ham.requester_portal.verification -> ham.integrations.email.service;
-  # ham.requester_portal.notifications / ham.requests.notifications / ham.media.notifications
+  # S2.3: the requester-portal code/link email, same documented exception as
+  # ham.identity.authn/mfa above (intake.md §2).
+  "ham.requester_portal.verification -> ham.integrations.email.service",
+  # intake.md §2 pre-approves the same documented exception for step 2's other modules
+  # (ham.requester_portal.notifications / ham.requests.notifications / ham.media.notifications
   # -> ham.integrations.email.notifications). NOT listed here yet: import-linter's own
   # `ignore_imports` errors ("No matches for ignored import") if the named import doesn't
-  # exist anywhere in the tree yet, and none of those files exist before S2.3/S2.6. Add the
-  # exact entry when the file importing ham.integrations actually lands.
+  # exist anywhere in the tree yet, and none of those files exist before S2.6. Add the exact
+  # entry when the file importing ham.integrations actually lands.
 ]
