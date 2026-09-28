@@ -1,0 +1,19 @@
+{% extends "web/base.html" %}
+
+{% block title %}Home · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Home{% endblock %}
+
+{% block content %}
+  {% comment %}
+  navigation.md §1 "Home is a to-do list, not a menu" and §7 "per highest role". Real per-role
+  cards (invitations, reconfirmations, project-day check-in...) arrive with staffing/projects;
+  this slice only ships the placeholder every signed-in person sees today.
+  {% endcomment %}
+  <section class="empty-state" aria-labelledby="home-empty-title">
+    <h3 id="home-empty-title">Your to-do list will appear here</h3>
+    <p>
+      Once projects, invitations and reconfirmations are live, the things that need you will
+      show up on this page first — nothing to check right now.
+    </p>
+  </section>
+{% endblock %}

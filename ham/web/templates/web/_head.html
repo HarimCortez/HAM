@@ -1,0 +1,10 @@
+{% load static web_extras %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="{% theme_color_hex %}">
+<link rel="manifest" href="{% url 'web:manifest' %}">
+<link rel="icon" href="{{ church.logo_mark|brand_static }}">
+<link rel="apple-touch-icon" href="{{ church.logo_mark|brand_static }}">
+<link rel="stylesheet" href="{% static 'tokens.css' %}">
+<link rel="stylesheet" href="{% static 'fonts.css' %}">
+<link rel="stylesheet" href="{% static 'web/shell.css' %}">

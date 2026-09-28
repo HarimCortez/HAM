@@ -1,11 +1,14 @@
-.PHONY: install test lint typecheck migrate run worker tokens dev-db dev-db-stop fmt
+.PHONY: install test lint typecheck migrate run worker tokens dev-db dev-db-stop fmt frontend
 
 VENV := .venv/bin
 
 install:
 	uv venv .venv --python 3.11
 	uv pip install -e ".[dev]"
-	npm ci --prefix frontend || true
+	npm ci --prefix frontend
+
+frontend:
+	npm run build --prefix frontend
 
 migrate:
 	$(VENV)/python manage.py migrate

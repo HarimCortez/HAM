@@ -21,3 +21,10 @@ if settings.DEBUG:
     from django.contrib import admin
 
     urlpatterns += [path("django-admin/", admin.site.urls)]
+
+# navigation.md §6 "No permission / not found": same neutral screen, same status code, for a
+# route that doesn't exist and one the viewer isn't allowed to see (§68). The real
+# authz-denied case renders the same template from S3a's route guard; this handler only
+# covers Django's own 404 (unknown URL).
+handler404 = "ham.web.views.not_found"
+handler500 = "ham.web.views.server_error"

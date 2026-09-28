@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <!--
+    Minimal outline icon set for the app shell (design-system/components.md: "Icons are
+    Lucide (outline, 1.75 stroke)"). Hand-drawn placeholders in the same outline style and
+    stroke width, standing in until the shell wires up the real Lucide sprite in a later pass.
+  -->
+  <symbol id="icon-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 11.5 12 4l9 7.5" />
+    <path d="M5.5 10v9a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1v-9" />
+  </symbol>
+  <symbol id="icon-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
+    <path d="m4 7 8 6 8-6" />
+  </symbol>
+  <symbol id="icon-circle-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="10" r="2.5" />
+    <path d="M6.8 18a5.5 5.5 0 0 1 10.4 0" />
+  </symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.5 19 6v5.5c0 4.6-3 7.8-7 9-4-1.2-7-4.4-7-9V6z" />
+  </symbol>
+  <symbol id="icon-scroll-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.5 4h9.5a2 2 0 0 1 2 2v11.5a2.5 2.5 0 0 1-2.5 2.5H8" />
+    <path d="M6.5 4A2.5 2.5 0 0 0 4 6.5V17a3 3 0 0 0 3 3" />
+    <path d="M9 8h6M9 11.5h6" />
+  </symbol>
+</svg>

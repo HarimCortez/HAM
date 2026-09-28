@@ -1,0 +1,12 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}You're offline · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>You're offline</h1>
+  <p>
+    We couldn't reach HAM. Check your connection and try again — anything you had open is
+    still saved.
+  </p>
+  <p><a class="btn btn--primary" href="{% url 'web:home' %}">Try again</a></p>
+{% endblock %}

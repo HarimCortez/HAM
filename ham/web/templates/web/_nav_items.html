@@ -1,0 +1,11 @@
+{% load static %}<ul class="nav">
+  {% for item in nav_items %}
+    <li>
+      <a class="nav__link" href="{% url item.url_name %}"
+         {% if item.key == nav_active_key %}aria-current="page"{% endif %}>
+        <svg class="nav__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{{ item.icon }}"></use></svg>
+        <span class="nav__label">{{ item.label }}</span>
+      </a>
+    </li>
+  {% endfor %}
+</ul>

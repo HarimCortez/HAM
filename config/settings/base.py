@@ -71,6 +71,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "ham.platform.context_processors.church",
+                "ham.web.context_processors.shell",
             ],
         },
     },
@@ -98,6 +99,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# WhiteNoiseMiddleware checks this directory at process start and warns loudly if it is
+# missing (harmless before the first `collectstatic`, but noisy in every test run). Creating
+# it up front costs nothing — `collectstatic` still fills it normally in prod/CI — and avoids
+# a spurious "No directory at: staticfiles/" warning on every test (S5 build note).
+STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 STATICFILES_DIRS = [
     d for d in [BASE_DIR / "design-system", BASE_DIR / "frontend" / "dist"] if d.exists()
 ]

@@ -1,0 +1,12 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Something went wrong · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Something went wrong on our end</h1>
+  <p>
+    This isn't something you did. Please try again in a moment. If it keeps happening, contact
+    {{ church.email }}.
+  </p>
+  <p><a class="btn btn--primary" href="{% url 'web:home' %}">Go home</a></p>
+{% endblock %}

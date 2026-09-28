@@ -1,0 +1,15 @@
+{% extends "web/base.html" %}
+
+{% block title %}Inbox · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Inbox{% endblock %}
+
+{% block content %}
+  {% comment %}
+  navigation.md §4 "Home is the to-do list and Inbox is the log": Needs response / Updates
+  sections arrive with the notifications module (foundation.md §2 out of scope for step 1).
+  {% endcomment %}
+  <section class="empty-state" aria-labelledby="inbox-empty-title">
+    <h3 id="inbox-empty-title">Nothing in your inbox yet</h3>
+    <p>Notifications about invitations, schedule changes and updates will show up here.</p>
+  </section>
+{% endblock %}
