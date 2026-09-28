@@ -65,6 +65,14 @@ INSTALLED_APPS = [
     "ham.identity",
     "ham.authz",
     "ham.audit",
+    # Step 2 (Intake, S2.0 seams): empty apps until S2.1-S2.5 land models/services
+    # (intake.md §2 module list, §10 "empty apps with apps.py, INSTALLED_APPS and import-
+    # linter layers"). Listed in dependency order (top to bottom of the layers contract in
+    # pyproject.toml): web > requester_portal > media > requests > notifications > identity.
+    "ham.requester_portal",
+    "ham.media",
+    "ham.requests",
+    "ham.notifications",
     "ham.web",
 ]
 
@@ -188,6 +196,20 @@ ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
 # HAM_ENV=production). Never a fixed business *rule* (CLAUDE.md "no magic numbers") — it's a
 # secret, so it belongs here, not in `ham.rules`.
 HAM_FIELD_ENCRYPTION_KEY = env("HAM_FIELD_ENCRYPTION_KEY", default="")
+
+# S2.0 (intake.md §3 `RequesterAccessLink`, `ham.platform.otp`): HMAC key(s) for requester
+# link/code hashing, comma-separated, first = current signing key, every key tried on lookup
+# so rotating this doesn't invalidate months-old links already emailed out. Deliberately not
+# `SECRET_KEY` (rotating that for an unrelated reason must never kill live requester links).
+# Empty (dev/test default) falls back to a SECRET_KEY-derived key inside `ham.platform.otp`
+# itself — set this explicitly in production, same as `HAM_FIELD_ENCRYPTION_KEY`.
+HAM_TOKEN_HMAC_KEYS = env("HAM_TOKEN_HMAC_KEYS", default="")
+
+# S2.0 (intake.md §2, `ham.platform.storage`): dotted path to the `ObjectStore` implementation
+# this deployment uses (S2.4a: an S3-compatible/R2 adapter and a local-filesystem adapter).
+# Empty until S2.4a lands; `ham.platform.storage.get_object_store()` raises a clear
+# `RuntimeError` naming this setting rather than an opaque import error if called first.
+HAM_OBJECT_STORE_BACKEND = env("HAM_OBJECT_STORE_BACKEND", default="")
 
 # Session cookie ceiling: the *longest* possible HAM session (Q-032's standard/passwordless
 # lifetime). `ham.identity.middleware.SessionLifetimeMiddleware` enforces the shorter

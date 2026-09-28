@@ -77,6 +77,41 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "Audit log",
         ("audit.exported",),
     ),
+    # S2.0 (intake.md §6 "Audit actions", §10 "labels.py entries").
+    ActionGroup(
+        "Requests",
+        (
+            "request.submitted",
+            "request.contact_verified",
+            "request.status_changed",
+            "request.duplicates_flagged",
+            "request.cancelled",
+            "request.created_assisted",
+            "requester_pii.revealed",
+        ),
+    ),
+    ActionGroup(
+        "Requester links",
+        (
+            "requester_link.issued",
+            "requester_link.regenerated",
+            "requester_verification.locked",
+        ),
+    ),
+    ActionGroup(
+        "Request media",
+        (
+            "request_media.batch_opened",
+            "request_media.uploaded",
+            "request_media.rejected",
+            "request_media.removed",
+            "request_media.purged",
+        ),
+    ),
+    ActionGroup(
+        "Church-issued intake links",
+        ("intake_source.created", "intake_source.deactivated"),
+    ),
     ActionGroup(
         "Access denied",
         ("authz.denied",),
@@ -112,6 +147,24 @@ ACTION_LABELS: dict[str, str] = {
     "outbox.retried": "Integration delivery retried",
     "audit.exported": "Exported the audit log",
     "authz.denied": "Access denied",
+    # S2.0 (intake.md §6).
+    "request.submitted": "Request submitted",
+    "request.contact_verified": "Contact verified",
+    "request.status_changed": "Request status changed",
+    "request.duplicates_flagged": "Possible earlier request flagged",
+    "request.cancelled": "Request cancelled",
+    "request.created_assisted": "Request entered on someone's behalf",
+    "requester_pii.revealed": "Viewed requester contact details",
+    "requester_link.issued": "Secure link sent",
+    "requester_link.regenerated": "New secure link sent",
+    "requester_verification.locked": "Verification locked (too many attempts)",
+    "request_media.batch_opened": "Photo/video batch opened",
+    "request_media.uploaded": "Photo/video uploaded",
+    "request_media.rejected": "Photo/video rejected",
+    "request_media.removed": "Photo/video removed",
+    "request_media.purged": "Photo/video purged",
+    "intake_source.created": "Church-issued link created",
+    "intake_source.deactivated": "Church-issued link deactivated",
 }
 
 

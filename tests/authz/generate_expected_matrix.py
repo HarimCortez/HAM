@@ -52,6 +52,10 @@ MFA_ROLES = frozenset(
     {ADMINISTRATOR, HAM_DIRECTOR, ASSISTANT_DIRECTOR, PASTOR, BOARD_REPRESENTATIVE}
 )
 
+# S2.0 (intake.md §5, Q-106, Q-124, Q-125): the leadership set that sees every request.
+_DIR_AD_PAS_BRD = frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR, PASTOR, BOARD_REPRESENTATIVE})
+_DIR_AD_PAS_BRD_ADM = _DIR_AD_PAS_BRD | frozenset({ADMINISTRATOR})
+
 ANY = "any"
 SELF = "self"
 
@@ -182,8 +186,98 @@ ORACLE: dict[str, tuple[frozenset[str], str, bool, bool, str]] = {
     "integrations.view_status": (frozenset({ADMINISTRATOR}), ANY, False, False, "§4.11"),
     "rules.view": (frozenset({ADMINISTRATOR, HAM_DIRECTOR}), ANY, False, False, "§4.11"),
     "outbox.retry": (frozenset({ADMINISTRATOR}), ANY, False, True, "§70.3, §4.11"),
-    # Q-081: placeholder until the requests/projects data model exists -> always denies.
-    "requester_pii.reveal": (frozenset(), ANY, False, False, "§67, §68, Q-009, Q-024, Q-081"),
+    # --- S2.0 (intake.md §5, §10; docs/prd-open-questions.md Q-106, Q-124, Q-125) -----------
+    # Director, Assistant Director, Pastor and Board representative see every request awaiting
+    # approval (§4.3, §8; Q-106 decided). Q-124 (decided): the Administrator additionally gets
+    # view-only access (masked contact, no reveal) to request/media *viewing* actions only —
+    # never `requester_pii.reveal`, `request.cancel`, `request.create_assisted`,
+    # `request_media.reopen`, the phone-verification actions, or `intake_source.manage`.
+    "request.list": (_DIR_AD_PAS_BRD_ADM, ANY, False, False, "§8, §64, Q-106"),
+    "request.view": (_DIR_AD_PAS_BRD_ADM, ANY, False, False, "§8, §67, Q-124"),
+    # Kept separate from request.view (intake.md §5: "so later PL/TL request.view never
+    # includes it"); not granted to the Administrator (Q-124 is view-only on requests, not the
+    # duplicate-history detail).
+    "request.history.view": (_DIR_AD_PAS_BRD, ANY, False, False, "§5, §9"),
+    # Q-081/Q-122/Q-125 (closed for step 2): Director, Assistant Director, Pastor, Board
+    # representative may reveal on any request (the Director-not-logged nuance, Q-024, is a
+    # service-layer distinction the matrix-level oracle doesn't express, same as every other
+    # "who may ask" vs. "was it logged" split in this file).
+    "requester_pii.reveal": (
+        _DIR_AD_PAS_BRD,
+        ANY,
+        False,
+        False,
+        "§67, §68, Q-009, Q-024, Q-081, Q-122, Q-125",
+    ),
+    "request_media.view": (_DIR_AD_PAS_BRD_ADM, ANY, False, False, "§69, Q-124"),
+    "request_media.reopen": (_DIR_AD_PAS_BRD, ANY, False, False, "§46"),
+    # Q-107 (decided): Director and Assistant Director only, not Pastor/Board (they only ever
+    # move requests forward with a decision, never close one pre-decision) — blocked while
+    # impersonating (an admin action on someone else's request, mirrors user.disable's pattern).
+    "request.cancel": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§52, Q-107, Q-111",
+    ),
+    # Q-025 (decided): Director, Assistant Director or a pastor may enter a request on behalf
+    # of someone with no email, over the phone; blocked while impersonating (the actor is
+    # vouching for a phone call on their own account, the same "target's own decisions"
+    # pattern Q-048 blocks for accepting agreements on someone else's behalf).
+    "request.create_assisted": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR, PASTOR}),
+        ANY,
+        False,
+        True,
+        "Q-025",
+    ),
+    # intake.md owner-decisions box: the "Needs a phone check" list is Director/AD only.
+    "request.needs_phone_check.list": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        False,
+        "Q-025",
+    ),
+    "request.contact_verify_phone": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "Q-025",
+    ),
+    "intake_source.manage": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        False,
+        "§6, Q-106",
+    ),
+    # §10/§35: any standing role may acknowledge their own urgent-banner notification.
+    "notification.acknowledge": (frozenset(ALL_ROLES), SELF, False, True, "§10, §35"),
+}
+
+# S2.0 pseudo-roles (intake.md §5): `RequesterContext`/`SystemContext`, never in `ALL_ROLES`
+# (they must never reach a staff-only action just because a matrix row happens to name them).
+# Kept in a separate dict from `ORACLE` because the row-generation logic below is genuinely
+# different (no MFA gating, no self/leader scopes, no role-union case — a requester/system
+# actor never holds more than its one pseudo-role).
+REQUESTER = "REQUESTER"
+SYSTEM = "SYSTEM"
+OWN_REQUEST = "own_request"
+
+# action -> (allowed_pseudo_role, scope, prd_ref)
+PSEUDO_ORACLE: dict[str, tuple[str, str, str]] = {
+    "request.submit": (REQUESTER, ANY, "§6, §7.1, Q-100"),
+    "requester.request.view": (REQUESTER, OWN_REQUEST, "§7.2, §67, Q-101"),
+    "requester.media.upload": (REQUESTER, OWN_REQUEST, "§7.1, §45, Q-118"),
+    "requester.media.remove": (REQUESTER, OWN_REQUEST, "§45, Q-118"),
+    "requester_link.regenerate": (REQUESTER, OWN_REQUEST, "§7.3, §58, Q-116, Q-117"),
+    "system.request.complete_intake_checks": (SYSTEM, ANY, "§9"),
+    "system.media.process": (SYSTEM, ANY, "§45"),
+    "system.media.purge": (SYSTEM, ANY, "§47"),
+    "system.intake.purge": (SYSTEM, ANY, "§76"),
 }
 
 OUT_PATH = Path(__file__).resolve().parent / "expected_matrix.csv"
@@ -369,8 +463,72 @@ def _rows() -> list[dict[str, object]]:
     return rows
 
 
+def _pseudo_rows() -> list[dict[str, object]]:
+    """S2.0: `RequesterContext`/`SystemContext` actions (intake.md §5). Every one of these is
+    `step_up=False`/`blocked_while_impersonating=False` in the matrix (neither pseudo-context
+    can impersonate or step up), so those two expected columns are always False here."""
+    rows: list[dict[str, object]] = []
+    for action, (pseudo_role, scope, prd_ref) in PSEUDO_ORACLE.items():
+        # The pseudo-role itself, in scope.
+        rows.append(
+            dict(
+                action=action,
+                role=pseudo_role,
+                scope_case="own_request" if scope == OWN_REQUEST else "n/a",
+                expected_allowed=True,
+                expected_step_up_required=False,
+                expected_blocked_while_impersonating=False,
+                prd_ref=prd_ref,
+                case="pseudo_baseline",
+            )
+        )
+        if scope == OWN_REQUEST:
+            # Same pseudo-role, someone else's request: denied by Scope.OWN_REQUEST.
+            rows.append(
+                dict(
+                    action=action,
+                    role=pseudo_role,
+                    scope_case="other_request",
+                    expected_allowed=False,
+                    expected_step_up_required=False,
+                    expected_blocked_while_impersonating=False,
+                    prd_ref=prd_ref,
+                    case="pseudo_scope_out_of_bounds",
+                )
+            )
+        # Every real staff/volunteer role, and the other pseudo-role, must never reach a
+        # REQUESTER-only or SYSTEM-only action (intake.md §5: "neither role is in
+        # GLOBAL_ROLES ... any_standing_role").
+        for other_role in (*ALL_ROLES, SYSTEM if pseudo_role == REQUESTER else REQUESTER):
+            rows.append(
+                dict(
+                    action=action,
+                    role=other_role,
+                    scope_case="n/a",
+                    expected_allowed=False,
+                    expected_step_up_required=False,
+                    expected_blocked_while_impersonating=False,
+                    prd_ref=prd_ref,
+                    case="pseudo_wrong_actor_kind",
+                )
+            )
+        rows.append(
+            dict(
+                action=action,
+                role="",
+                scope_case="n/a",
+                expected_allowed=False,
+                expected_step_up_required=False,
+                expected_blocked_while_impersonating=False,
+                prd_ref=prd_ref,
+                case="unauthenticated",
+            )
+        )
+    return rows
+
+
 def main() -> None:
-    rows = _rows()
+    rows = _rows() + _pseudo_rows()
     with OUT_PATH.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         writer.writeheader()

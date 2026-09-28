@@ -101,3 +101,89 @@ class ActorContext:
             clock_now() - self.impersonation_last_activity_at
         )
         return max(0, int(remaining.total_seconds() // 60))
+
+
+# --- S2.0 (intake.md §5): pseudo-principals for requester- and system-initiated writes -------
+#
+# The command pipeline (`ham.authz.commands.command()`) is the *one* write path (foundation.md
+# §1). Requests submitted by a member of the public, and background jobs acting on their own
+# behalf ("the duplicate check finished", "purge this expired draft"), both need to go through
+# that same pipeline — authorized, audited, emitted — without pretending to be a signed-in
+# `User`. `RequesterContext`/`SystemContext` are duck-type-compatible with `ActorContext`
+# (`ham.authz.matrix.authorize` and `ham.audit.services.record` only ever call attributes/
+# properties both shapes provide) rather than subclassing it, since neither has a `user_id`
+# that means "a HAM staff account", nor impersonation, nor MFA.
+#
+# `roles={"REQUESTER"}` / `{"SYSTEM"}` are deliberately NOT in `ham.authz.roles.GLOBAL_ROLES`
+# or `ANY_STANDING_ROLE` (intake.md §5): a requester or a background job must never reach
+# `shell.use`, `me.*`, or any staff-only action just because its role string happens to appear
+# in a matrix rule's `allowed_roles` — every action either pseudo-context can perform is
+# declared explicitly for `REQUESTER`/`SYSTEM` in `ham.authz.matrix.MATRIX`.
+@dataclass(frozen=True, slots=True)
+class RequesterContext:
+    """The acting identity for a public requester's own writes (submitting the form, uploading
+    their own media, regenerating their own link) — intake.md §5.
+
+    ``request_id`` is the request this session is scoped to (via a verified access link or, for
+    the very first ``request.submit`` before the request row exists, ``None``); ``Scope.
+    OWN_REQUEST`` compares it to a resource's own ``request_id``, never to a ``user_id`` (a
+    requester has no ``User`` row at all — intake.md §3 ``Requester`` "not a User").
+    """
+
+    request_id: uuid.UUID | None
+    link_id: uuid.UUID | None = None
+    verification_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
+    real_user_id: uuid.UUID | None = None
+    roles: frozenset[str] = field(default_factory=lambda: frozenset({"REQUESTER"}))
+    scoped_roles: tuple[ScopedRole, ...] = ()
+    is_active: bool = True
+    step_up_at: dict[str, dt.datetime] = field(default_factory=dict)
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+    @property
+    def is_impersonating(self) -> bool:
+        return False
+
+    @property
+    def effective_roles(self) -> frozenset[str]:
+        # No MFA concept for a requester session (Q-045 only governs staff MFA-required
+        # roles); the role always applies once the link/verification checks in the service
+        # layer have passed.
+        return self.roles
+
+    def has_fresh_step_up(self, kind: str, *, now: dt.datetime, freshness: dt.timedelta) -> bool:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class SystemContext:
+    """The acting identity for a background job doing its own work with no human behind it
+    (e.g. the duplicate-check job moving a request to Awaiting Approval, a retention purge) —
+    intake.md §5 ``system.*`` actions. There is exactly one of these per call; jobs construct a
+    fresh one, they are never stored."""
+
+    user_id: uuid.UUID | None = None
+    real_user_id: uuid.UUID | None = None
+    roles: frozenset[str] = field(default_factory=lambda: frozenset({"SYSTEM"}))
+    scoped_roles: tuple[ScopedRole, ...] = ()
+    is_active: bool = True
+    step_up_at: dict[str, dt.datetime] = field(default_factory=dict)
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+    @property
+    def is_impersonating(self) -> bool:
+        return False
+
+    @property
+    def effective_roles(self) -> frozenset[str]:
+        return self.roles
+
+    def has_fresh_step_up(self, kind: str, *, now: dt.datetime, freshness: dt.timedelta) -> bool:
+        return False

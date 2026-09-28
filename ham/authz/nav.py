@@ -27,6 +27,10 @@ class NavItem:
 # S5 screens pass flips each one as its route lands.
 _ITEMS: tuple[NavItem, ...] = (
     NavItem("home", "Home", "web:home", "home", True, "shell.use"),
+    # S2.0 seam (intake.md §7, §10): the screen lands in S2.8; `built=False` keeps it out of
+    # every rendered nav (`ham/web/nav.py` filters on `.built`) while still letting
+    # `authorize()`/tests exercise who is *allowed* to reach it.
+    NavItem("requests", "Requests", "web:requests", "clipboard-list", False, "request.list"),
     NavItem("inbox", "Inbox", "web:inbox", "mail", True, "shell.use"),
     NavItem("admin_users", "Users & roles", "web:admin_users", "users", True, "user.list"),
     NavItem(
