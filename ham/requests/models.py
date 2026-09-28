@@ -28,15 +28,14 @@ def next_reference_number() -> int:
 
 
 class NeedCategory(models.TextChoices):
-    """Q-109 (decided, docs/ux/intake.md R2 / §12.1 "What kind of help?"): the ONE vocabulary
-    for need category, used by both the public form and every leadership screen (PRD-guardian
-    M1/UX M2 — there used to be a second, different-coded copy of this list in
-    `ham.requester_portal.choices`; that copy is gone, this is the only one)."""
+    """Q-109 (proposed default in use, docs/ux/intake.md R2 / §12.1 "What kind of help?"):
+    the ONE vocabulary for need category, used by both the public form and every leadership
+    screen (PRD-guardian M1/UX M2 — there used to be a second, different-coded copy of this
+    list in `ham.requester_portal.choices`; that copy is gone, this is the only one)."""
 
     # PRD-GAP Q-109: leader-initiated category *change* (audited) is deferred to step 3 — this
     # slice only stores the requester's own choice; no "Change category" leadership action
-    # exists yet in ham.requests.services. Note for the orchestrator: add "Change category
-    # deferred to step 3" to Q-109's row in docs/prd-open-questions.md.
+    # exists yet in ham.requests.services.
     ROOF_OR_CEILING = "roof_or_ceiling", "Roof or ceiling"
     PLUMBING_OR_WATER = "plumbing_or_water", "Plumbing or water"
     ELECTRICAL = "electrical", "Electrical"
@@ -55,8 +54,9 @@ class RelationshipToProperty(models.TextChoices):
 
 
 class PropertyType(models.TextChoices):
-    """Q-110 (decided, docs/ux/intake.md R3 / §12.1 "Type of home"): the ONE vocabulary for
-    property type (see `NeedCategory`'s docstring above for why there is only one now)."""
+    """Q-110 (proposed default in use, docs/ux/intake.md R3 / §12.1 "Type of home"): the ONE
+    vocabulary for property type (see `NeedCategory`'s docstring above for why there is only
+    one now)."""
 
     HOUSE = "house", "House"
     TOWNHOUSE = "townhouse", "Townhouse"
@@ -66,9 +66,9 @@ class PropertyType(models.TextChoices):
 
 
 class PreferredContactMethod(models.TextChoices):
-    """Q-111 (decided; PRD-guardian N1 fixed a wrong Q-124 citation here): Email · Phone call
-    only -- the form never offers a "text message" option (§75, no SMS provider in V1), so
-    `TEXT_MESSAGE` is gone, not just unoffered."""
+    """Q-111 (proposed default in use; PRD-guardian N1 fixed a wrong Q-124 citation here):
+    Email · Phone call only -- the form never offers a "text message" option (§75, no SMS
+    provider in V1), so `TEXT_MESSAGE` is gone, not just unoffered."""
 
     EMAIL = "email", "Email"
     PHONE_CALL = "phone_call", "Phone call"
@@ -107,9 +107,11 @@ class AssistanceRequest(models.Model):
 
     known_hazards = models.TextField(blank=True, default="")  # C
     preferred_availability = models.TextField(blank=True, default="")  # C
-    # Q-148 (decided): R5's "Anything else about reaching you or visiting?" (helper name, best
-    # time to call) -- stored and shown to leadership on the detail view and the phone-check
-    # screen; erased at the 7-year purge along with the other free-text circumstances (Q-145).
+    # PRD-GAP Q-148: proposed default in use; owner may change. R5's "Anything else about
+    # reaching you or visiting?" (helper name, best time to call) -- stored and shown to
+    # leadership on the detail view and the phone-check screen; erased at the 7-year purge
+    # along with the other free-text circumstances. PRD-GAP Q-145: proposed default in use;
+    # owner may change (erasing free-text circumstances at 7 years).
     contact_note = models.TextField(blank=True, default="")  # C
     preferred_contact_method = models.CharField(
         max_length=16, choices=PreferredContactMethod.choices
@@ -237,6 +239,24 @@ class AppendOnlyError(RuntimeError):
     separate, lower-privilege DB role this sandbox doesn't have)."""
 
 
+class RequestContactVerificationManager(models.Manager):
+    """N4: the 7-year retention purge's one exception to "append-only, never bulk-updated" --
+    see `erase_value_keys_for_retention`'s own docstring."""
+
+    def erase_value_keys_for_retention(self, request: AssistanceRequest) -> int:
+        """Q-145's 7-year purge sweep: blanks every row's hashed `value_key` for ``request``.
+        A queryset `.update()` legitimately bypasses `RequestContactVerification.save()`'s own
+        append-only guard here -- Django's bulk `.update()` never calls `Model.save()`, which
+        is exactly what a genuine system-level erasure needs: it is retiring the hashed value
+        every such row carries, not editing any individual row's own history the append-only
+        guard exists to protect. Named and centralized (rather than a bare `.filter(...).
+        update(value_key="")` inline at the call site) so exactly one caller doing this can be
+        proven by a test (grep-style: `ham.requests.services.purge_expired_request` is the
+        only call site), instead of trusting that no other code ever reaches for the same
+        queryset-level escape hatch for a different reason."""
+        return self.filter(request=request).update(value_key="")
+
+
 class RequestContactVerification(models.Model):
     """Append-only (Python-level guard): every code/link verification and staff phone
     verification for a request (intake.md §3)."""
@@ -258,6 +278,8 @@ class RequestContactVerification(models.Model):
     verified_at = models.DateTimeField()
     verified_by_user_id = models.UUIDField(null=True, blank=True)  # staff only
     challenge_id = models.UUIDField(null=True, blank=True)  # ham.requester_portal's own id
+
+    objects = RequestContactVerificationManager()
 
     class Meta:
         db_table = "requests_contact_verification"

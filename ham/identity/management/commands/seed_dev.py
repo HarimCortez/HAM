@@ -15,6 +15,7 @@ from ham.identity.crypto import encrypt
 from ham.identity.models import RoleAssignment, SharedIdentityProfile, TOTPDevice, User
 from ham.platform.clock import now as clock_now
 from ham.platform.env import refuse_in_production
+from ham.platform.models import ChurchProfile
 
 # Fixed dev-only TOTP secrets (foundation.md §2.11), one per §60.1 persona, so Playwright and
 # local sign-in don't need a real authenticator app. Never used outside development
@@ -52,6 +53,14 @@ class Command(BaseCommand):
         refuse_in_production("seed_dev")
 
         with transaction.atomic():
+            # N15: prefills R3's "The home" address step with a real state (Q-147) rather than
+            # leaving local dev/Playwright runs with a blank "not set" state -- same singleton
+            # row `church_profile()` reads.
+            church = ChurchProfile.get_solo()
+            if church.state != "FL":
+                church.state = "FL"
+                church.save(update_fields=["state"])
+
             for email, full_name, role_list in PERSONAS:
                 user, created = User.objects.get_or_create(email=email)
                 if created:

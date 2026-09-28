@@ -26,8 +26,9 @@ class ChurchProfileView:
     logo_alt: str
     phone: str
     email: str
-    # Q-147 (decided): the church's own 2-letter USPS state code, used to prefill R3's "The
-    # home" step ("Florida · Change") -- "" means not set yet (Admin hasn't filled it in).
+    # PRD-GAP Q-147: proposed default in use; owner may change. The church's own 2-letter
+    # USPS state code, used to prefill R3's "The home" step ("Florida · Change") -- "" means
+    # not set yet (Admin hasn't filled it in).
     state: str
     time_zone: str
     website_url: str

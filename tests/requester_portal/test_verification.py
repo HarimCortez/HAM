@@ -52,10 +52,14 @@ def test_verify_code_success_and_reuse(clock: FixedClock):
     challenge.code_hash = otp.hash_value(code)
     challenge.save(update_fields=["code_hash"])
 
-    result = verification.verify_code(purpose="intake", email="doris@example.org", code=code)
+    result = verification.verify_code(
+        purpose="intake", email="doris@example.org", code=code, draft_id=DRAFT_ID
+    )
     assert result.ok
     # Reusing the same (now consumed) challenge fails.
-    result2 = verification.verify_code(purpose="intake", email="doris@example.org", code=code)
+    result2 = verification.verify_code(
+        purpose="intake", email="doris@example.org", code=code, draft_id=DRAFT_ID
+    )
     assert not result2.ok
     assert result2.reason == "no_challenge"
 
@@ -65,7 +69,7 @@ def test_verify_code_wrong_then_expiry_and_lockout(clock: FixedClock):
     max_attempts = RULES.intake.REQUESTER_CODE_MAX_ATTEMPTS
     for i in range(max_attempts):
         result = verification.verify_code(
-            purpose="intake", email="mrs.hall@example.org", code="000000"
+            purpose="intake", email="mrs.hall@example.org", code="000000", draft_id=DRAFT_ID
         )
         assert not result.ok
         if i < max_attempts - 1:
@@ -74,7 +78,9 @@ def test_verify_code_wrong_then_expiry_and_lockout(clock: FixedClock):
             assert result.reason == "locked"
 
     # Locked: even the daily-cap path (a fresh challenge wouldn't reset this) refuses.
-    result = verification.verify_code(purpose="intake", email="mrs.hall@example.org", code="000000")
+    result = verification.verify_code(
+        purpose="intake", email="mrs.hall@example.org", code="000000", draft_id=DRAFT_ID
+    )
     assert not result.ok
     assert result.reason == "locked"
 
@@ -82,7 +88,9 @@ def test_verify_code_wrong_then_expiry_and_lockout(clock: FixedClock):
 def test_code_expires(clock: FixedClock):
     _request_and_send(email="expired@example.org")
     clock.advance(RULES.intake.REQUESTER_CODE_LIFETIME + SECOND)
-    result = verification.verify_code(purpose="intake", email="expired@example.org", code="000000")
+    result = verification.verify_code(
+        purpose="intake", email="expired@example.org", code="000000", draft_id=DRAFT_ID
+    )
     assert not result.ok
     assert result.reason == "expired"
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from pathlib import Path
+from typing import BinaryIO
 
 from django.conf import settings
 from django.core.signing import BadSignature, Signer
@@ -128,6 +129,12 @@ class LocalObjectStore:
         if not path.exists():
             raise FileNotFoundError(key)
         return path.read_bytes()
+
+    def open_object(self, key: str) -> BinaryIO:
+        path = self._object_path(key)
+        if not path.exists():
+            raise FileNotFoundError(key)
+        return path.open("rb")
 
     def put_object(self, key: str, data: bytes, *, content_type: str) -> None:
         import json

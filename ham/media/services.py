@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from functools import partial
+from typing import TYPE_CHECKING, BinaryIO, Literal
 
 from django.db import transaction
 
@@ -531,27 +532,29 @@ def get_ready_item(*, request_id: uuid.UUID, media_id: uuid.UUID) -> RequestMedi
     ).first()
 
 
-def read_media_bytes(
+def open_media_stream(
     item: RequestMedia, *, variant: Literal["thumb", "view"]
-) -> tuple[bytes, str] | None:
-    """Reads one derivative's bytes straight from storage for the leadership thumb/view routes
-    (PRD M3 / UX B1) -- streamed through the app, not a client-visible presigned URL, so the
-    route's own `Cache-Control: no-store` response header is the only thing that ever
-    describes how long a browser may cache it. `None` if this variant has no key (e.g. a
-    video's thumbnail -- videos get no `thumb_key`, ``ham.media.jobs.process_item``)."""
+) -> tuple[BinaryIO, str] | None:
+    """Opens a readable stream onto one derivative's bytes straight from storage for the
+    leadership thumb/view routes (PRD M3 / UX B1; N1 fix: streamed through the app via
+    `django.http.FileResponse`, never buffered whole into a Python `bytes` object, and never a
+    client-visible presigned URL) so the route's own `Cache-Control: no-store` response header
+    is the only thing that ever describes how long a browser may cache it. `None` if this
+    variant has no key (e.g. a video's thumbnail -- videos get no `thumb_key`,
+    ``ham.media.jobs.process_item``)."""
     key = item.thumb_key if variant == "thumb" else item.storage_key
     if not key:
         return None
     store = get_object_store()
     try:
-        data = store.get_object(key)
+        stream = store.open_object(key)
     except FileNotFoundError:  # pragma: no cover - defensive; ready implies the key exists
         return None
     if variant == "thumb":
         content_type = "image/jpeg"
     else:
         content_type = "image/jpeg" if item.media_kind == MEDIA_KIND_PHOTO else "video/mp4"
-    return data, content_type
+    return stream, content_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -592,7 +595,16 @@ def purge_all_for_request(request_id: uuid.UUID) -> int:
 
     Plain function, not `@command`: no human actor of its own (the human decision -- and its
     own audit event, `request.purged` -- belongs to the caller); always invoked from inside
-    another action's own transaction, same as `close_open_batches` above."""
+    another action's own transaction, same as `close_open_batches` above.
+
+    N6: the actual object-store deletions run via `transaction.on_commit` -- this function is
+    always called from inside `purge_expired_request`'s own `@command`-wrapped
+    `transaction.atomic()` block, right before it deletes the request row. Deleting storage
+    objects synchronously, mid-transaction, means a later failure in that same transaction
+    (e.g. the request-row delete, or the audit/outbox write `@command` does after this
+    returns) rolls the DB back while the bytes are already gone from storage -- unrecoverable.
+    Deferring to `on_commit` means storage deletion only ever runs once the whole purge has
+    actually committed."""
     store = get_object_store()
     purged = 0
     for item in RequestMedia.objects.filter(request_id=request_id):
@@ -600,7 +612,7 @@ def purge_all_for_request(request_id: uuid.UUID) -> int:
         if not keys:
             continue
         for key in keys:
-            store.delete(key)
+            transaction.on_commit(partial(store.delete, key))
         audit_record(
             ctx=SystemContext(),
             action="request_media.purged",

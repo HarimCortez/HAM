@@ -28,6 +28,7 @@ from ham.platform import otp
 from ham.platform.clock import now as clock_now
 from ham.platform.crypto import encrypt
 from ham.requests.matching import normalize_email
+from ham.requests.services import record_link_regeneration_verification
 from ham.rules import RULES
 
 from . import drafts, forms
@@ -206,24 +207,44 @@ def _resource_own_request(ctx: RequesterContext, *args: Any, **kwargs: Any) -> R
 
 @command("requester_link.regenerate", resource_from=_resource_own_request)
 def regenerate_link_for_own_request(
-    ctx: RequesterContext, *, verification_id: UUID
+    ctx: RequesterContext, *, verification_id: UUID, verification_method: str
 ) -> CommandResult:
     """Called once the requester has re-verified (fresh code/link) while already holding a
     `RequesterContext` for their own request (the common case: an about-to-expire but still
     resolvable link). `ham.requester_portal.services.regenerate_link` below is the public,
-    email-driven entry point used when the old link has *already* expired."""
+    email-driven entry point used when the old link has *already* expired.
+
+    L8/M4: `verification_method` (``"email_code"``/``"email_link"``, `ham.requests.states.
+    VerificationMethod`'s values) and `verification_id` (the challenge id) are recorded both
+    in this command's own audit `context` and as an append-only `RequestContactVerification`
+    row (`record_link_regeneration_verification`) -- before this fix, a link-regeneration
+    re-verification left no trace in either place, unlike intake's own `submit_request`."""
     assert ctx.request_id is not None  # the matrix's OWN_REQUEST scope already guarantees this
     issued = issue_link(
         request_id=ctx.request_id,
         kind=RequesterAccessLink.KIND_REGENERATED,
         verification_id=verification_id,
     )
+    on_file = _contact(ctx.request_id)
+    if on_file is not None:
+        record_link_regeneration_verification(
+            request_id=ctx.request_id,
+            method=verification_method,
+            verified_value=on_file,
+            challenge_id=verification_id,
+        )
+    audit_context = {
+        "verification_method": verification_method,
+        "challenge_id": str(verification_id),
+    }
     return CommandResult(
         value=issued,
         audit_action="requester_link.regenerated",
         target_type="request",
         target_id=str(ctx.request_id),
         project_id=ctx.request_id,
+        context=audit_context,
+        after=audit_context,
         outbox=OutboxSpec(
             "RequesterAccessLinkIssued",
             aggregate_type="request",

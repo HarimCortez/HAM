@@ -64,15 +64,22 @@ def urgent_banner_for(ctx: Any) -> Notification | None:
     )
 
 
+def get_owned_notification(ctx: Any, notification_id: UUID) -> Notification | None:
+    """Read-only counterpart to `mark_read` -- same ownership scoping (`ctx.user_id`), never
+    mutates. N7: `ham.web.views.notification_open` uses this instead of `mark_read` while
+    impersonating, so opening a notification link doesn't silently mark the *impersonated*
+    person's own inbox item read on their behalf -- an unaudited state change on someone
+    else's account that they'd have no way to notice happened."""
+    return Notification.objects.filter(pk=notification_id, recipient_user_id=ctx.user_id).first()
+
+
 def mark_read(ctx: Any, notification_id: UUID) -> Notification | None:
     """Ownership-scoped, not authorized by the matrix (route-level `shell.use` is enough — any
     signed-in leader may mark their own Updates read; the ownership filter below is what stops
     them reading someone else's). Idempotent; returns `None` if `notification_id` isn't this
     recipient's (never distinguishes "doesn't exist" from "isn't yours" — nothing to
     enumerate, notification ids are UUIDv7 and never shown to anyone but their recipient)."""
-    notification = Notification.objects.filter(
-        pk=notification_id, recipient_user_id=ctx.user_id
-    ).first()
+    notification = get_owned_notification(ctx, notification_id)
     if notification is None:
         return None
     if notification.read_at is None:

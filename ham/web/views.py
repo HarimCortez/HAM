@@ -158,16 +158,32 @@ _NOTIFICATION_SUBJECT_URL_NAMES = {
 def notification_open(request, notification_id):
     """Usability M13: an Inbox "Updates" row is a link, not inert text -- opens the
     notification's subject (marking it read on the way) instead of leaving the pastor to find
-    the request themselves on the Requests list."""
-    from ham.notifications.services import mark_read
+    the request themselves on the Requests list.
 
-    notification = mark_read(request.actor, notification_id)
+    N7: while impersonating, this reads the notification without marking it read
+    (`get_owned_notification`, not `mark_read`) -- an Administrator browsing someone else's
+    inbox to look something up shouldn't silently change what that person sees as unread when
+    they next sign in themselves. A malformed/unknown subject (bad `subject_type`, or a
+    `subject_id` that no longer reverses to a real route, e.g. a since-deleted request) always
+    redirects to the inbox rather than 500ing."""
+    from django.urls import NoReverseMatch
+
+    from ham.notifications.services import get_owned_notification, mark_read
+
+    ctx = request.actor
+    if ctx.is_impersonating:
+        notification = get_owned_notification(ctx, notification_id)
+    else:
+        notification = mark_read(ctx, notification_id)
     if notification is None:
         return redirect("web:inbox")
     url_name = _NOTIFICATION_SUBJECT_URL_NAMES.get(notification.subject_type)
     if url_name is None:
         return redirect("web:inbox")
-    return redirect(url_name, request_id=notification.subject_id)
+    try:
+        return redirect(url_name, request_id=notification.subject_id)
+    except NoReverseMatch:
+        return redirect("web:inbox")
 
 
 @require_GET

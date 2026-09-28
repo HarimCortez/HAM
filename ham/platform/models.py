@@ -35,10 +35,11 @@ class ChurchProfile(models.Model):
     id = UUID7Field()
     ham_phone = models.CharField(max_length=32, blank=True, default="")
     ham_email = models.EmailField(blank=True, default="")
-    # Q-147 (decided): the church's own state, 2-letter USPS code -- prefills R3's "The home"
-    # step ("Florida · Change") on the public intake form so almost every requester (who lives
-    # near the church) never has to type it. Blank means "not set yet" (Admin settings screen
-    # leaves the intake form's state field blank/required instead of prefilling).
+    # PRD-GAP Q-147: proposed default in use; owner may change. The church's own state,
+    # 2-letter USPS code -- prefills R3's "The home" step ("Florida · Change") on the public
+    # intake form so almost every requester (who lives near the church) never has to type it.
+    # Blank means "not set yet" (Admin settings screen leaves the intake form's state field
+    # blank/required instead of prefilling).
     state = models.CharField(max_length=2, blank=True, default="")
     time_zone = models.CharField(max_length=64, default=DEFAULT_TIME_ZONE)
     website_url = models.URLField(blank=True, default="")

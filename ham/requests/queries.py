@@ -40,16 +40,45 @@ def can_reveal(ctx: ActorContext, request: AssistanceRequest) -> bool:
     return authorize(ctx, "requester_pii.reveal", request).allowed
 
 
+def can_view_history(ctx: ActorContext) -> bool:
+    """M2/N5: whether this viewer holds `request.history.view` -- gates both the detail
+    page's History section/duplicate panel and the list row's "possible earlier request"
+    marker (`has_possible_duplicate`, below). Never true for the Administrator, even while
+    impersonating a role that would otherwise qualify (`is_masked_view` already encodes that
+    exact rule, Q-151) -- `authorize()` alone is blind to it, since `ctx.effective_roles`
+    reflects the impersonation *target's* roles while impersonating, not the real actor's."""
+    if is_masked_view(ctx):
+        return False
+    return authorize(ctx, "request.history.view", None).allowed
+
+
 _LEADERSHIP_REQUEST_ROLES = _DIR_AD | {roles.PASTOR, roles.BOARD_REPRESENTATIVE}
 
 
 def is_masked_view(ctx: ActorContext) -> bool:
     """Q-124: true only when the Administrator role is what's granting access here, and no
     leadership role also would -- contact details always masked, no reveal button, photo
-    count only (Q-138)."""
-    return roles.ADMINISTRATOR in ctx.effective_roles and not (
+    count only (Q-138).
+
+    N5/Q-151: also true whenever the *real* signed-in actor is an Administrator who is
+    currently impersonating someone else (a Pastor, Director, ...). `ctx.roles`/
+    `effective_roles` reflect the impersonation *target's* roles while impersonating (never
+    the real actor's), so the plain role check above would otherwise unmask the gallery/
+    contact fields the moment an Administrator starts impersonating a leadership role --
+    exactly the loophole `reveal_requester_pii`'s own L7/Q-151 fix already closed for the
+    reveal button itself. Same mechanism: `ham.identity.services.user_holds_global_role` on
+    `ctx.real_user_id`, since the matrix has no notion of "the real actor while
+    impersonating"."""
+    if roles.ADMINISTRATOR in ctx.effective_roles and not (
         ctx.effective_roles & _LEADERSHIP_REQUEST_ROLES
-    )
+    ):
+        return True
+    if ctx.is_impersonating:
+        from ham.identity.services import user_holds_global_role
+
+        if user_holds_global_role(ctx.real_user_id, roles.ADMINISTRATOR):
+            return True
+    return False
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -99,7 +128,13 @@ def list_requests(
     if reference_number is not None:
         qs = qs.filter(reference_number=reference_number)
 
-    duplicate_ids = set(qs.filter(matches__isnull=False).values_list("id", flat=True))
+    # M2: the marker is only ever computed for a viewer who actually holds
+    # `request.history.view` -- never for the Administrator (view-only, masked -- Q-124),
+    # even while impersonating a role that would otherwise qualify (N5/Q-151).
+    show_marker = can_view_history(ctx)
+    duplicate_ids = (
+        set(qs.filter(matches__isnull=False).values_list("id", flat=True)) if show_marker else set()
+    )
     return [
         RequestListRow(
             id=r.id,
@@ -174,6 +209,7 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         r = AssistanceRequest.objects.select_related("property").get(pk=request_id)
     except AssistanceRequest.DoesNotExist:
         return None
+    masked = is_masked_view(ctx)
     return RequestDetailRow(
         id=r.id,
         reference_number=r.reference_number,
@@ -186,7 +222,12 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         urgency_status=r.urgency_status,
         known_hazards=r.known_hazards,
         preferred_availability=r.preferred_availability,
-        contact_note=r.contact_note,
+        # NEW-1: R5's "anything else about reaching you or visiting?" (helper name, best time
+        # to call) is close enough to contact info that it's blanked from the Administrator's
+        # masked view too, not just P-field name/phone/email/street -- never reaches the
+        # template, so `{% if detail.contact_note %}` in `_request_detail.html` simply doesn't
+        # render for them, the same as an unset value.
+        contact_note="" if masked else r.contact_note,
         preferred_contact_method=r.preferred_contact_method,
         relationship_to_property=r.relationship_to_property,
         property_type=r.property.property_type,
@@ -196,12 +237,12 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         closed_at=r.closed_at,
         cancel_reason_code=r.cancel_reason_code,
         can_reveal_contact=can_reveal(ctx, r),
-        is_masked_view=is_masked_view(ctx),
+        is_masked_view=masked,
         # N9 (coordinator handoff from FIX-B): higher privilege wins -- an Administrator who
         # also holds a leadership role must not be masked. `is_masked_view` (this module,
         # above) already encodes "Administrator AND no leadership role also grants access",
         # matching `ham.media.services.media_gallery_for`'s identical fix.
-        photo_count_only=is_masked_view(ctx),
+        photo_count_only=masked,
     )
 
 
@@ -467,9 +508,10 @@ def recent_submission_count_for_email(email: str, *, since: dt.datetime) -> int:
 
 
 def recent_no_email_submission_count_for_phone(phone: str, *, since: dt.datetime) -> int:
-    """Q-146 (decided): `RULES.intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY` -- how many
-    "I don't use email" requests with this phone number on file were submitted on or after
-    ``since``. The per-email cap above cannot reach this path since there is no email."""
+    """Q-146 (proposed default in use): `RULES.intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY`
+    -- how many "I don't use email" requests with this phone number on file were submitted on
+    or after ``since``. The per-email cap above cannot reach this path since there is no
+    email."""
     if not phone:
         return 0
     candidates = otp.hash_candidates(phone)

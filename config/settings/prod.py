@@ -70,6 +70,27 @@ if _object_store_backend == "ham.integrations.storage.local.LocalObjectStore":
         "set it to the R2/S3-compatible adapter (ham.integrations.storage.s3.R2ObjectStore)."
     )
 
+# N2: `ham.integrations.storage.s3.R2ObjectStore.__init__` only discovers a missing
+# bucket/endpoint/credential the first time `get_object_store()` is actually called (first
+# upload/read) — too late for a deploy-time check, same reasoning as the encryption-key check
+# above. Validate eagerly here too.
+if _object_store_backend == "ham.integrations.storage.s3.R2ObjectStore":
+    _missing_s3_settings = [
+        name
+        for name in (
+            "HAM_S3_BUCKET",
+            "HAM_S3_ENDPOINT_URL",
+            "HAM_S3_ACCESS_KEY_ID",
+            "HAM_S3_SECRET_ACCESS_KEY",
+        )
+        if not env(name, default="")
+    ]
+    if _missing_s3_settings:
+        raise RuntimeError(
+            "Missing required S3/R2 object store settings in production: "
+            + ", ".join(_missing_s3_settings)
+        )
+
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 

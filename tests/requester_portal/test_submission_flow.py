@@ -75,7 +75,9 @@ def _verified_challenge(draft_id, *, email: str, code: str = "654321"):
     challenge = RequesterVerificationChallenge.objects.get(draft_id=draft_id, purpose="intake")
     challenge.code_hash = otp.hash_value(code)
     challenge.save(update_fields=["code_hash"])
-    verify_result = verification.verify_code(purpose="intake", email=email, code=code)
+    verify_result = verification.verify_code(
+        purpose="intake", email=email, code=code, draft_id=draft_id
+    )
     assert verify_result.ok, verify_result.reason
     assert verify_result.challenge is not None
     return verify_result.challenge
