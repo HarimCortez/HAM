@@ -1,5 +1,5 @@
 {% extends "web/base.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Home · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Home{% endblock %}
@@ -15,6 +15,25 @@
 
   <div class="home-grid">
     <div class="home-grid__attention">
+      {% if attention_items %}
+        <section class="card" aria-labelledby="home-attention-title">
+          <h2 id="home-attention-title">Needs your attention</h2>
+          <ul class="attention-list">
+            {% for item in attention_items %}
+              <li class="attention-card{% if item.urgent %} attention-card--urgent{% endif %}{% if item.muted %} attention-card--muted{% endif %}">
+                {% if item.urgent %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg></span> Urgent</span>{% endif %}
+                <span class="attention-card__title">{{ item.title }}</span>
+                {% if item.muted %}
+                  <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>
+                {% else %}
+                  <a class="btn {% if item.urgent %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}">Open</a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
       {% if show_invite_card %}
         <section class="card" aria-labelledby="home-invite-title">
           <h2 id="home-invite-title">Invite someone</h2>
@@ -45,7 +64,7 @@
         </section>
       {% endif %}
 
-      {% if not show_invite_card and integration_counts is None %}
+      {% if not show_invite_card and integration_counts is None and not attention_items %}
         <section class="empty-state" aria-labelledby="home-empty-title">
           <svg class="empty-state__illustration" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
             <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

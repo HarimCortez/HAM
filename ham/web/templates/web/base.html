@@ -21,6 +21,7 @@
       <p class="app-bar__title">{% block app_bar_title %}{% endblock %}</p>
     </header>
 
+    {% include "web/_urgent_banner.html" %}
     {% include "web/_impersonation_banner.html" %}
 
     <div id="offline-status" class="offline-banner" role="status" hidden>

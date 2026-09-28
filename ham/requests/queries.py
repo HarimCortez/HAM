@@ -24,7 +24,7 @@ from ham.platform import otp
 
 from .matching import normalize_email
 from .models import AssistanceRequest, Requester
-from .states import RequestStatus
+from .states import RequestStatus, VerificationMethod
 
 if TYPE_CHECKING:
     from ham.authz.context import ActorContext
@@ -333,6 +333,93 @@ def request_contact_for_portal(request_id: UUID) -> str | None:
     claimed email, only what's actually on file (intake-contracts.md §8.3, "no enumeration")."""
     email = Requester.objects.filter(request_id=request_id).values_list("email", flat=True).first()
     return normalize_email(email) if email else None
+
+
+# --------------------------------------------------------------------------------------
+# L1 search (§71 "search by request ID only") and L2's contact-verification/history data
+# (S2.8). No P/C fields here -- verifications carry only method/time/actor.
+# --------------------------------------------------------------------------------------
+def get_request_by_id(ctx: ActorContext, request_id: UUID) -> AssistanceRequest | None:
+    """The raw row, scoped the same way `list_requests` is (a pastor/Board rep may never
+    fetch a still-`NEEDS_PHONE_CHECK` request by guessing its id, Q-025)."""
+    qs = scope_queryset_for_requests(ctx, AssistanceRequest.objects.select_related("property"))
+    return qs.filter(pk=request_id).first()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ContactVerificationRow:
+    method: str
+    verified_at: dt.datetime
+    verified_by_user_id: UUID | None
+
+
+def contact_verifications(request_id: UUID) -> list[ContactVerificationRow]:
+    from .models import RequestContactVerification
+
+    return [
+        ContactVerificationRow(
+            method=v.method, verified_at=v.verified_at, verified_by_user_id=v.verified_by_user_id
+        )
+        for v in RequestContactVerification.objects.filter(request_id=request_id).order_by(
+            "verified_at"
+        )
+    ]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class HistoryEntry:
+    label: str
+    occurred_at: dt.datetime
+    actor_user_id: UUID | None = None
+
+
+def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
+    """A small, PII-free lifecycle timeline (L2 "History") built from domain data, not the
+    full audit log -- pastors and the Board rep may see it (`request.history.view`) without
+    holding `audit.view` (Administrator/Director only, `ham.authz.matrix`)."""
+    from .presentation import CANCEL_REASON_BANNER_LABELS, SOURCE_LABELS, VERIFICATION_METHOD_LABELS
+
+    entries = [
+        HistoryEntry(
+            label=f"Sent by requester ({SOURCE_LABELS.get(request.source, request.source)})",
+            occurred_at=request.submitted_at,
+        )
+    ]
+    for v in contact_verifications(request.id):
+        if v.method == VerificationMethod.STAFF_PHONE_CALL.value:
+            entries.append(
+                HistoryEntry(
+                    label="Verified by phone call",
+                    occurred_at=v.verified_at,
+                    actor_user_id=v.verified_by_user_id,
+                )
+            )
+        else:
+            word = VERIFICATION_METHOD_LABELS.get(v.method, v.method)
+            entries.append(
+                HistoryEntry(label=f"Email confirmed ({word})", occurred_at=v.verified_at)
+            )
+
+    if request.status in (RequestStatus.AWAITING_APPROVAL.value,):
+        entries.append(
+            HistoryEntry(
+                label="Awaiting Approval (automatic)", occurred_at=request.status_changed_at
+            )
+        )
+    if request.status == RequestStatus.CANCELLED.value and request.closed_at is not None:
+        reason = CANCEL_REASON_BANNER_LABELS.get(
+            request.cancel_reason_code, request.cancel_reason_code
+        )
+        entries.append(HistoryEntry(label=reason, occurred_at=request.closed_at))
+    if request.attested_at is not None:
+        entries.append(
+            HistoryEntry(
+                label=f"Agreed to intake statements {request.attestation_version}",
+                occurred_at=request.attested_at,
+            )
+        )
+    entries.sort(key=lambda e: e.occurred_at)
+    return entries
 
 
 def request_ids_for_portal_email(email: str) -> list[UUID]:

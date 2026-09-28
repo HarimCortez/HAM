@@ -21,6 +21,11 @@ urlpatterns = [
     path("api/v1/me", views.api_me, name="api_me"),
     path("", views.home, name="home"),
     path("inbox", views.inbox, name="inbox"),
+    path(
+        "inbox/notifications/<uuid:notification_id>/acknowledge",
+        views.notification_acknowledge,
+        name="notification_acknowledge",
+    ),
     path("admin", views.admin_index, name="admin_index"),
     path("more", views.more, name="more"),
     path("offline", views.offline, name="offline"),

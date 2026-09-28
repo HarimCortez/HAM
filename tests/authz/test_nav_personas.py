@@ -20,11 +20,10 @@ from ham.identity.management.commands.seed_dev import PERSONAS
 # action table cross-referenced with navigation.md §3.1/§3.3 (only Home/Inbox/Me/Admin
 # group/Audit log exist yet): a role's item shows only if the matrix grants that item's action.
 _BASE = {"home", "inbox", "me"}
-# S2.0 (intake.md §5, §7 "Nav"): `request.list` (Director, Assistant Director, Pastor, Board
-# representative, plus the Administrator per Q-124's view-only access) puts `nav_for`'s
-# `requests` item (still `built=False`, intake.md §10) in the *full* nav_for() result even
-# though nothing renders it yet — see `test_nav_mobile.py`'s reachability test, which only
-# checks *built* destinations.
+# S2.0/S2.8 (intake.md §5, §7 "Nav"): `request.list` (Director, Assistant Director, Pastor,
+# Board representative, plus the Administrator per Q-124's view-only access) puts `nav_for`'s
+# `requests` item in the *full* nav_for() result — `built=True` since S2.8, so it now also
+# shows up in `test_nav_mobile.py`'s built-destination checks.
 _EXPECTED_BY_ROLE: dict[str, set[str]] = {
     "ADMINISTRATOR": _BASE
     | {"admin_users", "admin_church", "admin_integrations", "admin_rules", "audit_log"}

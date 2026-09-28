@@ -11,9 +11,9 @@ from django.conf import settings
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
 from ham.authz.guard import requires_action
 from ham.authz.matrix import authorize
@@ -84,6 +84,13 @@ def home(request):
         context["recent_sign_in_failures"] = _recent_sign_in_failures(ctx)
     if authorize(ctx, "user.invite").allowed and not authorize(ctx, "user.list").allowed:
         context["show_invite_card"] = True
+
+    # S2.8 (intake.md §6, navigation.md §8.3 group 4): "Needs your attention" — computed live
+    # by every registered attention provider, never stored (ham.notifications.attention). The
+    # urgent banner itself is app-wide (see ham.web.context_processors.shell), not set here.
+    from ham.notifications.services import needs_response_for
+
+    context["attention_items"] = needs_response_for(ctx)
     return render(request, "web/home.html", context)
 
 
@@ -110,8 +117,35 @@ def _recent_sign_in_failures(ctx) -> dict[str, object]:
 @require_GET
 @requires_action("shell.use")
 def inbox(request):
-    """Inbox placeholder (foundation.md §10; navigation.md §4)."""
-    return render(request, "web/inbox.html")
+    """Inbox: "Needs response" (live attention items) + "Updates" (stored notifications)
+    (foundation.md §10; navigation.md §4; intake.md §6, PRD §35). The urgent banner is
+    app-wide (ham.web.context_processors.shell), not set here."""
+    from ham.notifications.services import needs_response_for, updates_for
+
+    ctx = request.actor
+    return render(
+        request,
+        "web/inbox.html",
+        {
+            "needs_response": needs_response_for(ctx),
+            "updates": updates_for(ctx),
+        },
+    )
+
+
+@require_http_methods(["POST"])
+@requires_action("notification.acknowledge")
+def notification_acknowledge(request, notification_id):
+    """Acknowledges the app-wide urgent banner for this person (§10/§35, Q-123)."""
+    from ham.authz.commands import PermissionDenied
+    from ham.notifications.services import acknowledge_notification
+
+    try:
+        acknowledge_notification(request.actor, notification_id=notification_id)
+    except PermissionDenied:
+        pass
+    next_url = request.POST.get("next") or reverse("web:home")
+    return redirect(next_url)
 
 
 @require_GET

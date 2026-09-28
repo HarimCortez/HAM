@@ -139,6 +139,33 @@ a:hover {
   padding-block: var(--ham-space-2);
 }
 
+/* --- Urgent banner (PRD §10, §35, Q-123; docs/ux/intake.md §12.3 G1) ---------------------- */
+.urgent-banner {
+  position: sticky;
+  top: var(--ham-size-appbar-height);
+  z-index: var(--ham-z-appbar);
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border-bottom: 1px solid var(--ham-tone-danger-border);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ham-space-2) var(--ham-space-4);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.urgent-banner__icon {
+  flex: none;
+  color: var(--ham-tone-danger-icon, currentColor);
+}
+
+.urgent-banner__text {
+  flex: 1;
+  min-width: var(--ham-size-target-min, 200px);
+}
+
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
 .impersonation-banner {
   position: sticky;
@@ -741,6 +768,14 @@ input[type="radio"] {
   border-color: var(--ham-tone-attention-border);
 }
 
+/* S2.8 (design-system/screens/intake.md §4 L2 "Cancelled"): a closed request's banner is
+   neither an error nor a success — never danger/attention (docs/ux/intake.md L5 alert rule). */
+.inline-alert--neutral {
+  background: var(--ham-tone-neutral-bg);
+  color: var(--ham-tone-neutral-fg);
+  border-color: var(--ham-tone-neutral-border);
+}
+
 .inline-alert--danger {
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
@@ -916,12 +951,23 @@ input[type="radio"] {
   display: block;
 }
 
+/* Below 1280 the detail pane is server-rendered but not shown inline (rows link to the
+   standalone detail page instead, design-system/screens/intake.md §4 L1 "1024-1279: table...
+   Row click opens L2 full page"). */
+.list-detail .split-detail {
+  display: none;
+}
+
 @media (min-width: 1280px) {
   .list-detail {
     display: grid;
     grid-template-columns: minmax(360px, 420px) 1fr;
     gap: var(--ham-space-6);
     align-items: start;
+  }
+
+  .list-detail .split-detail {
+    display: block;
   }
 }
 
@@ -1123,6 +1169,236 @@ input[type="radio"] {
   border-radius: var(--ham-radius-md);
   padding: var(--ham-space-2) var(--ham-space-3);
 }
+
+/* ===========================================================================================
+   Step 2 (Intake) leadership screens L1-L11 (docs/ux/intake.md §6; design-system/screens/
+   intake.md §3-4, C§19-§32). Tokens only.
+   =========================================================================================== */
+
+/* --- Attention list (Home / Inbox "Needs response", C§27) -------------------------------- */
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-3);
+}
+
+.attention-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ham-space-2) var(--ham-space-3);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  border: 1px solid var(--ham-border-default);
+  border-left: var(--ham-size-accent-bar, 4px) solid var(--ham-tone-attention-icon);
+  border-radius: var(--ham-radius-md);
+  background: var(--ham-bg-surface);
+}
+
+.attention-card--urgent {
+  border-left-color: var(--ham-tone-danger-icon);
+}
+
+.attention-card--muted {
+  border-left: none;
+  background: transparent;
+  color: var(--ham-text-secondary);
+}
+
+.attention-card__title {
+  flex: 1;
+  min-width: 12em;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.nav-list__item--unread {
+  font-weight: 600;
+}
+
+/* --- Requests: view tabs with counts (C§29) ----------------------------------------------- */
+.view-tabs {
+  display: flex;
+  gap: var(--ham-space-2);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ham-border-default);
+  margin-bottom: var(--ham-space-4);
+}
+
+.view-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-4);
+  color: var(--ham-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 3px solid transparent;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.view-tabs__item[aria-current="page"] {
+  color: var(--ham-text-brand, var(--ham-action-primary-bg));
+  border-bottom-color: var(--ham-border-selected, var(--ham-action-primary-bg));
+}
+
+.view-tabs__count {
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  border-radius: var(--ham-radius-pill);
+  padding: 0 var(--ham-space-2);
+  font-size: var(--ham-type-chip-size, 0.75rem);
+}
+
+/* --- Request rows (L1/L8, C§28) ------------------------------------------------------------ */
+.request-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  overflow: hidden;
+  background: var(--ham-bg-surface);
+}
+
+.request-row {
+  display: block;
+  min-height: var(--ham-size-list-row-min, 64px);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  text-decoration: none;
+  color: var(--ham-text-primary);
+  border-bottom: 1px solid var(--ham-border-subtle);
+}
+
+.request-rows > li:last-child .request-row {
+  border-bottom: none;
+}
+
+.request-row:hover {
+  background: var(--ham-bg-hover);
+}
+
+/* The "selected" row style only means something once the split-view detail pane exists
+   alongside it (>=1280, P§2 v1.3); below that, every row simply links to its own full page. */
+@media (min-width: 1280px) {
+  .request-row[aria-current="true"] {
+    background: var(--ham-bg-selected);
+    border-left: var(--ham-size-accent-bar, 4px) solid var(--ham-border-selected);
+  }
+}
+
+.request-row__line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.request-row__line2 {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+  margin-top: var(--ham-space-1);
+}
+
+.request-row__markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-3);
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+  margin-top: var(--ham-space-1);
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+}
+
+.marker--attention {
+  color: var(--ham-tone-attention-fg);
+}
+
+/* --- Duplicate panel (L5) ------------------------------------------------------------------ */
+.duplicate-panel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-3);
+}
+
+.duplicate-panel__item {
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  background: var(--ham-bg-surface);
+}
+
+/* --- Masked contact block (L2, C§25) -------------------------------------------------------- */
+.masked-block {
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  background: var(--ham-bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.masked-block--revealed {
+  background: var(--ham-bg-surface);
+  border: 1.5px solid var(--ham-border-default);
+}
+
+.masked-block__note {
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+}
+
+/* --- History timeline (L2, C§16) ------------------------------------------------------------ */
+.status-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 2px solid var(--ham-border-default);
+}
+
+.status-timeline li {
+  position: relative;
+  padding: 0 0 var(--ham-space-4) var(--ham-space-4);
+}
+
+.status-timeline li::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ham-action-primary-bg);
+}
+
+/* --- Sheet full-screen variant (<768, C§32) ------------------------------------------------- */
+@media (max-width: 767px) {
+  .sheet--fullscreen {
+    max-width: none;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+  }
+}
+
+/* === S2.7 public requester screens (C§19–§32) === */
 
 /* ==========================================================================================
    Step 2 (Intake), S2.7: public requester screens R1-R12
@@ -1396,17 +1672,12 @@ input[type="radio"] {
 }
 
 /* --- Masked contact block (C25) --------------------------------------------------------------- */
-.masked-block {
-  border-radius: var(--ham-radius-md);
-  padding: var(--ham-space-4);
-  background: var(--ham-bg-sunken);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ham-space-2);
+/* Requester's own masked block (R10); base .masked-block is defined with the L2 styles above. */
+.masked-block--self {
   margin-bottom: var(--ham-space-6);
 }
 
-.masked-block p {
+.masked-block--self p {
   margin: 0;
 }
 

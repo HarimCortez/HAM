@@ -1,15 +1,53 @@
 {% extends "web/base.html" %}
+{% load static web_extras %}
 
 {% block title %}Inbox · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Inbox{% endblock %}
 
 {% block content %}
   {% comment %}
-  navigation.md §4 "Home is the to-do list and Inbox is the log": Needs response / Updates
-  sections arrive with the notifications module (foundation.md §2 out of scope for step 1).
+  navigation.md §4 "Home is the to-do list and Inbox is the log": Needs response (live
+  attention items) and Updates (stored notifications), PRD §35.
   {% endcomment %}
-  <section class="empty-state" aria-labelledby="inbox-empty-title">
-    <h3 id="inbox-empty-title">Nothing in your inbox yet</h3>
-    <p>Notifications about invitations, schedule changes and updates will show up here.</p>
+  <h1>Inbox</h1>
+
+  <section aria-labelledby="inbox-needs-response-title">
+    <h2 id="inbox-needs-response-title">Needs response</h2>
+    {% if needs_response %}
+      <ul class="attention-list">
+        {% for item in needs_response %}
+          <li class="attention-card{% if item.urgent %} attention-card--urgent{% endif %}{% if item.muted %} attention-card--muted{% endif %}">
+            {% if item.urgent %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg></span> Urgent</span>{% endif %}
+            <span class="attention-card__title">{{ item.title }}</span>
+            {% if item.muted %}
+              <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>
+            {% else %}
+              <a class="btn btn--secondary" href="{{ item.url }}">Open</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-secondary">Nothing needs a response right now.</p>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="inbox-updates-title" class="mt-8">
+    <h2 id="inbox-updates-title">Updates</h2>
+    {% if updates %}
+      <ul class="nav-list">
+        {% for notification in updates %}
+          <li class="nav-list__item{% if not notification.read_at %} nav-list__item--unread{% endif %}">
+            <span>{{ notification.title }}</span>
+            <span class="text-secondary">{{ notification.created_at|church_time }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state" aria-labelledby="inbox-empty-title">
+        <h3 id="inbox-empty-title">Nothing in your inbox yet</h3>
+        <p>Notifications about invitations, schedule changes and updates will show up here.</p>
+      </div>
+    {% endif %}
   </section>
 {% endblock %}
