@@ -75,6 +75,24 @@ def get_item(mapping: dict, key: str) -> str:
 
 
 @register.filter
+def phone_national(value) -> str:
+    """`{{ revealed.phone|phone_national }}` — `(305) 555-0142` instead of the stored E.164
+    value (step-2 visual QA M10/M13: Marcus can't read or say `+13055550177` aloud)."""
+    from ham.requests.presentation import format_phone_national
+
+    return format_phone_national(value)
+
+
+@register.filter
+def relative_age(moment) -> str:
+    """`{{ row.submitted_at|relative_age }}` — "3 days"/"2 h" instead of an absolute
+    timestamp on a list row (step-2 visual QA M13, usability M11)."""
+    from ham.requests.presentation import relative_age as _relative_age
+
+    return _relative_age(moment)
+
+
+@register.filter
 def brand_static(filename: str) -> str:
     """Build the static URL for a file inside the active brand's folder
     (`design-system/brands/<HAM_BRAND>/<filename>`, e.g. `{{ church.logo_mark|brand_static }}`).

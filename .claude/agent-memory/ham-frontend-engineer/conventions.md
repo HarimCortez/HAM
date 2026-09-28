@@ -112,6 +112,66 @@
   clicking the wrong match times out waiting for navigation with no obvious error. Scope to
   the tag: `button:has-text('Confirm')`.
 
+## Step 2 (Intake) fix round FIX-C (step2-ui-visual-qa.md / step2-ux-usability.md / privacy-security.md)
+- **Layer rule for label maps:** `ham.requests` sits *below* `ham.requester_portal` in the
+  layer order, so `ham.requests.presentation` (leadership labels) can't import
+  `ham.requester_portal.choices` (hazard/availability vocab) even though the codes are
+  identical -- duplicated `HAZARD_LABELS`/`AVAILABILITY_LABELS` there by hand, commented "keep
+  in sync". `ham.web` (top of the stack) CAN import both, so `views_requester.py`'s R10
+  `_hazards_display`/`_availability_display` were rewritten to delegate to
+  `ham.requests.presentation.hazard_labels`/`availability_labels` instead of keeping their own
+  second, buggier parser (the old one broke when a hazard note itself contained a comma).
+- **A template tag name can be a variable.** Django templates are plain text substitution
+  before HTML parsing, so `<{{ heading_tag }} id="...">...</{{ heading_tag }}>` legitimately
+  renders `<h2>...</h2>` or `<h3>...</h3>` depending on context -- used this to fix L2's
+  heading-order (`_request_detail.html`'s sections are `<h2>` on the standalone page, `<h3>`
+  in the split pane, from one shared partial) instead of duplicating every section block.
+- **`{{ var|filter }}` escapes; literal template text doesn't.** A pre-existing test asserted
+  on a raw apostrophe (`b"We've received your request"`) that used to come from literal
+  template text; once R10's welcome-mode text was unified to go through the same
+  `{{ status_sentence }}` variable the non-welcome path already used, Django's autoescaping
+  turned it into `We&#x27;ve received your request` -- byte-exact response-content tests need
+  to assert the escaped form once a literal moves into a variable (matches the existing "HTML
+  escaping" gotcha above, worth re-checking any time inline copy becomes a context var).
+- **`django.views.decorators.cache.never_cache` composes fine with `@requires_action`/
+  `@require_http_methods`** despite `requires_action` mutating the bare function's `__dict__`
+  rather than wrapping it -- `functools.wraps` (which both Django decorators use) copies
+  `__dict__` forward through the chain either way, so decorator order around it doesn't matter
+  for the route guard. Added to `request_detail`, `request_reveal_contact`,
+  `request_phone_check`, `request_help_secure_page` (privacy/security L5).
+- **The close-note-in-URL fix (H3):** `request_close`'s POST error path now re-renders
+  `web/request_close.html` directly with `status=422` and the posted `reason_code`/`note`
+  instead of `redirect(...?note=...)`. The L5 "Close this one as a duplicate..." link now
+  passes `?duplicate_of=<uuid>` only; the view resolves that id to the matched request's
+  display number itself server-side (never trusts a client-supplied note string).
+- **Split-view row navigation (M12)** is a progressive-enhancement inline `<script>` in
+  `requests_list.html`, not a new frontend/dist bundle: every row's real `href` is the
+  standalone detail page (works at every width, JS off); a small script rewrites each row's
+  `href` to `?tab=...&id=<uuid>` (same list page) only when `matchMedia("(min-width: 1280px)")`
+  matches, which is what actually keeps the split view instead of navigating away.
+- **`.filter-bar-sheet` (M16):** a `<details>` without `open` collapses the filters behind a
+  "Filters" summary below 768px; `@media (min-width: 768px) { .filter-bar-sheet:not([open])
+  .filter-bar { display: flex; } }` forces it open above that width by overriding the UA
+  stylesheet's `details:not([open]) > :not(summary) { display: none }` rule (author CSS beats
+  UA CSS at equal-ish specificity, so this works without ever setting the `open` attribute).
+- **Icons:** `icons.svg` had no `siren`/`hourglass`/`inbox`/`shield-check`/`circle-alert`/
+  `circle-check`/`circle-help`/`phone`/`phone-incoming`/`chevron-right`/`info`/`image-off`
+  before this round; added them (same hand-drawn outline style, `.disclosure summary::after`'s
+  chevron is drawn with CSS borders instead, to avoid a static-URL dependency in a CSS file
+  whitenoise may hash-rename).
+- **`AttentionItem`/`AttentionCard` (ham.requests.attention, ham.notifications.attention)**
+  don't carry enough shape for true per-request urgent cards (M17's "Urgent · HAM #050 needs a
+  phone check · waiting 3h [Call now]" as its own card) without a registry-wide shape change --
+  out of scope for this fix round; only the wording (`_plural_verb_phrase`, oldest-waiting
+  context folded into `title`) and the awareness-row-never-gets-a-chip bug were fixed. Flagged
+  in the handback as a follow-up if the product owner wants the full per-request split.
+- **Known open items handed back, not fixed:** M2 (secondary-link/Back-bar placement rework
+  across R1/R2/R8/R12), full `aria-invalid`/`aria-describedby` wiring on every R2-R5 field
+  (only R6's error summary + certification group got it), the wizard "Good to know" aside and
+  R1-R6/R9 desktop two-column layout (M9 desktop), R3's "Owner's full name" always-visible bug,
+  R5 "I don't use email" not locking the contact-preference group, per-request urgent Home
+  cards (see above).
+
 ## Known open item (handed back, not fixed)
 - Audit log at >=1280 (visual QA M3): chose fix option (b) — dropped the `.list-detail`
   wrapper so the table fills the width — over building a real split-pane detail view (option

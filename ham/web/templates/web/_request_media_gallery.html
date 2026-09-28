@@ -14,9 +14,9 @@ alt text is "HAM #<number> photo/video <index>" only -- never a filename, status
 anything else that could carry PII (§68).
 {% endcomment %}
 <section class="media-gallery" aria-labelledby="request-detail-photos-{{ detail.id }}">
-  <h3 id="request-detail-photos-{{ detail.id }}">
+  <{{ heading_tag|default:"h3" }} id="request-detail-photos-{{ detail.id }}">
     Photos ({{ gallery.counts.photos }}) &middot; Videos ({{ gallery.counts.videos }})
-  </h3>
+  </{{ heading_tag|default:"h3" }}>
   {% if gallery.items is None %}
     <p class="text-secondary">
       {{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }},

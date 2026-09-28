@@ -21,6 +21,7 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from ham.authz.commands import PermissionDenied
@@ -95,6 +96,37 @@ _STEP_FIELDS: dict[str, set[str]] = {
     STEP_REVIEW: {"attested_statements"},
 }
 
+_STEP_LABELS: dict[str, str] = {
+    STEP_NEED: "Your need",
+    STEP_HOME: "The home",
+    STEP_SAFETY: "Safety at the home",
+    STEP_REACHING_YOU: "Reaching you",
+    STEP_REVIEW: "Please confirm",
+}
+
+
+def _field_step(field: str) -> str:
+    for step, fields in _STEP_FIELDS.items():
+        if field in fields:
+            return step
+    return STEP_REVIEW
+
+
+def _review_errors(errors: dict[str, str]) -> list[dict[str, str]]:
+    """Usability M9: R6's error summary can't link to `#id_<field>` -- the field isn't on the
+    review page -- so each error links to its owning step's Edit URL instead, with the step
+    name in the message ("Street address is missing · Fix in The home")."""
+    out = []
+    for field, message in errors.items():
+        step = _field_step(field)
+        if step == STEP_REVIEW:
+            url = "#id_attested_statements"
+        else:
+            url = reverse("web:request_help_step", kwargs={"step": step})
+        out.append({"message": f"{message} · Fix in {_STEP_LABELS[step]}", "url": url})
+    return out
+
+
 _SESSION_INTAKE_SOURCE = "ham_intake_source_code"
 _SESSION_VERIFY = "ham_intake_verify"
 _SESSION_R7N = "ham_intake_r7n"
@@ -115,6 +147,16 @@ def _step_index(step: str) -> int:
 
 def _weekday_choices(church) -> list[tuple[str, str]]:
     return [(str(d), WEEKDAY_LABELS[d]) for d in sorted(church.serves_days)]
+
+
+def _availability_labels(church) -> dict[str, str]:
+    """M1: R6's own label map for `payload.availability` (day numbers + time words), same
+    codes `_weekday_choices` already offers as R5's chips."""
+    labels = {str(d): WEEKDAY_LABELS[d] for d in church.serves_days}
+    labels[AVAILABILITY_ANY_TIME] = "Any time works"
+    labels[AVAILABILITY_MORNINGS] = "Mornings"
+    labels[AVAILABILITY_AFTERNOONS] = "Afternoons"
+    return labels
 
 
 def _payload_or_empty(draft_id: UUID | None) -> dict:
@@ -334,6 +376,7 @@ def _step_context(
             "availability_any_time": AVAILABILITY_ANY_TIME,
             "availability_mornings": AVAILABILITY_MORNINGS,
             "availability_afternoons": AVAILABILITY_AFTERNOONS,
+            "availability_labels": _availability_labels(church),
         }
     )
     return context
@@ -353,6 +396,7 @@ def _review_step(request: HttpRequest, draft_id: UUID) -> HttpResponse:
             step_errors = errors  # every field may be wrong by the time Send is pressed
             context = _step_context(request, STEP_REVIEW, merged, step_errors)
             context["review"] = _review_summary(merged, church)
+            context["review_errors"] = _review_errors(step_errors)
             return render(request, _step_template(STEP_REVIEW), context, status=422)
 
         source_code = request.session.get(_SESSION_INTAKE_SOURCE, "")
@@ -624,6 +668,7 @@ def request_help_saved(request: HttpRequest) -> HttpResponse:
 # R10 (and R7 in "welcome" mode): the secure request page.
 # --------------------------------------------------------------------------------------
 @require_http_methods(["GET"])
+@never_cache
 def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
     ctx = services.resolve_token(token)
     if ctx is None or ctx.request_id is None:
@@ -661,14 +706,29 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
         city=row.city,
         postal_code=row.postal_code,
     )
+    status_chip_tuple = projection.REQUESTER_STATUS_CHIPS.get(row.status)
     context = _base_context(request)
     context.update(
         {
             "welcome": request.GET.get("welcome") == "1",
             "row": row,
             "token": token,
+            # M6: greet by first name only, never the full name; "Thank you." with no comma
+            # when there's nothing sensible to put after it (an empty/blank full name).
+            "first_name": (row.full_name or "").split(" ")[0] or "",
             "status_sentence": projection.status_wording(
                 row.status, cancel_reason=row.cancel_reason_code or None
+            ),
+            "status_chip": {
+                "label": status_chip_tuple[0],
+                "tone": status_chip_tuple[1],
+                "icon": status_chip_tuple[2],
+            }
+            if status_chip_tuple
+            else {"label": row.status, "tone": "neutral", "icon": "circle-help"},
+            "next_steps": projection.STATUS_NEXT_STEPS.get(row.status, []),
+            "offers_new_request": projection.cancel_reason_offers_new_request(
+                row.cancel_reason_code or None
             ),
             "masked": masked,
             "need_category_label": _need_category_display(row.need_category),
@@ -702,46 +762,27 @@ def _property_type_display(value: str) -> str:
 def _hazards_display(stored: str) -> str:
     """`row.known_hazards` is the raw comma-joined codes (plus an optional free-text note in
     parentheses) `services._payload_from_cleaned` stored; show each recognized code's plain
-    label, and leave anything this module doesn't recognize (the free-text note) as-is."""
-    if not stored:
-        return ""
-    parts = [p.strip() for p in stored.split(",")]
-    labels = []
-    for part in parts:
-        note = ""
-        code = part
-        if "(" in part:
-            code, _, rest = part.partition("(")
-            code = code.strip()
-            note = f" ({rest}" if rest else ""
-        try:
-            label = HAZARD_LABELS[Hazard(code)]
-        except ValueError:
-            label = part
-            note = ""
-        labels.append(f"{label}{note}")
-    return ", ".join(labels)
+    label, and leave anything this module doesn't recognize (the free-text note) as-is.
 
+    Delegates to `ham.requests.presentation.hazard_labels` (M1) instead of its own
+    comma-then-parenthesis parsing, which broke when the note itself contained a comma
+    (usability M1's fix note) -- `ham.web` sits above `ham.requests` in the layer order so
+    this import is fine, unlike the reverse."""
+    from ham.requests.presentation import hazard_labels as _hazard_labels
 
-_AVAILABILITY_LABELS = {
-    AVAILABILITY_ANY_TIME: "Any time works",
-    AVAILABILITY_MORNINGS: "Mornings",
-    AVAILABILITY_AFTERNOONS: "Afternoons",
-}
+    parts = []
+    for h in _hazard_labels(stored):
+        if h["label"]:
+            parts.append(f"{h['label']} ({h['note']})" if h["note"] else h["label"])
+        elif h["note"]:
+            parts.append(h["note"])
+    return ", ".join(parts)
 
 
 def _availability_display(stored: str) -> str:
-    if not stored:
-        return ""
-    labels = []
-    for part in (p.strip() for p in stored.split(",")):
-        if part in _AVAILABILITY_LABELS:
-            labels.append(_AVAILABILITY_LABELS[part])
-        elif part.isdigit() and int(part) in WEEKDAY_LABELS:
-            labels.append(WEEKDAY_LABELS[int(part)])
-        elif part:
-            labels.append(part)
-    return ", ".join(labels)
+    from ham.requests.presentation import availability_labels as _availability_labels_fn
+
+    return ", ".join(_availability_labels_fn(stored))
 
 
 # --------------------------------------------------------------------------------------

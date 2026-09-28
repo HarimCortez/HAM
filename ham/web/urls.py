@@ -26,6 +26,11 @@ urlpatterns = [
         views.notification_acknowledge,
         name="notification_acknowledge",
     ),
+    path(
+        "inbox/notifications/<uuid:notification_id>/open",
+        views.notification_open,
+        name="notification_open",
+    ),
     path("admin", views.admin_index, name="admin_index"),
     path("more", views.more, name="more"),
     path("offline", views.offline, name="offline"),

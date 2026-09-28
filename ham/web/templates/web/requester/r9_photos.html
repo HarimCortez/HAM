@@ -18,20 +18,23 @@
     <button class="btn btn--secondary" type="button" onclick="document.getElementById('camera-input').click();">
       Take a photo
     </button>
+    {# axe "label" (critical): a visually-hidden file input triggered by a button is still in
+       the accessibility tree and focusable, so it needs its own name -- `aria-label` plus
+       `tabindex="-1"` so it's never a separate stop in the tab order (the button is). #}
     <input id="camera-input" type="file" accept="image/*" capture="environment" data-upload-input
-           class="visually-hidden">
+           class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Take a photo">
     <button class="btn btn--secondary" type="button" onclick="document.getElementById('file-input').click();">
       Choose from my phone
     </button>
     <input id="file-input" type="file" accept="image/*,video/*" multiple data-upload-input
-           class="visually-hidden">
+           class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Choose photos or videos from my phone">
 
     <p class="upload-summary" data-upload-summary>0 of {{ max_photos }} photos &middot; 0 of {{ max_videos }} videos</p>
     <div class="visually-hidden" role="status" aria-live="polite" data-upload-live></div>
     <ul class="upload-grid" data-upload-grid></ul>
   </div>
 
-  <p class="text-secondary">&#x1F512; Only the people handling your request will see these.</p>
+  <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Only the people handling your request will see these.</p>
 
   <div class="action-bar">
     <div class="action-bar__inner">

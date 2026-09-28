@@ -77,6 +77,23 @@ def awaiting_approval_card(ctx: ActorContext) -> AttentionCard | None:
     )
 
 
+def _plural_verb_phrase(n: int) -> str:
+    """M17: "1 request needs a phone check" / "7 requests need a phone check" -- not the
+    grammatically-null "request(s)"."""
+    return f"{n} request needs a phone check" if n == 1 else f"{n} requests need a phone check"
+
+
+def _oldest_waiting_words(hours: float | None) -> str:
+    if hours is None:
+        return ""
+    if hours < 1:
+        return "oldest waiting under 1 h"
+    if hours < 24:
+        return f"oldest waiting {round(hours)} h"
+    days = round(hours / 24)
+    return f"oldest waiting {days} day" if days == 1 else f"oldest waiting {days} days"
+
+
 def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
     """Q-025: "{n} requests need a phone check · oldest waiting {age}", Director/AD only."""
     if not can_see_needs_phone_check(ctx):
@@ -84,14 +101,19 @@ def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
     rows = needs_phone_check_list(ctx)
     if not rows:
         return None
+    oldest_hours = _oldest_waiting_hours(rows)
+    context = _oldest_waiting_words(oldest_hours)
+    title = _plural_verb_phrase(len(rows))
+    if context:
+        title = f"{title} · {context}"
     return AttentionCard(
         key="requests.needs_phone_check",
-        title=f"{len(rows)} request(s) need a phone check",
+        title=title,
         count=len(rows),
         urgent=any(r.urgent_requested for r in rows),
         actionable=True,
         href="/requests/new-by-phone",
-        oldest_waiting_hours=_oldest_waiting_hours(rows),
+        oldest_waiting_hours=oldest_hours,
     )
 
 

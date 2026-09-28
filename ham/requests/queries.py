@@ -207,6 +207,7 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
 class PriorRequestOutcome:
     request_id: UUID
     display_number: str
+    need_category: str
     status: str
     cancel_reason_code: str
     submitted_at: dt.datetime
@@ -223,6 +224,7 @@ def outcome_summary(request: AssistanceRequest) -> list[PriorRequestOutcome]:
         PriorRequestOutcome(
             request_id=m.prior_request.id,
             display_number=m.prior_request.display_number,
+            need_category=m.prior_request.need_category,
             status=m.prior_request.status,
             cancel_reason_code=m.prior_request.cancel_reason_code,
             submitted_at=m.prior_request.submitted_at,

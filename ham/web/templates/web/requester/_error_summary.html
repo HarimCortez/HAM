@@ -1,13 +1,30 @@
 {% comment %}
-Error summary (design-system/components.md C§30). Context: errors (dict field->message).
+Error summary (design-system/components.md C§30). Context: errors (dict field->message), or
+(R6 only) review_errors (list of {message, url} dicts pointing at the owning step's Edit link
+instead of an in-page id, since the field itself isn't on the review page -- usability M9).
 {% endcomment %}
-{% if errors %}
+{% if errors or review_errors %}
   <div class="inline-alert inline-alert--danger error-summary" role="alert" tabindex="-1" id="error-summary">
-    <p class="error-summary__title">Please check {{ errors|length }} thing{{ errors|length|pluralize }}</p>
+    {% if review_errors %}
+      <p class="error-summary__title">Please check {{ review_errors|length }} thing{{ review_errors|length|pluralize }}</p>
+    {% else %}
+      <p class="error-summary__title">Please check {{ errors|length }} thing{{ errors|length|pluralize }}</p>
+    {% endif %}
     <ul>
-      {% for field, message in errors.items %}
-        <li><a href="#id_{{ field }}">{{ message }}</a></li>
-      {% endfor %}
+      {% if review_errors %}
+        {% for e in review_errors %}
+          <li><a href="{{ e.url }}">{{ e.message }}</a></li>
+        {% endfor %}
+      {% else %}
+        {% for field, message in errors.items %}
+          <li><a href="#id_{{ field }}">{{ message }}</a></li>
+        {% endfor %}
+      {% endif %}
     </ul>
   </div>
+  {# M9: focus the summary on render so a screen-reader user lands on the fix list, not the
+     top of the page -- no JS bundle needed, this is the whole behavior. #}
+  <script>
+    document.getElementById("error-summary").focus();
+  </script>
 {% endif %}

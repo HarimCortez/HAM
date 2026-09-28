@@ -48,6 +48,39 @@ h3 {
   margin: 0 0 var(--ham-space-1);
 }
 
+/* B3 (step2 visual QA): the browser default fieldset/legend (grey border, inline 16px
+   legend, `min-inline-size: min-content` that overflows at large text) has no reset
+   anywhere in the app, so every fieldset renders as an unstyled box. C§19 A11y requires
+   every choice-card/chip set to be a real fieldset+legend, so this has to work everywhere,
+   not just on requester pages. */
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+legend {
+  padding: 0;
+  width: 100%;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-3);
+}
+
+/* S§0.3: the main question of a requester step is type-h2 in the legend. */
+.public-shell fieldset > legend {
+  font: var(--ham-type-h2-weight) var(--ham-type-h2-size) / var(--ham-type-h2-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-3);
+}
+
+fieldset + fieldset,
+fieldset + .form-field,
+.form-field + fieldset {
+  margin-top: var(--ham-space-8);
+}
+
 a {
   color: var(--ham-text-link);
 }
@@ -434,8 +467,11 @@ a:hover {
   color: var(--ham-text-secondary);
 }
 
-.empty-state h3 {
-  /* M11: titles read as text.primary; only the body copy is secondary. */
+.empty-state h3,
+.empty-state h2 {
+  /* M11: titles read as text.primary; only the body copy is secondary. Some empty states
+     use h2 instead of h3 to keep heading order correct when there's no h2 above them on the
+     page (axe heading-order, requests_list.html). */
   color: var(--ham-text-primary);
 }
 
@@ -520,6 +556,33 @@ a:hover {
   line-height: var(--ham-type-body-lg-line-height);
 }
 
+/* B2 (step2 visual QA): any user-typed value (email, street, description, a pasted URL,
+   file names) has no maximum word length, and without this it forces the whole page to
+   scroll sideways -- worst at 200% text where `.summary-card__highlight` was previously the
+   only element with the rule. Applied broadly rather than per-element so a future field
+   doesn't reintroduce the bug. */
+.public-shell p,
+.public-shell dd,
+.public-shell li,
+.public-shell .form-field__help,
+.request-detail p,
+.request-detail dd,
+.request-detail li,
+.u-wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* M8: requester metadata (kv-list labels, field helpers, field errors) never drops below
+   type-body -- these were inheriting the app-wide type-small size meant for the leadership
+   side. */
+.public-shell .kv-list dt,
+.public-shell .form-field__help,
+.public-shell .form-field__error,
+.public-shell li {
+  font-size: var(--ham-type-body-size);
+  line-height: var(--ham-type-body-line-height);
+}
+
 /* M4: on mobile the primary action sits in a sticky full-width bar so it's always reachable
    without scrolling past a keyboard; secondary actions (Resend, Sign out) stay left-aligned
    in their own row below the form, not inside this bar. */
@@ -584,14 +647,24 @@ a:hover {
   background: var(--ham-action-secondary-bg-hover);
 }
 
+/* Minor 11: the pale danger-tint look reads as informational, not as the app's one
+   destructive action (L10 Close request). Solid fill instead, same pattern as `.btn--primary`. */
 .btn--danger {
-  background: var(--ham-tone-danger-bg);
-  color: var(--ham-tone-danger-fg);
-  border: 1.5px solid var(--ham-tone-danger-border);
+  background: var(--ham-tone-danger-icon);
+  color: var(--ham-text-on-primary);
+  border: none;
 }
 
 .btn--danger:hover {
-  background: var(--ham-tone-danger-border);
+  background: var(--ham-tone-danger-fg);
+}
+
+/* M10 (L9 phone check): a Secondary that goes full width below 768, e.g. the "Call" button
+   -- large, unambiguous target on the phone a Director actually uses in the field. */
+@media (max-width: 767px) {
+  .btn--full-mobile {
+    width: 100%;
+  }
 }
 
 /* M4/M9: Ghost — no fill, no border, used for a page's least-important action (Sign out on
@@ -750,6 +823,27 @@ input[type="radio"] {
   margin: 0;
 }
 
+/* Optional leading icon (C§11): wraps everything else in one child so the icon can sit to
+   its left without disturbing the plain column layout every other `.inline-alert` still
+   relies on. */
+.inline-alert:has(> .inline-alert__icon) {
+  flex-direction: row;
+  gap: var(--ham-space-3);
+}
+
+.inline-alert__icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.inline-alert:has(> .inline-alert__icon) > :not(.inline-alert__icon) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  flex: 1;
+  min-width: 0;
+}
+
 .inline-alert--info {
   background: var(--ham-tone-info-bg);
   color: var(--ham-tone-info-fg);
@@ -793,6 +887,8 @@ input[type="radio"] {
   border: 1px solid;
   font: var(--ham-type-chip-weight) var(--ham-type-chip-size) / var(--ham-type-chip-line-height)
     var(--ham-font-ui);
+  /* M13: a status chip must never wrap into a 2-line pill on a narrow row. */
+  white-space: nowrap;
 }
 
 .chip__icon {
@@ -838,13 +934,34 @@ input[type="radio"] {
   border-color: var(--ham-tone-danger-border);
 }
 
+/* M13: L1/L8 rows use the outline variant of the same tone (C§28 "status chip (outline
+   variant) + age") instead of a plain grey `chip--tag`, so a status reads the same tone on
+   the row as it does on the detail header. */
+.chip--outline {
+  background: transparent;
+}
+
+/* C§26 requester status chip. */
+.chip--lg {
+  height: var(--ham-size-chip-lg, 32px);
+  padding-inline: var(--ham-space-4);
+}
+
 /* Filter bar (patterns.md §3) */
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ham-space-2);
+  gap: var(--ham-space-3);
   align-items: center;
   margin-bottom: var(--ham-space-5);
+}
+
+/* L1 groups each label+control in its own `.filter-bar__field` column (M16); align those
+   columns to their bottom edge so the controls line up even when one column's label wraps
+   and another's doesn't. Other `.filter-bar` users (audit log, admin users) don't use
+   `.filter-bar__field` and keep the plain centered baseline above. */
+.filter-bar:has(.filter-bar__field) {
+  align-items: end;
 }
 
 .filter-bar select,
@@ -857,6 +974,7 @@ input[type="radio"] {
   color: var(--ham-text-primary);
   font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
     var(--ham-font-ui);
+  min-width: 0;
 }
 
 .filter-bar label {
@@ -864,11 +982,67 @@ input[type="radio"] {
     var(--ham-font-ui);
 }
 
+/* M16: a label and its control never separate onto different lines/rows -- each pair is its
+   own flex column, and the bar itself wraps pair-by-pair instead of label/select drifting
+   apart independently. */
+.filter-bar__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  min-width: 0;
+  flex: 1 1 10em;
+}
+
+.filter-bar__field--search {
+  flex: 2 1 14em;
+}
+
+.filter-bar__submit {
+  flex: none;
+}
+
 @media (max-width: 767px) {
   .filter-bar,
+  .filter-bar__field,
   .filter-bar select,
   .filter-bar input {
     width: 100%;
+  }
+}
+
+/* M16: filters collapse behind a disclosure at <768 so they don't push the list below the
+   fold; the trigger shows the active filter count. At >=768 the disclosure is always open
+   and looks like a normal inline bar. */
+.filter-bar-sheet {
+  margin-bottom: var(--ham-space-5);
+}
+
+.filter-bar-sheet__trigger {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .filter-bar-sheet__trigger {
+    display: flex;
+    align-items: center;
+    min-height: var(--ham-size-target-min);
+    color: var(--ham-text-link);
+    cursor: pointer;
+    font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+      var(--ham-font-ui);
+  }
+
+  .filter-bar-sheet .filter-bar {
+    margin-top: var(--ham-space-2);
+    margin-bottom: var(--ham-space-3);
+  }
+}
+
+@media (min-width: 768px) {
+  /* Always show the filters inline at >=768, overriding the <details> closed state so this
+     degrades to a normal filter bar once there's room for one. */
+  .filter-bar-sheet:not([open]) .filter-bar {
+    display: flex;
   }
 }
 
@@ -961,13 +1135,19 @@ input[type="radio"] {
 @media (min-width: 1280px) {
   .list-detail {
     display: grid;
-    grid-template-columns: minmax(360px, 420px) 1fr;
+    grid-template-columns: minmax(var(--ham-size-split-list-min), var(--ham-size-split-list-max)) 1fr;
     gap: var(--ham-space-6);
     align-items: start;
   }
 
   .list-detail .split-detail {
     display: block;
+    /* M12: the detail pane scrolls on its own, independent of the row list beside it, and
+       stays reachable without scrolling the whole page past the app bar. */
+    position: sticky;
+    top: calc(var(--ham-size-appbar-height) + var(--ham-space-4));
+    max-height: calc(100vh - var(--ham-size-appbar-height) - var(--ham-space-8));
+    overflow-y: auto;
   }
 }
 
@@ -1060,6 +1240,26 @@ input[type="radio"] {
 
 .text-tertiary {
   color: var(--ham-text-tertiary);
+}
+
+/* Visual QA / axe heading-order: lets a heading's *element* follow correct nesting (h1 -> h2
+   -> h3, never a skip) while its *look* stays whatever the design calls for -- e.g. R6's
+   summary-card titles are semantically h2 (no h2 exists between the page h1 and them) but
+   should still read visually like h3. */
+.type-h3 {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-1);
+}
+
+.type-label {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.type-body {
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
 }
 
 /* Minor 12: spacing utilities, so page templates stop reaching for inline `style=` (still
@@ -1214,6 +1414,12 @@ input[type="radio"] {
     var(--ham-font-ui);
 }
 
+/* Usability M13: the Inbox "Updates" row (title + relative time) uses the same link as the
+   admin index/More lists, just spread across the row instead of left-aligned. */
+.nav-list__link--split {
+  justify-content: space-between;
+}
+
 .nav-list__item--unread {
   font-weight: 600;
 }
@@ -1287,7 +1493,9 @@ input[type="radio"] {
 @media (min-width: 1280px) {
   .request-row[aria-current="true"] {
     background: var(--ham-bg-selected);
-    border-left: var(--ham-size-accent-bar, 4px) solid var(--ham-border-selected);
+    /* Minor 16: an inset shadow reads as the same 4px accent bar without shifting the row's
+       text 4px to the right the way a real left border does. */
+    box-shadow: inset var(--ham-size-accent-bar, 4px) 0 0 var(--ham-border-selected);
   }
 }
 
@@ -1297,6 +1505,10 @@ input[type="radio"] {
   gap: var(--ham-space-2);
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
+}
+
+.request-row__number {
+  white-space: nowrap;
 }
 
 .request-row__line2 {
@@ -1327,14 +1539,36 @@ input[type="radio"] {
   color: var(--ham-tone-attention-fg);
 }
 
-/* --- Duplicate panel (L5) ------------------------------------------------------------------ */
-.duplicate-panel {
+/* --- Hazard list (L2 "Safety at the home", M1) ---------------------------------------------- */
+.hazard-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--ham-space-3);
+  gap: var(--ham-space-2);
+}
+
+.hazard-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-2);
+}
+
+.hazard-list__icon {
+  flex: none;
+  color: var(--ham-tone-attention-icon);
+  margin-top: 2px;
+}
+
+/* --- Duplicate panel (L5) ------------------------------------------------------------------ */
+.duplicate-panel {
+  list-style: none;
+  margin: var(--ham-space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
 }
 
 .duplicate-panel__item {
@@ -1342,6 +1576,14 @@ input[type="radio"] {
   border-radius: var(--ham-radius-md);
   padding: var(--ham-space-4);
   background: var(--ham-bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.duplicate-panel__item-title {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
 }
 
 /* --- Masked contact block (L2, C§25) -------------------------------------------------------- */
@@ -1453,7 +1695,9 @@ input[type="radio"] {
 
 .choice-card {
   display: flex;
-  align-items: flex-start;
+  /* M3: text top-aligned with the control (C§19 anatomy), not the control sitting ~12px
+     below the first text line. */
+  align-items: center;
   gap: var(--ham-space-3);
   min-height: var(--ham-size-choice-card-min);
   padding: var(--ham-space-3) var(--ham-space-4);
@@ -1461,16 +1705,37 @@ input[type="radio"] {
   border: 1.5px solid var(--ham-border-strong);
   border-radius: var(--ham-radius-md);
   cursor: pointer;
-  font: var(--ham-type-body-lg-weight, 600) var(--ham-type-body-lg-size) / var(--ham-type-body-lg-line-height)
-    var(--ham-font-ui);
-  margin-bottom: var(--ham-space-3);
+  font: var(--ham-type-body-lg-size) / var(--ham-type-body-lg-line-height) var(--ham-font-ui);
+  font-weight: 600;
+  /* M3: the grid's own `gap` already sets vertical rhythm; a per-card margin-bottom on top
+     of it doubled the spacing there. Cards used standalone (L9/L10, outside `.choice-grid`)
+     still want space between them, added back below. */
+  margin-bottom: 0;
+}
+
+label.choice-card + label.choice-card {
+  margin-top: var(--ham-space-3);
+}
+
+.choice-grid .choice-card + .choice-card {
+  margin-top: 0;
+}
+
+.choice-card__icon {
+  flex: none;
+  width: max(1.25em, var(--ham-size-icon-lg, 24px));
+  height: max(1.25em, var(--ham-size-icon-lg, 24px));
+  color: var(--ham-text-secondary);
+}
+
+.choice-card:has(:checked) .choice-card__icon {
+  color: var(--ham-text-brand);
 }
 
 .choice-card input {
   width: 24px;
   height: 24px;
   flex: none;
-  margin-top: 2px;
 }
 
 .choice-card:has(:checked) {
@@ -1488,8 +1753,15 @@ input[type="radio"] {
   margin-top: var(--ham-space-2);
 }
 
+/* Certification tick (C§19): a sentence, not a title -- 400 weight, top-aligned since it
+   wraps to more than one line. */
 .choice-card--statement {
   font-weight: 400;
+  align-items: flex-start;
+}
+
+.choice-card--statement input {
+  margin-top: 2px;
 }
 
 .choice-chip-group {
@@ -1522,6 +1794,11 @@ input[type="radio"] {
 }
 
 .choice-chip input {
+  /* M4: the browser default (~13px) is the hardest control to hit on the screens a Director
+     uses in the field; the chip itself is already >= size.target-min, this just makes the
+     visible control inside it big enough to see what's selected. */
+  width: 20px;
+  height: 20px;
   accent-color: var(--ham-action-primary-bg);
 }
 
@@ -1597,8 +1874,16 @@ input[type="radio"] {
   margin-bottom: var(--ham-space-2);
 }
 
-.summary-card__header h3 {
+.summary-card__header h2 {
   margin: 0;
+}
+
+/* M11: Edit is a real 48px target, not a 29x24 inline link. */
+.summary-card__header a {
+  min-height: var(--ham-size-target-min, 48px);
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--ham-space-2);
 }
 
 .summary-card__highlight {
@@ -1645,18 +1930,27 @@ input[type="radio"] {
   padding: var(--ham-space-1) var(--ham-space-1);
 }
 
+/* M10: 48x48 target (size.target-min), not 32x32 -- the icon inside stays visually small. */
 .upload-tile__remove {
   position: absolute;
   top: var(--ham-space-1);
   right: var(--ham-space-1);
-  width: 32px;
-  height: 32px;
+  width: var(--ham-size-target-min, 48px);
+  height: var(--ham-size-target-min, 48px);
   min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
   background: var(--ham-bg-surface);
   box-shadow: var(--ham-shadow-sm);
   border: none;
   cursor: pointer;
+}
+
+.upload-tile__remove svg {
+  width: 20px;
+  height: 20px;
 }
 
 .upload-summary {
@@ -1714,8 +2008,12 @@ input[type="radio"] {
 }
 
 /* --- Success hero, quiet block --------------------------------------------------------------- */
+/* M7: a real `circle-check-big` sprite at size.icon-xl, not a text "✓" glyph (which
+   rendered at body-text optical size regardless of the font-size token applied to it). */
 .success-hero {
-  font-size: var(--ham-size-icon-xl);
+  display: block;
+  width: var(--ham-size-icon-xl);
+  height: var(--ham-size-icon-xl);
   color: var(--ham-tone-success-icon);
   margin: 0 0 var(--ham-space-2);
 }
@@ -1741,20 +2039,55 @@ input[type="radio"] {
   min-height: var(--ham-size-target-min);
   display: flex;
   align-items: center;
+  gap: var(--ham-space-1);
   color: var(--ham-text-link);
   cursor: pointer;
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
+  list-style: none;
+}
+
+.disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+/* M14/minor 10: a rotating chevron instead of the browser's default disclosure triangle.
+   Drawn with borders (not the icon sprite) so this rule doesn't have to know the static
+   file's hashed URL. */
+.disclosure summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-right: 1.75px solid currentColor;
+  border-bottom: 1.75px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--ham-duration-fast, 120ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure summary::after {
+    transition: none;
+  }
+}
+
+.disclosure[open] summary::after {
+  transform: rotate(45deg);
 }
 
 .disclosure[open] summary {
   margin-bottom: var(--ham-space-2);
 }
 
+/* M10: Retry (and any other inline text-button) gets a real target height, not a
+   35x20 zero-padding link. */
 .link-button {
   background: none;
   border: none;
   padding: 0;
+  min-height: var(--ham-size-target-min, 48px);
+  display: inline-flex;
+  align-items: center;
   color: var(--ham-text-link);
   text-decoration: underline;
   cursor: pointer;
