@@ -6,24 +6,35 @@ import pytest
 from django.urls import reverse
 
 
+@pytest.fixture
+def volunteer_client(client, make_user):
+    from ham.identity.models import RoleAssignment
+    from ham.platform.clock import now
+
+    user = make_user("kevin@example.org")
+    RoleAssignment.objects.create(user=user, role="VOLUNTEER", granted_at=now())
+    client.force_login(user)
+    return client
+
+
 @pytest.mark.django_db
-def test_home_renders(client):
-    response = client.get(reverse("web:home"))
+def test_home_renders(volunteer_client):
+    response = volunteer_client.get(reverse("web:home"))
     assert response.status_code == 200
     assert b"Your to-do list will appear here" in response.content
 
 
 @pytest.mark.django_db
-def test_home_marks_active_nav_item(client):
-    response = client.get(reverse("web:home"))
+def test_home_marks_active_nav_item(volunteer_client):
+    response = volunteer_client.get(reverse("web:home"))
     content = response.content.decode()
     # navigation.md §3.3 "Mark active item (aria-current='page')".
     assert 'aria-current="page"' in content
 
 
 @pytest.mark.django_db
-def test_inbox_renders(client):
-    response = client.get(reverse("web:inbox"))
+def test_inbox_renders(volunteer_client):
+    response = volunteer_client.get(reverse("web:inbox"))
     assert response.status_code == 200
     assert b"Nothing in your inbox" in response.content
 
@@ -51,3 +62,9 @@ def test_neutral_not_found_page_is_a_404(client):
 def test_healthz_still_public_and_unaffected_by_shell(client):
     response = client.get(reverse("web:healthz"))
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_home_is_not_available_when_signed_out(client):
+    response = client.get(reverse("web:home"))
+    assert response.status_code in (302, 404)

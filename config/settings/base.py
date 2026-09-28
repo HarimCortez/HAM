@@ -42,12 +42,20 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "procrastinate.contrib.django",
     "ham.platform",
     "ham.outbox",
     "ham.integrations",
+    "ham.identity",
+    "ham.authz",
+    "ham.audit",
     "ham.web",
 ]
+
+# Custom user model (foundation.md §3 "User"): no usable password, sign-in is by emailed
+# code + MFA (S3b). Only ham.identity may read auth tables (foundation.md §1).
+AUTH_USER_MODEL = "identity.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -58,6 +66,11 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Build request.actor (foundation.md §1, §7): must run after AuthenticationMiddleware
+    # (needs request.user) and before the route guard (needs request.actor).
+    "ham.identity.middleware.ActorContextMiddleware",
+    # Route guard (foundation.md §7): every URL must declare an action or be public.
+    "ham.authz.guard.RouteGuardMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

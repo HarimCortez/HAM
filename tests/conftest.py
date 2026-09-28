@@ -11,3 +11,14 @@ def _reset_clock():
     set_clock(SystemClock())
     yield
     set_clock(SystemClock())
+
+
+@pytest.fixture
+def make_user(db):
+    """Shared across tests/identity, tests/authz, tests/audit: a plain, no-password User."""
+    from ham.identity.models import User
+
+    def _make(email: str) -> User:
+        return User.objects.create_user(email=email)
+
+    return _make

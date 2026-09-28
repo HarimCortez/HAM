@@ -69,12 +69,16 @@ root_package = "ham"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "web depends on domain modules, not the reverse"
+name = "web -> domain modules -> {authz, audit, outbox, rules, platform} (foundation.md §1)"
 type = "layers"
 layers = [
   "ham.web",
+  "ham.identity",
+  "ham.authz",
+  "ham.audit",
   "ham.outbox",
   "ham.platform",
+  "ham.rules",
 ]
 
 [[tool.importlinter.contracts]]

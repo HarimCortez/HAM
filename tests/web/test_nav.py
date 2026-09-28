@@ -1,21 +1,28 @@
-"""`ham.web.nav` stub (foundation.md S5, pending `ham.authz.nav` from S3a)."""
+"""`ham.web.nav` renders only built destinations from `ham.authz.nav.nav_for`."""
 
 from __future__ import annotations
 
+import pytest
+
+from ham.authz.context import ActorContext
 from ham.web.nav import nav_items_for
 
 
-class _FakeRequest:
-    """`nav_items_for` only reads `request.actor`, which doesn't exist until S3a; a plain
-    stand-in is enough to exercise the stub path."""
+class _Req:
+    def __init__(self, actor: ActorContext | None) -> None:
+        self.actor = actor
 
 
-def test_stub_nav_only_returns_built_destinations():
-    items = nav_items_for(_FakeRequest())
-    assert [item.key for item in items] == ["home", "inbox"]
-    assert all(item.built for item in items)
+def test_signed_out_has_no_nav():
+    assert nav_items_for(_Req(None)) == ()
 
 
-def test_stub_nav_items_declare_the_shell_use_action():
-    items = nav_items_for(_FakeRequest())
-    assert all(item.action == "shell.use" for item in items)
+@pytest.mark.django_db
+def test_volunteer_sees_home_and_inbox_only(make_user):
+    user = make_user("luis@example.org")
+    ctx = ActorContext(
+        user_id=user.id, real_user_id=None, roles=frozenset({"VOLUNTEER"}), is_active=True
+    )
+    keys = [item.key for item in nav_items_for(_Req(ctx))]
+    assert keys[:2] == ["home", "inbox"]
+    assert all(item.built for item in nav_items_for(_Req(ctx)))

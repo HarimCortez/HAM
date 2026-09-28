@@ -14,6 +14,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
+from ham.authz.guard import requires_action
 from ham.jobs import queue_lag_seconds
 from ham.platform.brand import load_brand
 from ham.platform.church import church_profile
@@ -21,20 +22,6 @@ from ham.platform.tokens import token_hex
 
 # Generous margin before a delayed job is treated as "the worker is stuck", not just busy.
 MAX_HEALTHY_QUEUE_LAG_SECONDS = 300
-
-
-def route_guard(action: str):
-    """Documents (but does not yet enforce) the ``authz`` action a route requires
-    (foundation.md §7: "every URL must declare an action or be in PUBLIC_ROUTES"). S3a wires
-    the real ``@requires_action`` check here at merge; until then this is a no-op marker so
-    every view's intended permission is visible in one place and easy to grep for.
-    """
-
-    def decorator(view):
-        view.ham_action = action
-        return view
-
-    return decorator
 
 
 @require_GET
@@ -71,7 +58,7 @@ def healthz(request):
 
 
 @require_GET
-# S3a: @requires_action("shell.use")
+@requires_action("shell.use")
 def home(request):
     """Home placeholder (foundation.md §10 "Home placeholder per highest role"). Real per-role
     to-do cards land with staffing/projects; every signed-in person sees the same placeholder
@@ -80,7 +67,7 @@ def home(request):
 
 
 @require_GET
-# S3a: @requires_action("shell.use")
+@requires_action("shell.use")
 def inbox(request):
     """Inbox placeholder (foundation.md §10; navigation.md §4)."""
     return render(request, "web/inbox.html")
