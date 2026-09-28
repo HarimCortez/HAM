@@ -45,9 +45,10 @@ HAM_TRUSTED_PROXY_COUNT=0
 ## Signing in locally (S3b)
 
 1. `make dev-db && make migrate && python manage.py seed_dev` (refuses if `HAM_ENV=production`).
-2. `make run`, go to `http://localhost:8000/sign-in`, enter a seeded persona's email
-   (e.g. `kevin@example.org`). With the console email backend, the sign-in email — code and
-   link — prints to the terminal running `make run`.
+2. In one terminal run `make run`; in a second terminal run `make worker` (emails are sent by
+   the background worker). Go to `http://localhost:8000/sign-in` and enter a seeded persona's
+   email (e.g. `kevin@example.org`). With the console email backend, the sign-in email — code
+   and link — prints in the **worker** terminal.
 3. Non-MFA personas (Kevin, Tom, Luis, Grace, Bayside Plumbing) land straight on Home.
 4. MFA personas (Nadia, Marcus, Andre, Ruth, Samuel — PRD §60.1) are asked for a code from an
    authenticator app after the email step. `seed_dev` prints each persona's fixed dev-only
