@@ -24,7 +24,7 @@ Web app for one church's Men's Ministry home-assistance projects.
 - Comments: delete-only, never edit (§57). Incidents: immutable + amendments (§56). Agreements: exact version retained 7 years (§41, §42).
 
 ## Stack
-Decided: Django 5.2 LTS + Postgres + HTMX, Procrastinate jobs, django-allauth, Render (`docs/adr/0001-stack.md`, Accepted). Commands (see `Makefile` for the canonical versions):
+Decided: Django 5.2 LTS + Postgres + HTMX, Procrastinate jobs, HAM's own email-code sign-in + pyotp two-step (ADR amendment 2026-09-28), Render (`docs/adr/0001-stack.md`, Accepted). Commands (see `Makefile` for the canonical versions):
 - Install: `make install` (`uv venv .venv && uv pip install -e ".[dev]"`); local Postgres: `make dev-db` (`scripts/dev_db.sh`, no Docker needed)
 - Test: `make test` (`pytest`, needs `DATABASE_URL` — `make dev-db` first, or point at any Postgres 16)
 - Lint/typecheck: `make lint` (`ruff check`, `ruff format --check`, `mypy`)
