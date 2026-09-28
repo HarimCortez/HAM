@@ -15,6 +15,7 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `church_profile.update` | Administrator | any |  | IB | §4.11, Q-007 |
 | `impersonation.start` | Administrator | any | SU | IB | §59, Q-034 |
 | `impersonation.stop` | _(none yet)_ | impersonating_admin |  |  | §59 |
+| `intake_source.manage` | Assistant Director, HAM Director | any |  |  | §6, Q-106 |
 | `integrations.view_status` | Administrator | any |  |  | §4.11 |
 | `leader.project.assign` | Assistant Director, HAM Director | any |  | IB | §16, Q-031, Q-054 |
 | `leader.project.revoke` | Assistant Director, HAM Director | any |  | IB | §16, Q-031, Q-054 |
@@ -25,12 +26,30 @@ SU = requires a fresh step-up (Q-010, Q-031, Q-046). IB = refused while imperson
 | `me.sign_in_email.change` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self | SU | IB | §60.2, Q-051, Q-046 |
 | `me.update` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  | IB | §67, §59 |
 | `me.view` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  |  | §67 |
+| `notification.acknowledge` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | self |  | IB | §10, §35 |
 | `outbox.retry` | Administrator | any |  | IB | §70.3 |
-| `requester_pii.reveal` | _(none yet)_ | any |  |  | §67, §68, Q-009, Q-024 |
+| `request.cancel` | Assistant Director, HAM Director | any |  | IB | §52, Q-107, Q-111 |
+| `request.contact_verify_phone` | Assistant Director, HAM Director | any |  | IB | Q-025 |
+| `request.history.view` | Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §5, §9 |
+| `request.list` | Administrator, Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §8, §64, Q-106 |
+| `request.needs_phone_check.list` | Assistant Director, HAM Director | any |  |  | Q-025 |
+| `request.submit` | REQUESTER | any |  |  | §6, §7.1, Q-100 |
+| `request.view` | Administrator, Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §8, §67, Q-124 |
+| `request_media.reopen` | Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §46 |
+| `request_media.view` | Administrator, Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §69, Q-124 |
+| `requester.media.remove` | REQUESTER | own_request |  |  | §45, Q-118 |
+| `requester.media.upload` | REQUESTER | own_request |  |  | §7.1, §45, Q-118 |
+| `requester.request.view` | REQUESTER | own_request |  |  | §7.2, §67, Q-101 |
+| `requester_link.regenerate` | REQUESTER | own_request |  |  | §7.3, §58, Q-116, Q-117 |
+| `requester_pii.reveal` | Assistant Director, Board representative, HAM Director, Pastor | any |  |  | §67, §68, Q-009, Q-024, Q-081, Q-122, Q-125 |
 | `role.grant_global` | Administrator, HAM Director | any | SU | IB | §4.11, §58, Q-041 |
 | `role.revoke_global` | Administrator, HAM Director | any | SU | IB | §4.11, §58, Q-041 |
 | `rules.view` | Administrator, HAM Director | any |  |  | §4.11 |
 | `shell.use` | Administrator, Assistant Director, Board representative, Contractor, HAM Director, Pastor, Project Leader, Social Media Specialist, Task Leader, Volunteer | any |  |  | §67 |
+| `system.intake.purge` | SYSTEM | any |  |  | §76 |
+| `system.media.process` | SYSTEM | any |  |  | §45 |
+| `system.media.purge` | SYSTEM | any |  |  | §47 |
+| `system.request.complete_intake_checks` | SYSTEM | any |  |  | §9 |
 | `user.disable` | Administrator, HAM Director | any |  | IB | §4.11, Q-035, Q-052, Q-079 |
 | `user.enable` | Administrator, HAM Director | any |  | IB | §4.11, Q-052, Q-079 |
 | `user.invitation_cancel` | Administrator, Assistant Director, HAM Director | any |  | IB | §4.11, Q-037, Q-052 |

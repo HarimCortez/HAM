@@ -1,5 +1,5 @@
 {% extends "web/base.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Home · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Home{% endblock %}
@@ -15,6 +15,36 @@
 
   <div class="home-grid">
     <div class="home-grid__attention">
+      {% if attention_items %}
+        <section class="card" aria-labelledby="home-attention-title">
+          <h2 id="home-attention-title">Needs your attention</h2>
+          <ul class="attention-list">
+            {% for item in attention_items %}
+              <li class="attention-card{% if item.urgent and not item.muted %} attention-card--urgent{% endif %}{% if item.muted %} attention-card--muted{% endif %}">
+                {% comment %}
+                M17: an awareness-only row is never actionable, so a danger chip on it sends a
+                mixed signal -- Urgent only decorates rows someone can act on.
+                {% endcomment %}
+                {% if item.urgent and not item.muted %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
+                {% comment %}M17/design-system/screens/intake.md: the phone-check card carries a phone-call icon.{% endcomment %}
+                {% if item.kind == "requests.needs_phone_check" %}<svg class="attention-card__icon" width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-call"></use></svg>{% endif %}
+                <span class="attention-card__title">{{ item.title }}</span>
+                {% if item.muted %}
+                  <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>
+                {% else %}
+                  {% comment %}
+                  FIX-F1 minor 1: only the first urgent card is a primary button -- a column
+                  of solid-primary buttons (with a lot of urgent requests at once) breaks the
+                  "one primary action" pattern.
+                  {% endcomment %}
+                  <a class="btn {% if item.urgent and item.kind == first_urgent_kind %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}">Open</a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
       {% if show_invite_card %}
         <section class="card" aria-labelledby="home-invite-title">
           <h2 id="home-invite-title">Invite someone</h2>
@@ -45,7 +75,7 @@
         </section>
       {% endif %}
 
-      {% if not show_invite_card and integration_counts is None %}
+      {% if not show_invite_card and integration_counts is None and not attention_items %}
         <section class="empty-state" aria-labelledby="home-empty-title">
           <svg class="empty-state__illustration" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
             <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

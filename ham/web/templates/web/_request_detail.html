@@ -1,0 +1,187 @@
+{% load static web_extras %}
+{% comment %}
+L2 request detail — shared by the standalone page (web/request_detail.html) and the >=1280
+split-view detail pane (web/requests_list.html). `standalone` picks the heading level so a
+split-view page never carries two <h1>s (design-system/screens/intake.md §4 L2: "in the split
+pane type-h2 visually but still the pane's h1 element" — we keep it simple and literal: h1 on
+its own page, h2 inside the list page).
+{% endcomment %}
+<article class="request-detail" aria-labelledby="request-detail-heading-{{ detail.id }}">
+  <div class="page-header">
+    <div>
+      {% if detail.urgent_requested %}
+        <span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>
+      {% endif %}
+      <span class="chip chip--{{ status_tone }}"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icon }}"></use></svg></span> {{ status_label }}</span>
+      {% if standalone %}
+        <h1 id="request-detail-heading-{{ detail.id }}">{{ detail.display_number }} &middot; {{ need_category_label }}</h1>
+      {% else %}
+        <h2 id="request-detail-heading-{{ detail.id }}">{{ detail.display_number }} &middot; {{ need_category_label }}</h2>
+      {% endif %}
+      <p class="text-secondary">
+        Sent {{ detail.submitted_at|church_time }} &middot; {{ source_label }}<br>
+        {% if contact_state %}{{ contact_state }} &middot; {% endif %}Updates by {{ updates_by }}
+      </p>
+    </div>
+    <div class="form-actions">
+      {% if can_verify_phone %}
+        <a class="btn btn--primary" href="{% url 'web:request_phone_check' request_id=detail.id %}">Record phone check</a>
+      {% endif %}
+      {% if can_reopen_media %}
+        {% if has_email %}
+          <a class="btn btn--secondary" href="{% url 'web:request_more_photos' request_id=detail.id %}">Ask for more photos</a>
+        {% else %}
+          <span class="btn btn--secondary" aria-disabled="true">Ask for more photos</span>
+          <p class="text-secondary type-label">No email on file. We'll take photos at the visit.</p>
+        {% endif %}
+      {% endif %}
+      {% if can_cancel %}
+        <a class="btn btn--secondary" href="{% url 'web:request_close' request_id=detail.id %}">Close request&hellip;</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if detail.status == "AWAITING_APPROVAL" %}
+    <div class="inline-alert inline-alert--info" role="status">
+      <p>With the pastors and Board since {{ detail.status_changed_at|church_time }}.</p>
+    </div>
+  {% elif detail.status == "CANCELLED" %}
+    <div class="inline-alert inline-alert--neutral" role="status">
+      <p>Closed {{ detail.closed_at|church_time }} &middot; {{ cancel_reason_label }}</p>
+    </div>
+  {% elif detail.status == "NEEDS_PHONE_CHECK" %}
+    <div class="inline-alert inline-alert--attention" role="status">
+      <p>Waiting for a phone check before this can go to the approvers.</p>
+    </div>
+  {% endif %}
+
+  {% if can_view_matches and matches %}
+    {% comment %}
+    L5 (M14): a collapsed disclosure, not an always-expanded stack of tall cards -- the alert
+    itself carries the "View" action that opens it in place.
+    {% endcomment %}
+    <section aria-labelledby="request-detail-dup-{{ detail.id }}">
+      <div class="inline-alert inline-alert--info">
+        <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-copy"></use></svg></span>
+        <div>
+          <{{ heading_tag }} id="request-detail-dup-{{ detail.id }}">Earlier request found ({{ matches|length }})</{{ heading_tag }}>
+          <p>This doesn't rule anything out. Each request is looked at on its own.</p>
+          <details class="disclosure">
+            <summary>View</summary>
+            <ul class="duplicate-panel">
+              {% for m in matches %}
+                <li class="duplicate-panel__item">
+                  <p class="duplicate-panel__item-title">{{ m.display_number }} &middot; {{ m.need_category_label }} &middot; sent {{ m.submitted_at|church_time }}</p>
+                  <p>
+                    {% for reason in m.reasons %}<span class="chip chip--tag">{{ reason }}</span> {% endfor %}
+                  </p>
+                  <p class="text-secondary">
+                    <span class="chip chip--{{ m.status_tone }}">{{ m.status_label }}</span>
+                    {% if m.cancel_reason_label %} &middot; {{ m.cancel_reason_label }}{% endif %}
+                  </p>
+                  <a href="{% url 'web:request_detail' request_id=m.request_id %}">Open</a>
+                </li>
+              {% endfor %}
+            </ul>
+            {% if can_cancel and newest_match_id %}
+              <p><a href="{% url 'web:request_close' request_id=detail.id %}?reason=duplicate_submission&amp;duplicate_of={{ newest_match_id }}">Close this one as a duplicate&hellip;</a></p>
+            {% endif %}
+          </details>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  <section aria-labelledby="request-detail-need-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-need-{{ detail.id }}">What's needed</{{ heading_tag }}>
+    <p>{{ detail.description }}</p>
+    {% if detail.urgent_requested %}<p class="text-secondary">Urgent: {{ urgency_line }}</p>{% endif %}
+  </section>
+
+  <section aria-labelledby="request-detail-safety-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-safety-{{ detail.id }}">Safety at the home</{{ heading_tag }}>
+    {% if hazards %}
+      <ul class="hazard-list">
+        {% for h in hazards %}
+          <li class="hazard-list__item">
+            {% if h.label %}
+              <svg width="20" height="20" aria-hidden="true" class="hazard-list__icon"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg>
+              <span>
+                <span class="type-label">{{ h.label }}</span>
+                {% if h.note %} &mdash; &ldquo;{{ h.note }}&rdquo;{% endif %}
+              </span>
+            {% else %}
+              <span class="text-secondary">&ldquo;{{ h.note }}&rdquo;</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-shield-check"></use></svg> None that they know of.</p>
+    {% endif %}
+  </section>
+
+  {% if detail.contact_note %}
+  <section aria-labelledby="request-detail-contact-note-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-contact-note-{{ detail.id }}">Reaching them</{{ heading_tag }}>
+    <p class="u-wrap-anywhere">{{ detail.contact_note }}</p>
+  </section>
+  {% endif %}
+
+  {% include "web/_request_media_gallery.html" %}
+
+  <section aria-labelledby="request-detail-home-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-home-{{ detail.id }}">The home</{{ heading_tag }}>
+    <p>{{ relationship_label }} &middot; {{ property_type_label }}</p>
+    {% if detail.relationship_to_property == "tenant" %}
+      <div class="inline-alert inline-alert--info"><p>Landlord's written OK needed before work begins.</p></div>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="request-detail-visits-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-visits-{{ detail.id }}">Visits and contact preference</{{ heading_tag }}>
+    <p>{% if availability_labels %}{{ availability_labels|join:", " }}{% else %}Not given{% endif %} &middot; prefers {{ updates_by|lower }}</p>
+  </section>
+
+  <section aria-labelledby="request-detail-contact-{{ detail.id }}">
+    <{{ heading_tag }} id="request-detail-contact-{{ detail.id }}">Requester &amp; contact</{{ heading_tag }}>
+    {% if detail.is_masked_view %}
+      <div class="masked-block">
+        <p class="masked-block__note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Hidden &middot; Not shown to the Administrator role.</p>
+        <p class="text-secondary">Name, phone, email, street address</p>
+      </div>
+    {% elif revealed %}
+      <div class="masked-block masked-block--revealed">
+        <p class="masked-block__note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Leadership only{% if not is_director %} &middot; viewing is logged{% endif %}</p>
+        <p>{{ revealed.full_name }}</p>
+        <p>
+          <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+          <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+        </p>
+        {% if revealed.email %}<p><a href="mailto:{{ revealed.email }}">{{ revealed.email }}</a></p>{% endif %}
+        <p>{{ revealed.line1 }}{% if revealed.line2 %}, {{ revealed.line2 }}{% endif %}, {{ revealed.city }}, {{ revealed.state }} {{ revealed.postal_code }}</p>
+        {% if revealed.owner_name %}<p>Owner: {{ revealed.owner_name }}</p>{% endif %}
+      </div>
+    {% else %}
+      <div class="masked-block">
+        <p class="masked-block__note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Hidden &middot; Visible to HAM leadership and approvers.</p>
+        <p class="text-secondary">Name, phone, email, street address</p>
+        <form method="post" action="{% url 'web:request_reveal_contact' request_id=detail.id %}">
+          {% csrf_token %}
+          <button class="btn btn--secondary" type="submit" aria-label="Show contact details for {{ detail.display_number }}">Show contact details</button>
+        </form>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if can_view_history and history %}
+    <section aria-labelledby="request-detail-history-{{ detail.id }}">
+      <{{ heading_tag }} id="request-detail-history-{{ detail.id }}">History</{{ heading_tag }}>
+      <ul class="status-timeline">
+        {% for entry in history %}
+          <li{% if entry.title %} title="{{ entry.title }}"{% endif %}>{{ entry.label }}{% if entry.actor %} &middot; {{ entry.actor }}{% endif %} &middot; {{ entry.occurred_at|church_time }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+</article>

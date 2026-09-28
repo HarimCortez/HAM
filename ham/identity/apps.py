@@ -9,6 +9,9 @@ class IdentityConfig(AppConfig):
     def ready(self) -> None:
         # Imported inside ready(), not at module top: Django app configs must not import
         # other apps' models before all apps are loaded (see IntegrationsConfig.ready()).
-        from . import notifications
+        from . import (
+            authn,  # noqa: F401 - registers identity.purge_sign_in_challenges
+            notifications,
+        )
 
         notifications.register()

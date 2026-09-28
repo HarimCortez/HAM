@@ -17,7 +17,8 @@ from ham.authz.commands import ImpersonationBlocked, PermissionDenied
 from ham.authz.guard import requires_action
 from ham.identity.services import retry_outbox_delivery, update_church_profile
 from ham.outbox.services import recent_failures, subscriber_status_counts
-from ham.platform.church import church_profile
+from ham.platform.church import US_STATE_CODES, church_profile
+from ham.requester_portal.choices import WEEKDAY_LABELS
 from ham.rules.view import rules_view
 
 # Scope trim (step-1 usability review, prd.md): calendar/drive/fitness are documented no-op
@@ -32,21 +33,40 @@ _VISIBLE_SUBSCRIBERS = frozenset({"email"})
 def admin_church_settings(request):
     church = church_profile()
     errors: dict[str, str] = {}
-    values = {
+    values: dict[str, object] = {
         "ham_phone": church.phone,
         "ham_email": church.email,
+        "state": church.state,
         "time_zone": church.time_zone,
         "website_url": church.website_url,
+        "serves_days": list(church.serves_days),
     }
     if request.method == "POST":
+        # Q-112: a form that doesn't render the (later, S2.7) serves-days control at all never
+        # sends the key — leave the setting unchanged rather than forcing every caller of this
+        # endpoint to resend it. A form that *does* render it must send at least one day.
+        if "serves_days" in request.POST:
+            serves_days_raw = request.POST.getlist("serves_days")
+            serves_days = [int(d) for d in serves_days_raw if d.strip().lstrip("-").isdigit()]
+        else:
+            serves_days = list(church.serves_days)
         values = {
             "ham_phone": request.POST.get("ham_phone", "").strip(),
             "ham_email": request.POST.get("ham_email", "").strip(),
+            # N15: the template now always renders this field (a `<select>`, "Not set" ->
+            # ""), so a normal POST always carries the key -- `request.POST.get("state",
+            # church.state)`'s fallback only guards a non-browser client that omits it.
+            "state": request.POST.get("state", church.state).strip().upper(),
             "time_zone": request.POST.get("time_zone", "").strip(),
             "website_url": request.POST.get("website_url", "").strip(),
+            "serves_days": serves_days,
         }
         if not values["time_zone"]:
             errors["time_zone"] = "Enter an IANA time zone, e.g. America/New_York."
+        if not values["serves_days"]:
+            # Q-112: at least one day HAM serves is required (the intake form's availability
+            # question needs at least one option).
+            errors["serves_days"] = "Choose at least one day HAM serves requesters."
         if not errors:
             try:
                 update_church_profile(request.actor, **values)
@@ -56,12 +76,22 @@ def admin_church_settings(request):
                     "Church settings can't be changed while acting as someone else.",
                 )
             except ValueError as exc:
-                # Q-030/§70.5: an unrecognized IANA time zone name.
-                errors["time_zone"] = str(exc)
+                # Q-030/§70.5: an unrecognized IANA time zone name, or Q-112 bad serves_days,
+                # or Q-147 a bad state code.
+                errors["state" if "state code" in str(exc) else "time_zone"] = str(exc)
             else:
                 messages.success(request, "Church settings updated.")
                 return redirect("web:admin_church_settings")
-    return render(request, "web/admin_church_settings.html", {"values": values, "errors": errors})
+    return render(
+        request,
+        "web/admin_church_settings.html",
+        {
+            "values": values,
+            "errors": errors,
+            "weekday_choices": sorted(WEEKDAY_LABELS.items()),
+            "state_choices": sorted(US_STATE_CODES),
+        },
+    )
 
 
 @require_http_methods(["GET"])

@@ -1,4 +1,223 @@
-# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth) + Fix B (parallel security/PRD fixes) + round-3 re-review fixes
+# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth) + Fix B (parallel security/PRD fixes) + round-3 re-review fixes + Fix A (step-2 intake fix round)
+
+## Fix A (step-2 intake fix round, parallel with Fix B/Fix C)
+- **A verified-code/link "challenge" must be bound to the exact draft AND the exact email it
+  will submit, at the moment of submission, not just at code-request time.** H1's exploit:
+  send a code to address A, edit the *same draft* to address V before entering the code,
+  submit with A's code — the draft's *current* email (V) got created with "email confirmed"
+  recorded, never actually verified. Fix, all three parts required together: (1) re-fetch the
+  challenge by id inside `submit_and_issue_link`'s own `transaction.atomic()` with
+  `select_for_update()` and check `purpose`, `consumed_at is not None`, `draft_id == this
+  draft`, `email_key == hash(the email actually being submitted)`, and `request_id is None`
+  (a one-time-use marker — set it to the new request's id right after creating it, since a
+  purpose="intake" challenge never otherwise gets `request_id`); (2) `ham.web.views_requester.
+  _after_verified` must use `challenge.draft_id`, never the browser's resume cookie, to pick
+  which draft to submit; (3) `ham.requester_portal.drafts.save_step` must expire (not just
+  leave unconsumed) any not-yet-consumed intake challenge for a draft the moment its email
+  changes — set `expires_at` strictly *before* "now" (`now - timedelta(seconds=1)`, not
+  `now`), since a `FixedClock`-driven test (and a fast enough real request) can hit `now ==
+  challenge.expires_at` and the existing `if now > challenge.expires_at` check treats equal
+  as still-valid.
+- **"Identical UI for every outcome" (sent/cooldown/rate-limited) must be true at the
+  *message* layer, not just the returned status enum.** H2: a distinct "too many codes"
+  flash message on the *sender's own* screen is still an oracle when the sender is
+  intentionally probing an arbitrary target address (find-my-request N times, then try
+  intake with the same address — the message differs only when a request already existed).
+  Fix at both ends: (a) the rate-limit *counters themselves* must be scoped per purpose
+  (`RequesterVerificationChallenge.objects.filter(..., purpose=purpose, ...)` — a missing
+  `purpose=` filter on the hourly-cap count, while the cooldown check right above it already
+  had one, silently shared the budget across "intake" and "link_regeneration"); (b) the
+  *caller* must render the exact same thing (redirect, no message, or one fixed message)
+  regardless of `ChallengeRequestResult.status` — don't even destructure/branch on it.
+- **A per-address abuse counter is itself abusable as a denial-of-service against a real
+  person's address, unless it's scoped to something the abuser can't freely fabricate.** L6:
+  anyone can type any email into their own draft (no proof of ownership until the code is
+  entered) and then guess wrong codes against it, and the old daily wrong-attempt cap summed
+  `failed_attempts` across every challenge sharing that `email_key`, regardless of whose
+  draft/request it belonged to — locking the real owner out for a day. Rescoped to
+  `draft_id` (or `request_id` for link-regeneration) **plus** `ip_address`, both threaded
+  through `verification.verify_code(..., draft_id=..., request_id=..., ip_address=...)` from
+  the view (session already has `pending["draft_id"]` for intake, `_pending_link_regen_
+  request_id` for regeneration) — an attacker can never guess someone else's `draft_id`
+  (UUID7), so this closes the hole without weakening the legitimate 5-tries-then-locked
+  behavior for one's own attempt.
+- **A "was this locked out?" audit event (`requester_verification.locked`, M6/N13) had been
+  declared in `ham/audit/labels.py` since S2.0 but nothing ever called `audit_record` for
+  it** — a label existing is not evidence the event fires; grep the actual call site, not
+  just the labels table, when a review says "X is never audited". Written with `ctx=None,
+  actor_type=ACTOR_TYPE_SYSTEM` (no signed-in actor exists on this public path) and
+  `target_id` = the draft/request UUID (never `email_key`, even though that's already an
+  HMAC digest and not literally "the address" — the review wanted something more useful to
+  investigate, and a draft/request id is exactly as address-free).
+- **New `ham.rules.intake` values need the full four-step protocol even for a "closes an
+  enforcement gap" fix, not just a "new feature" one**: `REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR`
+  (Q-121 provisional, mirrors the existing per-address cap) and
+  `NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY` (Q-146, decided — "3 per phone per rolling 24h")
+  both needed `RULES_VERSION` bumped, a `docs/rules-changelog.md` entry, a new `PINNED_HASHES`
+  line (compute via `python -c "from ham.rules import RULES, content_hash;
+  print(content_hash(RULES))"` after editing `v1.py`), and new expected entries in BOTH
+  `tests/rules/test_rules_values.py`'s `EXPECTED` dict AND `tests/rules/test_rules_module.py`'s
+  `test_exactly_these_rules_run_on_a_proposed_default` dict (the latter is easy to miss —
+  it's a second, independent oracle for exactly which rules are marked `provisional=`).
+- **A submission-time rate limit belongs in the caller that's about to create the row, not
+  at code-send time** — `INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY`/`NO_EMAIL_SUBMISSIONS_PER_
+  PHONE_PER_DAY` (Q-146) are enforced inside `submit_and_issue_link`, right before calling
+  `submit_request`, using two new counting queries in `ham.requests.queries`
+  (`recent_submission_count_for_email`/`recent_no_email_submission_count_for_phone`, both
+  `otp.hash_candidates()`-based so key rotation doesn't break them) — a person can hold
+  several still-valid, already-verified codes from earlier in the day, so gating only at
+  code-request time would miss a burst of submissions from codes requested well before the
+  cap was reached. Raises `ham.requester_portal.services.IntakeSubmissionRateLimited` (not a
+  bare `ValueError`, so the view can special-case it: the no-email path shows the exact same
+  "saved" confirmation as its honeypot trip, never revealing a cap exists; the email path
+  folds it into the same "answers expired, start again" `ValueError` handling for the same
+  H2 reason).
+- **A per-IP counter needs its own dedicated log table when the thing it counts doesn't
+  otherwise create a row on every attempt.** `FIND_REQUEST_TRIES_PER_IP_PER_HOUR`
+  (M1) — `find_my_request` only ever creates a `RequesterVerificationChallenge` row when the
+  address happens to match a real request; an unmatched try leaves no trace to count. New
+  minimal model `ham.requester_portal.models.FindRequestAttempt` (`ip_address`,
+  `created_at`, nothing else) logs every try regardless of match; purged hourly on the same
+  `REQUESTER_CHALLENGE_RETENTION` window as the other rate-limit-only rows
+  (`ham.requester_portal.jobs.purge_expired_find_attempts`, new).
+- **Three independently-invented copies of the "same" fixed vocabulary is a recurring failure
+  mode across this codebase's parallel-worktree history, not a one-off** — B1 found a third
+  copy of the certification tick-box wording (a template literal, in addition to the two
+  Python modules `ham.requests.certifications` and `ham.requester_portal.attestation` already
+  flagged in an earlier slice's memory note) and M1/UX-M2 found a second copy of need-category/
+  property-type (`ham.requester_portal.choices.NeedCategory`/`PropertyType`, translated into
+  `ham.requests.models`' different codes only at submission time via a manually-maintained
+  dict). **Fix pattern, both times: pick the LOWER-layer module as canonical (`ham.requests`,
+  since `ham.requester_portal` may import it downward but not the reverse), delete the
+  duplicate(s) entirely (not just stop using them — a leftover unused copy is exactly how the
+  drift happens again), and have the upper layer re-export/import the canonical names so
+  existing call sites don't all need touching.** For certifications specifically: also stop
+  *re-deriving* "the statements this relationship requires" at submission time
+  (`certifications.required_statements(relationship)`) and instead store exactly
+  `cleaned["attested_statements"]` (what was actually ticked, already validated by
+  `certifications.statements_satisfied` upstream) — re-deriving silently discards the
+  distinction between "ticked" and "required", which matters for an eventual audit trail even
+  though the two sets are equal by construction today. `ham.web.views_requester`'s R6 context
+  now gets `statement_text` (from `certifications.statement_text_for(relationship)`) instead
+  of the template hard-coding its own wording, so "stored text == rendered text" is provable
+  in one test (`tests/requests/test_fix_a_certifications.py`) rather than trusted by
+  inspection.
+- **The lower-layer module (`ham.requests`) is where a field-max-length bump belongs when
+  unifying two vocabularies picks the longer of two code sets** — `NeedCategory` codes went
+  from the old ≤16-char set to the portal's own (up to 22 chars, `ramps_rails_grab_bars`);
+  `AssistanceRequest.need_category`'s `max_length` needed bumping to 32 in the same migration,
+  or the choice values would silently truncate on `.create()` (Django doesn't validate
+  `choices=` OR `max_length=` together at write time — this would NOT raise, it would just
+  store truncated garbage).
+- **`Requester.phone_key`/`email_key` are HMAC digests of the *normalized* value
+  (`ham.requests.matching.normalize_phone`/`normalize_email`), never the raw input** — a new
+  counting query keyed on phone (`recent_no_email_submission_count_for_phone`) must receive
+  an already-normalized phone string (`cleaned["phone"]` from `ham.requester_portal.forms`,
+  which already ran it through `normalize_phone`), not the raw form field, or
+  `otp.hash_candidates()` will never match anything.
+- **L7/Q-151 (an Administrator must never see unmasked requester contact details, even by
+  impersonating someone who normally could): `ActorContext.roles`/`.effective_roles` reflect
+  the impersonation *target's* roles while impersonating, and there is no field anywhere
+  carrying the real actor's own roles** — `ham.identity.middleware.build_actor_context` never
+  populates one (by design: PRD-guardian review Major 6(b) already established "while
+  impersonating, `ActorContext.roles` reflects [the target]"). New
+  `ham.identity.services.user_holds_global_role(user_id, role) -> bool` is the one seam a
+  caller *outside* `ham.identity` should use to ask "does the real signed-in person (`ctx.
+  real_user_id`) hold this role", rather than querying `RoleAssignment` directly (forbidden
+  by "only ham.identity reads auth tables") or trying to smuggle it through `ActorContext`
+  (would need touching every context-building site). `ham.requests.services.
+  reveal_requester_pii` calls it only when `ctx.is_impersonating`, and only to *downgrade* an
+  otherwise-`allowed` `Decision` to denied via `dataclasses.replace(decision, allowed=False,
+  reason=...)` — this is a service-layer check, same shape as the existing Q-024
+  non-impersonating-Director exemption right next to it, not a matrix change (the matrix has
+  no notion of "the real actor while impersonating"), so `tests/authz/generate_expected_
+  matrix.py`'s oracle needed no update for it.
+- **A `select_for_update()` used only for "read the row I'm about to validate, before
+  mutating something derived from it" (not itself the row being updated) still needs to sit
+  *inside* the same `transaction.atomic()` block as the eventual write** — H1's challenge
+  validation originally sat *before* `submit_and_issue_link`'s `with transaction.atomic():`,
+  which raises `TransactionManagementError` under Postgres/psycopg (Django wraps it oddly:
+  the visible exception ends up being `Model.DoesNotExist` from deep inside `QuerySet.get()`,
+  not the `TransactionManagementError` itself — don't trust the surface exception type when
+  debugging a "matching query does not exist" that shouldn't be possible; check whether a
+  `select_for_update()` a few frames up is the real culprit first).
+- **A queryset `.update()` legitimately bypasses a model's own append-only `save()` guard for
+  a genuine system-level erasure, and this is the intended escape hatch, not a bug to fix** —
+  `RequestContactVerification.save()` refuses any update (Python-level append-only guard,
+  S2.2), but L8/Q-145's 7-year purge sweep needs to blank its `value_key` too. Django's bulk
+  `.update()` never calls `Model.save()`, so
+  `RequestContactVerification.objects.filter(request=request).update(value_key="")` inside
+  `purge_expired_request` is correct and deliberate: it's retiring a hashed value system-wide
+  during a scheduled erasure, not editing any individual row's own history the append-only
+  guard exists to protect.
+- **A model with a plain `UUIDField` reference (not a real FK) to a row a *sibling* app can
+  delete needs its own outbox-subscriber cleanup, mirroring `ham.media`'s existing
+  `RequestCancelled` handler exactly** — L4: `ham.requester_portal.RequesterAccessLink`/
+  `RequesterVerificationChallenge.request_id` don't cascade when `ham.requests.services.
+  purge_expired_request`'s spam branch calls `request.delete()` (can't be a real FK across
+  these two apps' parallel-worktree history, intake.md §2 layering). Added a `RequestPurged`
+  outbox event to that `CommandResult` and a new `ham.requester_portal.subscribers.
+  handle_requester_portal_event` (registered `"requester_portal"` from `RequesterPortalConfig.
+  ready()`, same `ham.outbox.registry.register(name, handler)` call every other subscriber
+  uses) that deletes both tables' orphan-to-be rows. Also added a defense-in-depth fallback at
+  the read side regardless: `ham.requester_portal.services.resolve_token` now catches the
+  `ValueError` a stale/orphaned `request_id` raises from the registered facts-lookup and
+  treats it as an invalid token (same page as unknown/expired), instead of letting it 500 —
+  covers the window before the subscriber runs, or any other future orphaning path.
+- **L2: scope a lookup *before* touching `authorize()`/audit at all, not just before deciding
+  what to return** — `reveal_requester_pii`'s old `AssistanceRequest.objects.get(pk=
+  request_id)` both 500'd on an unknown id (unhandled `DoesNotExist`) and let a Pastor/Board
+  rep "reveal" a still-`NEEDS_PHONE_CHECK` request (Q-025: Director/AD-only) by guessing its
+  UUID directly, since the matrix rule for `requester_pii.reveal` has no status-awareness of
+  its own. Fixed by reusing the exact scoping every list screen already applies
+  (`ham.requests.queries.get_request_by_id`, itself built on `scope_queryset_for_requests`) as
+  the *first* thing this function does — an unknown id and an out-of-scope id now produce the
+  identical `PermissionDenied` outcome (audited the same way as any other denial), never a 500.
+- **N8 (history timeline losing entries after a later status change): don't derive "did this
+  request ever reach status X" from `request.status == X` (the *current* status) when the
+  point is to show it happened at some point in the past** — `request.awaiting_approval_at`
+  (new, set once by `complete_intake_checks`, never cleared) replaces the old `if request.
+  status in (AWAITING_APPROVAL,)` check in `ham.requests.queries.request_history`, which
+  silently dropped the "Awaiting Approval (automatic)" entry the moment a request was later
+  cancelled. Same slice added `AssistanceRequest.closed_by_user_id` (set by `cancel_request`
+  from `ctx.user_id`) so the close entry finally has an actor — `display_names_for` in
+  `ham.web.views_requests` already resolves any `HistoryEntry.actor_user_id`, no view change
+  needed beyond the query.
+- **`ham.requests.certifications`/`ham.requests.models` PRD-guardian N1 Q-reference
+  fixes**: cite the actual decided/open question number, not a nearby one that happens to be
+  about a related topic (`Q-102`→`Q-103` for the certification wording, `Q-107`→`Q-109` for
+  need category, `Q-124`→`Q-111` for contact method — and Q-111 doesn't offer `text_message`
+  at all, so the model's `PreferredContactMethod.TEXT_MESSAGE` choice was removed, not just
+  re-cited). Cross-check the *specific* Q number's own row in `docs/prd-open-questions.md`,
+  don't assume a docstring's existing citation is right just because it's in the right
+  neighborhood.
+- **N2: an unwired matrix action is worse than a missing one, not a convenience for later** —
+  `request.create_assisted` had a full `ActionRule` (Director/AD/Pastor, blocked-while-
+  impersonating) and appeared in every audit-registry/oracle bookkeeping list, but no
+  `@command`-wrapped service ever implemented it — an unused permission grant with no
+  corresponding audited action behind it. Removed outright (matrix row, `_AUDITED_ON_DENIAL`
+  entry, the oracle's row in `generate_expected_matrix.py`, `PLACEHOLDER_ACTIONS` entry in
+  `test_command_registry.py`) rather than left "for a later slice to implement" — regenerate
+  `expected_matrix.csv` (`python tests/authz/generate_expected_matrix.py`) and
+  `permission-matrix.md` (`manage.py build_permission_matrix`) in the same commit as any
+  matrix.py row removal, not just an addition; `build_permission_matrix --check` catches a
+  stale doc either direction.
+- **Q-147 (state prefill): a fixed reference vocabulary that a *different* model
+  (`ChurchProfile`, `ham.platform`) also needs to validate belongs in `ham.platform`, not
+  the app that happens to need it first** — `US_STATE_CODES`/`is_valid_us_state` live in
+  `ham.platform.church` (next to `is_valid_time_zone`, same shape) even though the immediate
+  trigger was the public intake form's R3 state field, because `ham.identity.services.
+  update_church_profile` (Admin church settings) needed the identical validation for the new
+  `ChurchProfile.state` field. `ham.requester_portal.forms` imports it downward, same as
+  every other cross-app fixed-vocabulary reuse in this codebase.
+- **A per-request field the admin settings screen's template doesn't render yet must not be
+  silently cleared by every *other* field's save** — `views_admin_settings.admin_church_
+  settings`'s POST handler rebuilds its whole `values` dict from `request.POST.get(key, "")`
+  for most fields (unlike `serves_days`, which already has an explicit "key absent = leave
+  unchanged" branch, per an earlier slice's memory note). Adding `state` the same naive way
+  would reset it to `""` on every unrelated save until a template renders the field. Fixed
+  with `request.POST.get("state", church.state)` (default to the *current* value, not `""`)
+  — the same pattern any future field added ahead of its own template landing should follow.
 
 ## Round-3 security re-review fixup (2026-09-28)
 - **A denial audit written inside a `@command`'s own `transaction.atomic()` is lost if a
@@ -526,3 +745,946 @@ service, `build_tokens --check`, pip-audit (non-blocking).
 - `.env.example` **cannot be created**: `.claude/settings.json` denies Read/Write on any
   `.env*` path (including `.env.example`) as a secrets guardrail, even via Bash heredoc.
   Document required env vars in a regular doc instead (see `docs/dev-environment.md`).
+
+## S2.0 additions: step 2 (Intake) seams and contracts
+- **Full contract reference**: `docs/architecture/intake-contracts.md` — exact signatures,
+  matrix actions, session/context shapes for S2.1-S2.5 to build against in parallel. Read it
+  (and `docs/architecture/intake.md`'s owner-decisions box, which overrides the plan body)
+  before touching any `ham.requests`/`ham.requester_portal`/`ham.media`/`ham.notifications`
+  code.
+- **Pseudo-principals are duck-typed siblings of `ActorContext`, not subclasses**:
+  `ham.authz.context.RequesterContext`/`SystemContext` implement the same attribute/property
+  surface (`user_id`, `roles`, `effective_roles`, `is_authenticated`, `is_impersonating`,
+  `has_fresh_step_up`, ...) so `ham.authz.matrix.authorize()` and `ham.audit.services.record()`
+  work on them unmodified. `ham.audit` must never import `ham.authz` (layering), so
+  `record()` branches on `"REQUESTER"`/`"SYSTEM"` being *in* `ctx.roles` rather than
+  `isinstance` — if you add a third pseudo-principal, follow the same duck-type pattern, don't
+  add an import to break the cycle.
+- **`Scope.OWN_REQUEST`** compares `resource.request_id` to `ctx.request_id` (never a
+  `user_id` — a requester has no `User` row). Any action using it needs a `resource_from`
+  returning something with a `.request_id` attribute (usually the `AssistanceRequest` row
+  itself, or a 1:1 row exposing that attribute).
+- **`ham.platform.otp`/`ham.platform.net`**: moved out of `ham.identity.authn`/
+  `ham.web.auth_views` respectively so `ham.requester_portal`'s own code (own-code
+  verification, public-form rate limiting) can reuse the exact reviewed logic without one
+  domain module importing another. Both old call sites kept as thin re-exports (`_hash`/
+  `_generate_code` in `authn.py`; `_client_ip = net.client_ip` in `auth_views.py`) because an
+  existing test imports the old name directly — check for that pattern before renaming a
+  "moved" helper's call sites away entirely.
+- **`ham.platform.storage`**: a `Protocol`, not an ABC — `get_object_store()` does
+  `import_string(settings.HAM_OBJECT_STORE_BACKEND)` and instantiates with no args, uncached
+  (so `override_settings` swaps backends per-test cleanly once S2.4a lands a real
+  implementation). Raises `RuntimeError` naming the setting if unconfigured, not an import
+  error — there is no default backend in S2.0, this is a seam only.
+- **import-linter `ignore_imports` entries must name an import that already exists somewhere
+  in the tree**, or `lint-imports` fails with "No matches for ignored import ..." (exit 1, not
+  a warning). Don't pre-declare an `ignore_imports` line for a file a *later* slice will
+  create — add the exact entry in the same commit that adds the importing file. (The
+  `pyproject.toml` layers/forbidden-modules contracts themselves are fine to extend early,
+  since they key off packages that already exist once the empty `AppConfig` lands.)
+- **A new `NavItem` with `built=False` still shows up in `ham.authz.nav.nav_for()`** (and
+  therefore in every test that calls it directly, e.g. `tests/authz/test_nav_personas.py`'s
+  exact-set assertions and `tests/authz/test_nav_mobile.py`'s "every full-nav item is
+  reachable on mobile" check) — only `ham.web.nav`'s template-facing wrappers filter on
+  `.built`. Update those tests' expected sets in the same change (add the new key to the
+  personas that get the action; for the mobile reachability test, intersect `nav_for()`'s
+  result with the *built* keys before asserting reachability, don't just add the new key to
+  every mobile grouping — it isn't actually reachable yet, on purpose).
+- **`tests/audit/test_command_registry.py`'s `READ_ONLY_ACTIONS`/`PLACEHOLDER_ACTIONS`
+  frozensets need a new matrix row added to one of them the same time the row lands**, if the
+  real `@command`-wrapped service isn't written yet in this slice — otherwise the static
+  registry-coverage test fails immediately. Pure `.view`/`.list` actions go in
+  `READ_ONLY_ACTIONS`; a mutating action whose service is a `NotImplementedError` stub goes in
+  `PLACEHOLDER_ACTIONS` with a comment naming which later slice wires it.
+- **`tests/authz/generate_expected_matrix.py`'s existing `_rows()` machinery (MFA gating,
+  role-union, SELF scope in/out-of-bounds) assumes a human, multi-role-capable actor** — it
+  doesn't fit `RequesterContext`/`SystemContext` (never more than one pseudo-role, no MFA, no
+  impersonation). Added a **separate** `PSEUDO_ORACLE` dict + `_pseudo_rows()` generator
+  instead of forcing pseudo-actions through `_rows()`; new CSV `scope_case` values
+  `"own_request"`/`"other_request"`. `tests/authz/test_expected_matrix.py`'s `_ctx_for` builds
+  a real `RequesterContext`/`SystemContext` (not a plain `ActorContext` with a made-up role
+  string) whenever `row["role"]` is `"REQUESTER"`/`"SYSTEM"`, checked *before* the
+  zero-role/disabled/mfa branches (those don't apply to pseudo-roles).
+- **`ham.integrations.email.notifications.register_notification` now appends to a
+  `dict[str, list[Builder]]`**, not a single-slot `dict[str, Builder]` — multiple modules can
+  register a builder for the same `event_type` (e.g. one `RequestSubmitted` event eventually
+  drives both a requester-facing email, from `ham.requester_portal.notifications`, and a
+  leadership one, from a different module) and `handle_email_event` runs all of them.
+  `unregister_notification(event_type)` still clears the whole list for that type (test-only
+  helper; existing tests using it were unaffected by the shape change).
+## S2.3 additions: requester portal (draft, verification, links, anti-abuse)
+- **Parallel-worktree cross-app data without a model class to import**: when your slice's app
+  sits above a sibling app that's being built concurrently in a different worktree (no models
+  in your checkout yet), don't hand-import the not-yet-existing model or hit the DB table by
+  name. Register a plain callable at the *other* app's `AppConfig.ready()` time, mirroring
+  `ham.authz.commands`'s own `_register_audit_recorder`/`_register_outbox_emitter` pattern:
+  `ham.requester_portal.services.register_request_facts_lookup(fn)` /
+  `register_request_contact_lookup(fn)` / `register_email_to_request_ids_lookup(fn)` are the
+  three seams S2.2 (`ham.requests`) must wire from `RequestsConfig.ready()` once merged. Each
+  raises a loud `RuntimeError` if used before registration; tests register a fake directly.
+  Document the exact callable shape in the module docstring AND in `intake-contracts.md` so
+  the other slice's engineer doesn't have to read your source to find the seam.
+- **A stub service signature committed by a parallel slice can be wrong for an edge case your
+  slice needs** (S2.2's `submit_request(ctx, *, draft_id, verification_id: UUID)` has no way
+  to express Q-025's "no email at all, no challenge exists" path, which needs
+  `verification_id=None`). Don't silently paper over it by inventing a different call shape —
+  call it as close to the documented contract as possible with a `# type: ignore[arg-type]` +
+  a comment naming the mismatch, and flag it explicitly in both the contracts doc and your
+  handback as a coordination item for the other slice's owner / the merge, rather than
+  guessing which side should change.
+- **A per-address resend cooldown and "send N emails to N different requests for the same
+  address in one request" are different rules that can collide**: `find_my_request` (Q-117
+  "one email per matching request") calling the same code-sending helper once per request id
+  for one email address will immediately hit that helper's own per-address cooldown on the
+  second call. Give the helper an explicit `bypass_cooldown=` escape hatch for exactly this
+  internal fan-out, while leaving the hourly per-address cap in place — don't weaken the
+  cooldown itself, since it still needs to block a person mashing "resend" for one request.
+- **Building a route's confirm/redemption URL before the route exists**: `ham.identity.authn`
+  gets away with `django.urls.reverse()` for its sign-in link because that URL already exists.
+  A parallel/later slice's not-yet-built public route (here, S2.7's `/request-help/verify/
+  link/<token>`) can't be `reverse()`d yet (`NoReverseMatch` would break every test touching
+  the emailing code). Hard-code the literal path string instead (matching the architecture
+  plan's route table exactly), in one small `dict`/constant, with a comment pointing at who
+  owns building the real route and where the contract doc says so — swap to `reverse()` once
+  the URL exists, in whichever slice lands second.
+- **A resume/continue cookie only needs to be a signed cookie holding an opaque id** — Q-139
+  "resume in the same browser only, no details shown" doesn't need any device-fingerprinting
+  or session-binding logic: a cookie is inherently sent only by the browser that received it,
+  and never decrypting/echoing the draft's payload back into any response is what actually
+  keeps "no details shown" true. `django.core.signing.dumps/loads(..., max_age=...)` (not a
+  bespoke HMAC scheme) is enough; mirror the draft's own `expires_at` as the cookie's `max_age`
+  so a stale cookie and an actually-expired draft go stale at the same time.
+- **A multi-step public wizard's field validation doesn't fit one `django.forms.Form`
+  cleanly** when answers accumulate into one encrypted draft across several requests/pages:
+  validate the *whole* merged payload once, in a plain function over a dict
+  (`ham.requester_portal.forms.validate_intake_payload(data, *, church) -> (cleaned | None,
+  errors)`), called right before the verification code is sent — not per-step. Keep per-field
+  fixed vocabularies (category/property-type/hazard/relationship enums) in a sibling
+  `choices.py`, not inline in the validator, so a later screen-building slice can import the
+  exact same value strings for its `<select>`/radio options.
+- **`ham.platform.otp` needed one more primitive for token-based *lookup* (not just
+  verify-against-a-known-hash)**: `hash_candidates(value) -> list[str]` (HMAC under every
+  configured `HAM_TOKEN_HMAC_KEYS`, not just the first) lets a caller do
+  `Model.objects.filter(token_hash__in=hash_candidates(token))` when it doesn't yet know which
+  key originally hashed a given stored row — `hash_matches` alone can't do this since it takes
+  the expected hash as an input, not a thing to search for.
+- **A church-profile "days served" setting used only by a public form** (`ChurchProfile.
+  serves_days`, Q-112, ISO weekday ints 1=Mon..7=Sun, default Sun-Fri = `[1,2,3,4,5,7]`) is a
+  content/config field, not a `ham.rules` value (no timedelta/limit/weight) — it lives on the
+  existing `platform_church_profile` row/migration like `time_zone`, exposed via
+  `ChurchProfileView.serves_days`. When extending an existing admin settings POST handler
+  (`views_admin_settings.admin_church_settings`) with a new field a screen doesn't render yet,
+  make the handler treat the key's *absence* from `request.POST` as "leave unchanged" (not
+  "clear it to empty and fail validation") — otherwise every existing caller/test of that
+  endpoint breaks the moment you add a required-when-present field.
+- **Two engineers both owning a model the architecture plan assigned to one specific app**:
+  intake.md's data-model section put `IntakeSource` under `ham.requests` (a sibling app being
+  built in a different worktree, in parallel, with no such model yet in this checkout). Rather
+  than block on that slice landing first, define it locally in the app that actually needs the
+  lookup now (`ham.requester_portal.models.IntakeSource`, distinct `db_table`), with a loud
+  comment on the model **and** in the contracts doc naming the collision and saying "keep
+  exactly one of these at merge." Silently working around a plan's file-ownership assignment
+  without flagging it is worse than flagging it and building the pragmatic version.
+
+- **App label collisions**: the new step-2 apps use short Django `label=`s
+  (`requests`, `requester_portal`, `ham_media`, `ham_notifications`) distinct from their
+  `name=` (`ham.requests`, etc.) — `ham.media`'s default label would've been `media`, which is
+  fine, but `ham_media`/`ham_notifications` were chosen defensively since `media`/
+  `notifications` are common third-party app names elsewhere; keep an eye out if a future
+  dependency wants the plain name.
+
+## S2.5 additions: notifications module (Notification, inapp subscriber, attention registry)
+- **`ham.notifications.inapp.register_inapp`/`handle_inapp_event`** is an exact mirror of
+  `ham.integrations.email.notifications.register_notification`/`handle_email_event` (list of
+  builders per event type, builder returns `None`/one/`list[InAppNotice]`), but it is
+  registered as the `"inapp"` outbox subscriber from **`NotificationsConfig.ready()` itself**,
+  not from `IntegrationsConfig` — intake.md §2 calls this "internal, not a third party": since
+  `ham.notifications` sits at the bottom of the domain-module stack (just above
+  `ham.identity`), it can own its own outbox integration without triggering the "domain
+  modules never import `ham.integrations` directly" contract at all (no `ignore_imports` entry
+  needed, unlike every other domain module's `.notifications.py`).
+- **`Notification.title` gets its own PII guard** (`ham.notifications.validation.check_title`,
+  reusing `ham.platform.logging.EMAIL_RE`/`PHONE_RE`), called from `handle_inapp_event` before
+  every `Notification.objects.create(...)` — mirrors `ham.outbox.validation.validate_payload`
+  but is a separate, smaller check (title is one free-text field, not an arbitrary payload
+  dict) rather than reusing the outbox validator directly.
+- **"Needs response" has no table.** `ham.notifications.attention` is a second, independent
+  registry (`register_attention_provider(fn)`, `fn(ctx) -> list[AttentionItem]`,
+  `attention_items_for(ctx)` concatenates every provider) — completely separate from
+  `register_inapp`. A provider returns already-aggregated, PII-free rows (e.g. "Waiting for a
+  decision (3)"); nothing is stored, so resolving the underlying thing (e.g. a request leaving
+  Awaiting Approval) clears the card everywhere for free. `AttentionItem.muted` (Director/AD
+  see pastors'/Board's rows, de-emphasized, **not hidden**, and **excluded from the badge
+  count** — intake.md §6) is a per-item flag the *provider* sets based on the actor's role, not
+  something the registry computes; `needs_response_count(ctx)` sums `count` for non-muted items
+  only, `needs_response_for(ctx)` returns everything (view renders muted differently).
+- **Read vs. acknowledge, two very different authorization shapes for the same table.** Marking
+  an Update read is scoped by plain ownership-filter-in-the-query
+  (`Notification.objects.filter(pk=..., recipient_user_id=ctx.user_id)`), gated only by the
+  route's `shell.use`, and is **not** a `@command`/not audited — same rationale as "page views
+  ... are not audited" (intake.md §9.8): it changes nothing another party can observe.
+  Acknowledging (`notification.acknowledge`, `Scope.SELF`, `blocked_while_impersonating=True`,
+  already declared in the matrix by S2.0) *is* a `@command`, because it is what makes the
+  urgent banner (§10/§35) disappear. Wiring pattern for a `Scope.SELF` action keyed by a
+  specific row (not "always yourself" like `me.update`'s `_resource_self` returning `ctx`
+  outright): `resource_from` loads the row and returns `SimpleNamespace(user_id=row.
+  recipient_user_id)` if found, or `None` if not — `Scope._self_scope_ok` treats a `None`
+  resource as "nothing to check yet, let the service body raise" (same escape hatch role-grant
+  finer-grained checks use), so a bad id gets a plain `ValueError` from inside the service
+  rather than a scope denial that would otherwise require a second DB read just to build the
+  `Decision`.
+- **`identity.services.notification_recipients(roles: Iterable[str]) ->
+  list[tuple[UUID, str, bool]]`** (user_id, email, notify_email) is the one function this slice
+  added to `ham.identity` (intake-contracts.md §7's "only ham.identity reads auth tables"
+  rule) — filters `role_assignments__role__in=role_set, revoked_at__isnull=True,
+  is_active=True, disabled_at__isnull=True`, de-dupes with a manual `seen: set[UUID]` (not
+  `.distinct()`) because a JOIN against `role_assignments__role__in={A, B}` returns one row per
+  matching assignment, so a user holding *both* roles in the set would otherwise appear twice;
+  `user.profile.notify_email` is wrapped in `except ObjectDoesNotExist: notify_email = True`
+  since `SharedIdentityProfile` is only reliably created via `get_or_create` at bootstrap/
+  invite time, not guaranteed for every row a test or edge case might create.
+- **New `tests/notifications/` package** (`__init__.py`, `test_inapp.py`, `test_attention.py`,
+  `test_services.py`) — first backend slice to add a whole new top-level `tests/<app>/`
+  directory outside the ones S1/S2.0 already scaffolded; nothing extra was needed (pytest
+  picks it up via `testpaths = ["tests", "ham"]`, no per-directory conftest required beyond the
+  shared `tests/conftest.py`'s `make_user`/`_reset_clock`).
+- **Retention for `Notification` rows is an explicit, intentional gap** (task brief: "note the
+  gap; don't invent a value") — intake.md's D4/Q-116 retention decision covers
+  `AssistanceRequest`/`Requester`/`Property`, not this table; no `ham.rules` constant exists or
+  was added for it. Don't backfill one without an owner decision.
+## S2.2 additions: requests core (models, submit/cancel/reveal/duplicate-check, retention)
+- **A "guarded, best-effort" call into a *higher* layer's stub does NOT satisfy import-linter,
+  even wrapped in try/except.** wave2-common.md's cross-slice coordination note said S2.2
+  should call `ham.requester_portal.services.issue_link` from inside `submit_request`,
+  "guarded, since it may still be a stub" (mirroring how S2.2 was told to fake its own
+  inputs). But `ham.requests` sits *below* `ham.requester_portal` in intake.md §2's layer
+  order, and `lint-imports`'s `layers` contract statically flags the import statement itself
+  — a lazy `from ham.requester_portal.services import issue_link` inside a function body,
+  guarded by `try/except ImportError`/`NotImplementedError`, still breaks the contract exactly
+  like a top-level import (import-linter does static analysis, not runtime tracing). Don't
+  trust a coordination doc's shortcut instruction over the architecture doc's own module
+  boundary rule when the two conflict — intake.md §2 itself already says the correct owner
+  ("The portal orchestrates submission: it verifies the draft, calls
+  `requests.services.submit_request`, then issues the link, all in one transaction"), i.e.
+  the *caller* (the higher layer) does both calls, never the callee reaching back up. Resolve
+  by keeping the lower-layer function self-contained and documenting the deviation loudly in
+  the module docstring (don't silently drop the instruction) rather than adding a same-slice
+  `ignore_imports` exception for something the plan already assigns to the other side.
+- **Two-way audit split for one duplicate-check run**: intake.md §4 wants both
+  `request.status_changed` *and* `request.duplicates_flagged` when the duplicate scan finds a
+  match, but `@command`'s wrapper only ever writes the ONE audit event named by the returned
+  `CommandResult`. Write the second event by hand with `ham.audit.services.record(...)`
+  directly from inside the wrapped function body — it's safe because the wrapper's own
+  `with transaction.atomic()` is already open while that body runs, so both rows land in the
+  same transaction as everything else.
+- **One `@command("action")` site, even for two different real-world outcomes**:
+  `tests/audit/test_command_registry.py::test_no_command_action_is_defined_twice_with_
+  different_wiring` fails if the SAME matrix action string appears in two separate
+  `@command(...)` decorator sites (e.g. "purge PII" vs "purge a spam request" both being
+  `system.intake.purge`). Write one function that branches internally
+  (`ham.requests.services.purge_expired_request`) and have the periodic job call that one
+  function for every eligible id from either eligibility list, instead of two decorated
+  functions.
+- **A reveal that is *sometimes not audited* (Q-024's non-impersonating-Director exemption)
+  can't be a plain `@command`** — the wrapper always writes exactly one audit event per call.
+  `ham.requests.services.reveal_requester_pii` is manually wired instead, same shape as
+  `ham.authz.audit_access.export_csv` (call `ham.authz.matrix.authorize` directly, hand-write
+  the `authz.denied` audit on denial, `ham.audit.services.record` only when not exempt). Add
+  the action to `tests/audit/test_command_registry.py`'s `MANUALLY_WIRED_ACTIONS`, not
+  `PLACEHOLDER_ACTIONS` — it *is* wired, just not through the decorator.
+- **A field whose NULL has a distinct business meaning needs `# noqa: DJ001`, not `blank=True,
+  default=""`**: ruff's Django plugin (DJ001) flags any nullable string field, but
+  `Requester.email` (Q-025: NULL means "chose 'I don't use email'", not "typed nothing") and
+  the HMAC match-key columns (NULL means "no reliable key could be computed" —
+  `ham.requests.matching.match_keys`/`find_matches` never treat `""` as a key, so an empty
+  string would wrongly equal every other un-keyable row) both need real NULL. Silence the
+  linter per-field with a comment explaining *why*, don't cave to the "no null on CharField"
+  default just to quiet ruff.
+- **`ham.requests.models.next_reference_number()`**: a raw `SELECT nextval('requests_
+  reference_number_seq')` via `django.db.connection.cursor()`, called once inside the
+  `@command`'s transaction, is how "HAM #047" (intake.md §3: "int, unique, from a Postgres
+  sequence") is generated — Django has no clean built-in for "a second, non-PK auto-increment
+  column"; a hand-created `migrations.RunSQL("CREATE SEQUENCE ...")` ahead of the
+  `CreateModel` operation, with a matching `PositiveIntegerField(unique=True, editable=False)`
+  and no DB-side `DEFAULT`, is the pattern (the app always supplies the value explicitly, so a
+  server default isn't needed and isn't fought by Django's migration autodetector on the next
+  `makemigrations`).
+- **`ham/authz/scopes.py` grew a second, action-keyed registry** (`register_queryset_scope_
+  provider(action, fn)` / used by `scope_queryset(ctx, action, queryset)`) alongside the
+  existing per-`Scope`-enum `register_scope_provider` — the existing one answers "is this ONE
+  resource in scope" for `authorize()`; list screens like `request.list` need to filter a
+  whole queryset (e.g. hiding NEEDS_PHONE_CHECK rows from everyone but Director/AD, Q-025) and
+  `Scope.ANY` (what `request.list` uses) has no per-resource meaning to check against. This
+  was anticipated but not built in S2.0's `scope_queryset` stub ("which will register a
+  provider here instead of overriding this function") — S2.2 is the first slice to actually
+  register one, from `RequestsConfig.ready()`.
+- **A registry a parallel slice might not have landed yet gets a guarded, try/except-ImportError
+  registration call from `ready()`, never a hard import at module scope** — this IS safe with
+  import-linter as long as the registry being reached into is in a LOWER or SIBLING layer
+  never imported statically elsewhere first; `ham.notifications` (attention-provider registry,
+  S2.5) sits below `ham.requests` in the layer order, so `ham.requests.apps.RequestsConfig.
+  ready()` importing `ham.notifications.registry` — even guarded — is fine (unlike the
+  `issue_link` case above, which was the *wrong direction*). Check which way the arrow points
+  before assuming "guarded import" is always a safe escape hatch.
+- **Retention (Q-127) needs the request row to *survive* an ordinary PII purge but be fully
+  *deleted* for a spam close** — `purge_expired_request` branches on
+  `cancel_reason_code == CancelReason.SPAM`: spam calls `request.delete()` (cascades to
+  `Requester`/`Property`/etc.); anything else blanks only the P fields on `Requester`/
+  `Property` and sets `Requester.anonymized_at`, leaving the `AssistanceRequest` row (status,
+  category, ZIP... it's on `Property`, so actually ZIP survives too since only
+  line1/line2/city/owner_name are blanked) intact for "families served"-style reporting.
+- **`SubmittedRequestPayload` (`ham.requests.services`)**: the concrete shape S2.3
+  (`ham.requester_portal`)'s orchestration must build from its decrypted `IntakeDraft` and
+  pass to `submit_request` as a new required `payload=` kwarg, on top of the S2.0 stub's
+  `draft_id`/`verification_id` (kept for traceability only, not dereferenced by this module —
+  see the layering note above for why). Check this dataclass's field list before S2.3 builds
+  its draft-to-payload mapping; it's additive, not a replacement contract.
+## S2.4a/S2.4b additions: object storage adapters + media domain
+- **`ObjectStore` protocol grew two methods beyond S2.0's original four** (`get_object`/
+  `put_object`, plain byte-level read/write): browsers use presigned PUT/GET (no storage
+  credentials client-side), but a **worker** re-encoding a file (Q-120) is trusted
+  infrastructure with its own real credentials and has no reason to round-trip through a URL
+  it would have to presign to itself. Safe to extend the protocol this way only because
+  nothing else consumed it yet (`grep` first before adding to a "frozen" seam another slice
+  defined — if callers already exist, coordinate instead of silently widening the interface).
+- **Local dev "presigned URL" = a signed, time-limited, single-purpose Django URL, not a real
+  presign.** `ham.integrations.storage.local.LocalObjectStore` builds a `django.core.signing.
+  Signer.sign_object({"op": "put"/"get", "key", "exp", ...})` token (no `TimestampSigner`
+  needed — the payload carries its own explicit `exp` ISO string so verification doesn't
+  depend on wall-clock sync between issue and check being exactly right); `ham.integrations.
+  storage.dev_views.local_storage_object` is the one view that verifies+serves it. It's listed
+  in `ham.authz.guard.PUBLIC_ROUTES` (url name `local-storage-object`) — the token itself *is*
+  the capability, same reasoning as the sign-in family, not an `ActorContext` check. Mounted
+  unconditionally in `config/urls.py` (not gated by `DEBUG`) so `pytest` (which runs with
+  `DEBUG=False`) can still exercise the real PUT/GET round trip end-to-end via Django's test
+  `Client`, not just call adapter methods directly.
+- **`R2ObjectStore` (boto3, S3-compatible) has no `moto` in this sandbox** — tests mock
+  `boto3.client` directly (`unittest.mock.patch("ham.integrations.storage.s3.boto3.client")`)
+  and assert on call args (bucket/key/ExpiresIn/etc.) plus the 404-vs-other-error branch in
+  `head()`. Good enough to pin the contract; add `moto` later if a fuller integration test is
+  wanted. R2 needs `signature_version="s3v4"` + `addressing_style="path"` in `botocore.client.
+  Config` — AWS's default virtual-hosted-style addressing doesn't work against R2's endpoint.
+- **`HAM_OBJECT_STORE_BACKEND` now defaults to the local adapter** (`config/settings/base.py`),
+  not empty — S2.0 shipped no default on purpose ("no concrete backend exists yet"); S2.4a
+  landing the local adapter is what makes a real default safe. Don't remove the default
+  without checking nothing depends on the old "must configure explicitly" `RuntimeError` path
+  in a test.
+- **Batch reservation's real concurrency hazard is "no batch exists yet", not "the batch is
+  full".** `select_for_update()` on `RequestMediaBatch` has nothing to lock when the row
+  doesn't exist — two concurrent "open the initial batch" calls for the same request both see
+  "no open batch" and race to `INSERT` batch #1, tripping the `(request, number)` unique
+  constraint instead of serializing cleanly. Fix: lock the **parent** `AssistanceRequest` row
+  (`select_for_update().get(id=request_id)`) first, inside the same transaction, before the
+  get-or-create — every concurrent reservation/reopen for that request then serializes on that
+  lock. Proved this with a real `threading` + `pytest.mark.django_db(transaction=True)` test
+  (`connections.close_all()` in each thread's `finally`, since Django connections are
+  thread-local) — a test that only calls the service sequentially from one thread would never
+  have caught it; select_for_update-on-a-nonexistent-row races only show up under genuine
+  concurrent transactions.
+- **"Consequential enough to audit" is narrower than "every DB write."** `reserve_uploads`
+  (reserving upload slots + presigning PUT URLs) is a plain service function, not
+  `@command`-wrapped, even though it creates rows — it isn't in intake.md §6's declared
+  audit-action list (only `request_media.uploaded`/`.rejected`/`.removed`/`.batch_opened`
+  are), and an abandoned reservation just times out (`MEDIA_UPLOAD_INTENT_LIFETIME`) with no
+  lasting effect. Its authorization is the calling view's own `@requires_action(
+  "requester.media.upload")` route guard (foundation.md §7), same pattern as
+  `ham.identity.services.list_users`. `complete_upload`/`remove_item`/`reopen_batch` (state
+  changes another party can observe) are all `@command`-wrapped. Don't assume "creates a row"
+  implies "needs `@command`" — check the plan's declared audit-action list first.
+- **Administrator-sees-counts-only (Q-138) is service-layer masking, not a second matrix
+  action** — same pattern as `requester_pii.reveal`'s Q-024 exemption. `ham.media.services.
+  media_gallery_for(ctx, request_id)` always computes `MediaCounts`; it returns `items=None`
+  unless `ctx.effective_roles` intersects `{DIR, AD, PAS, BRD}` (i.e. unless something *other*
+  than Administrator alone grants `request_media.view`). The view still gates entry with
+  `@requires_action("request_media.view")`, which both roles hold — the masking decision
+  happens only once you're already inside.
+- **Media re-encoding strips EXIF/GPS "for free"**: Pillow's `Image.save(..., format="JPEG")`
+  does not copy source EXIF into the output unless the caller explicitly passes `exif=...`.
+  Never pass that kwarg in `ham.media.processing.process_photo` — the re-encode itself is the
+  metadata-stripping step, not a separate "scrub" pass that could be forgotten or miss a field.
+  Proved this in a test with `piexif` (new dev-only dependency) building a real JPEG with GPS
+  IFD tags, not just asserting "doesn't crash".
+- **Video processing needs a real "ffmpeg isn't installed" degrade path, tested for real.**
+  `ham.media.processing.ffmpeg_available()` (`shutil.which`) gates every video call;
+  `ProcessingUnavailable` (distinct from `ProcessingError`, which is "processed but failed a
+  check" — too_long/too_large/unsupported/corrupt) is caught by `ham.media.jobs.process_item`
+  and marks the item `failure_code="processing_unavailable"`, **and still deletes the
+  original** — never leave an unprocessed original sitting in `quarantine/` "for later," Q-120
+  is "never serve/keep the original" unconditionally. `apt-get install ffmpeg` failed in this
+  sandbox (upstream mirror 404s on several `noble-updates` packages) — don't assume it'll
+  succeed; write the video-path tests to `pytest.mark.skipif(not ffmpeg_available())` for the
+  real-encode assertions and a separate `unittest.mock.patch("...ffmpeg_available", ...)` test
+  for the degrade path itself, so the suite is still meaningful with or without the binary.
+- **Image/video derivative technical settings (long edge, thumbnail size, JPEG quality, H.264/
+  720p) live as plain module constants in `ham/media/processing.py`, explicitly NOT in
+  `ham.rules`** — intake.md §9 calls these out as "technical settings ... not business rules".
+  Only the 2-minute video-length cap is a real rule
+  (`RULES.media.REQUESTER_MEDIA_MAX_VIDEO_DURATION`), passed into `process_video` by the
+  caller rather than imported inside `processing.py`, so that module stays pure/no-Django.
+- **Retention sweep is written against the general `ham.rules.media_retention_period(kind,
+  closing_status)` helper, not hard-coded to the statuses step 2 can actually reach.**
+  `ham.media.jobs.retention_sweep` (a `ham.jobs.periodic_job`, daily 03:00 UTC) filters
+  `AssistanceRequest.status__in=(CANCELLED, REJECTED)` today (step 2 has no COMPLETED yet) —
+  when step 3 adds COMPLETED, add it to that tuple; the rule lookup itself needs no change.
+- **Added three new rules mid-slice** (`media.MEDIA_UPLOAD_INTENT_LIFETIME`/
+  `PRESIGNED_UPLOAD_URL_LIFETIME`/`PRESIGNED_VIEW_URL_LIFETIME`) that intake.md §9's plan-body
+  rules table already named as engineering values but S2.1 hadn't added to `ham/rules/v1.py`
+  yet — followed the full protocol (bump `RULES_VERSION` to `2026.09.28-5`, `docs/
+  rules-changelog.md` entry, new `PINNED_HASHES` line, `tests/rules/test_rules_values.py`'s
+  independent `EXPECTED` oracle, a new invariant). Gotcha: `ham/rules/v1.py`'s own source-format
+  test (`SOURCE_RE`) only accepts `PRD §N` / `Q-NNN` / `foundation.md §N` in a rule's
+  `sources=` tuple — `"intake.md §9"` fails that regex; put the architecture-plan citation in
+  `note=` prose instead, `sources=` gets the PRD section(s) only.
+- **`ham/requests/models.py` and `ham/requests/migrations/0001_initial.py` are a deliberate,
+  clearly-flagged PLACEHOLDER** (S2.2 owns the real `AssistanceRequest`, running in a parallel
+  worktree not yet merged into this one) — minimal `id`/`status`/`closed_at` only, enough for
+  the `"requests.AssistanceRequest"` FK string and the retention sweep. Also added a
+  placeholder `ham.requests.services.is_request_open(request_id)` (media needs to refuse
+  uploads on a closed/decided request; layering forbids `ham.requests` importing `ham.media`,
+  so this had to go the other way — `ham.media` importing `ham.requests.services`, which the
+  `ham.media` -> `ham.requests` layers direction already allows). Both files' docstrings spell
+  out exactly what the orchestrator should do at merge time (drop the placeholder model/
+  migration, keep S2.2's; re-point `ham/media/migrations/0001_initial.py`'s dependency at
+  whichever migration in S2.2's history actually creates the real table; reconcile
+  `is_request_open` with S2.2's equivalent, which will likely be status-based rather than
+  bare-`closed_at`-based once step 3's states exist).
+- **Cross-module reaction without a forbidden import**: `ham.media` reacts to `ham.requests`'
+  `RequestCancelled` outbox event (closes any still-open media batch) via its own outbox
+  subscriber (`ham.media.subscribers.handle_media_event`, registered `"media"` from
+  `MediaConfig.ready()`) — exactly the established `IntegrationsConfig.ready()` pattern, just
+  used for a same-repo domain-to-domain reaction instead of a third-party integration. This is
+  how a *lower* layer's event reaches a module that layering says may import it (`media` is
+  above `requests`) without the *requests* side ever importing `ham.media` back.
+- **A background job (`ham.jobs.job`/`periodic_job`) that's only ever imported by the module
+  defining it never actually registers with Procrastinate** — `jobs.defer("name", ...)` then
+  raises `KeyError` at call time, not at import time, which makes the failure show up in an
+  unrelated-looking test. Fix: import the module (even just `from . import jobs  # noqa: F401`)
+  from the owning app's `AppConfig.ready()`, mirroring how `MediaConfig` now imports both
+  `.jobs` (task registration) and `.subscribers` (outbox registration) there.
+## S2.5 additions: notifications module (Notification, inapp subscriber, attention registry)
+- **`ham.notifications.inapp.register_inapp`/`handle_inapp_event`** is an exact mirror of
+  `ham.integrations.email.notifications.register_notification`/`handle_email_event` (list of
+  builders per event type, builder returns `None`/one/`list[InAppNotice]`), but it is
+  registered as the `"inapp"` outbox subscriber from **`NotificationsConfig.ready()` itself**,
+  not from `IntegrationsConfig` — intake.md §2 calls this "internal, not a third party": since
+  `ham.notifications` sits at the bottom of the domain-module stack (just above
+  `ham.identity`), it can own its own outbox integration without triggering the "domain
+  modules never import `ham.integrations` directly" contract at all (no `ignore_imports` entry
+  needed, unlike every other domain module's `.notifications.py`).
+- **`Notification.title` gets its own PII guard** (`ham.notifications.validation.check_title`,
+  reusing `ham.platform.logging.EMAIL_RE`/`PHONE_RE`), called from `handle_inapp_event` before
+  every `Notification.objects.create(...)` — mirrors `ham.outbox.validation.validate_payload`
+  but is a separate, smaller check (title is one free-text field, not an arbitrary payload
+  dict) rather than reusing the outbox validator directly.
+- **"Needs response" has no table.** `ham.notifications.attention` is a second, independent
+  registry (`register_attention_provider(fn)`, `fn(ctx) -> list[AttentionItem]`,
+  `attention_items_for(ctx)` concatenates every provider) — completely separate from
+  `register_inapp`. A provider returns already-aggregated, PII-free rows (e.g. "Waiting for a
+  decision (3)"); nothing is stored, so resolving the underlying thing (e.g. a request leaving
+  Awaiting Approval) clears the card everywhere for free. `AttentionItem.muted` (Director/AD
+  see pastors'/Board's rows, de-emphasized, **not hidden**, and **excluded from the badge
+  count** — intake.md §6) is a per-item flag the *provider* sets based on the actor's role, not
+  something the registry computes; `needs_response_count(ctx)` sums `count` for non-muted items
+  only, `needs_response_for(ctx)` returns everything (view renders muted differently).
+- **Read vs. acknowledge, two very different authorization shapes for the same table.** Marking
+  an Update read is scoped by plain ownership-filter-in-the-query
+  (`Notification.objects.filter(pk=..., recipient_user_id=ctx.user_id)`), gated only by the
+  route's `shell.use`, and is **not** a `@command`/not audited — same rationale as "page views
+  ... are not audited" (intake.md §9.8): it changes nothing another party can observe.
+  Acknowledging (`notification.acknowledge`, `Scope.SELF`, `blocked_while_impersonating=True`,
+  already declared in the matrix by S2.0) *is* a `@command`, because it is what makes the
+  urgent banner (§10/§35) disappear. Wiring pattern for a `Scope.SELF` action keyed by a
+  specific row (not "always yourself" like `me.update`'s `_resource_self` returning `ctx`
+  outright): `resource_from` loads the row and returns `SimpleNamespace(user_id=row.
+  recipient_user_id)` if found, or `None` if not — `Scope._self_scope_ok` treats a `None`
+  resource as "nothing to check yet, let the service body raise" (same escape hatch role-grant
+  finer-grained checks use), so a bad id gets a plain `ValueError` from inside the service
+  rather than a scope denial that would otherwise require a second DB read just to build the
+  `Decision`.
+- **`identity.services.notification_recipients(roles: Iterable[str]) ->
+  list[tuple[UUID, str, bool]]`** (user_id, email, notify_email) is the one function this slice
+  added to `ham.identity` (intake-contracts.md §7's "only ham.identity reads auth tables"
+  rule) — filters `role_assignments__role__in=role_set, revoked_at__isnull=True,
+  is_active=True, disabled_at__isnull=True`, de-dupes with a manual `seen: set[UUID]` (not
+  `.distinct()`) because a JOIN against `role_assignments__role__in={A, B}` returns one row per
+  matching assignment, so a user holding *both* roles in the set would otherwise appear twice;
+  `user.profile.notify_email` is wrapped in `except ObjectDoesNotExist: notify_email = True`
+  since `SharedIdentityProfile` is only reliably created via `get_or_create` at bootstrap/
+  invite time, not guaranteed for every row a test or edge case might create.
+- **New `tests/notifications/` package** (`__init__.py`, `test_inapp.py`, `test_attention.py`,
+  `test_services.py`) — first backend slice to add a whole new top-level `tests/<app>/`
+  directory outside the ones S1/S2.0 already scaffolded; nothing extra was needed (pytest
+  picks it up via `testpaths = ["tests", "ham"]`, no per-directory conftest required beyond the
+  shared `tests/conftest.py`'s `make_user`/`_reset_clock`).
+- **Retention for `Notification` rows is an explicit, intentional gap** (task brief: "note the
+  gap; don't invent a value") — intake.md's D4/Q-116 retention decision covers
+  `AssistanceRequest`/`Requester`/`Property`, not this table; no `ham.rules` constant exists or
+  was added for it. Don't backfill one without an owner decision.
+
+## Step-2 "known loose ends" fixup (2026-09-28, wave-3 close-out)
+- **Cross-app lookup registration must be wired from the *importing* side, not the *owned*
+  side, when the layers contract only allows one direction.** The step-2 handoff doc said
+  `RequestsConfig.ready()` should register `ham.requester_portal`'s three portal lookups
+  (`register_request_facts_lookup` etc.) — that's backwards: `ham.requests` sits *below*
+  `ham.requester_portal` in the `web -> requester_portal -> media -> requests -> ...` layers
+  contract, so `ham.requests` may never import `ham.requester_portal.services` to call
+  `register_*` on it (import-linter flags it even from inside `AppConfig.ready()`, and even
+  from a `TYPE_CHECKING` block — it's a static-analysis check, not a runtime one). The
+  registrations belong in **`RequesterPortalConfig.ready()`** instead, which legally imports
+  `ham.requests.queries` (downward) and wraps its plain-value return types (this slice added
+  `ham.requests.queries.request_facts_for_portal`/`.request_contact_for_portal`/
+  `.request_ids_for_portal_email`, all returning plain str/UUID/a local `PortalRequestFacts`
+  dataclass, never a type from the app above) into the portal's own `RequestLinkFacts`. If a
+  handoff doc's literal instruction on *which app's `ready()`* conflicts with the layers
+  direction, trust the layers contract (`lint-imports`) over the doc's wording.
+- **Two independently-built parallel slices reusing "the same" fixed vocabulary/wording will
+  drift unless one side imports the other's constants.** S2.2 (`ham.requests.models`/
+  `.certifications`, what's actually persisted/checked) and S2.3
+  (`ham.requester_portal.choices`/`.attestation`, the public form's own vocabulary) each
+  independently invented different string codes for need category, property type, and the
+  certification statements (e.g. portal `"roof_or_ceiling"` vs. persisted `"roof"`; portal's
+  2-tick `owner_authority`/`responsibility` vs. persisted 3-code
+  `true_to_knowledge`/`owner_permission`/`hoa_responsibility`). Passing the portal's codes
+  straight into `SubmittedRequestPayload` wouldn't raise (Django's `choices=` isn't enforced at
+  `.create()`), it would just quietly corrupt the stored value or make
+  `certifications.statements_satisfy_relationship` refuse every submission. Fixed by adding
+  translation tables (`_NEED_CATEGORY_TRANSLATION`/`_PROPERTY_TYPE_TRANSLATION`) and a direct
+  `certifications.required_statements(relationship)` call in
+  `ham.requester_portal.services._payload_from_cleaned` — the one place that already imports
+  both vocabularies to cross the seam — rather than touching either module's own (already
+  green-tested) vocabulary. When two slices each own "the same" fixed choice list, check their
+  actual string values match before wiring the seam between them; don't assume matching English
+  labels means matching codes.
+- **A plain orchestration function that calls two-plus `@command`s in one transaction (not
+  itself a `@command`) must still hand-write any audit event the individual commands don't
+  cover.** `ham.requester_portal.services.submit_and_issue_link` calls `submit_request`
+  (audits `request.submitted`) then `issue_link` (a plain function, "does not itself audit or
+  email; the caller does" per its own docstring) — nothing wrote `requester_link.issued` even
+  though the label existed in `ham/audit/labels.py`. Fixed with a hand-written
+  `ham.audit.services.record(...)` call inside the same `transaction.atomic()` block, same
+  pattern `complete_intake_checks` already uses for its second `request.duplicates_flagged`
+  event. When auditing a multi-command orchestration, check every label the module docstring/
+  contracts doc promises actually gets written somewhere, not just that each individual
+  `@command` fires its own.
+- **A "the initial container open isn't audited" design flag from a previous slice is usually
+  correct, not a bug** — confirmed for `ham.media._get_or_open_initial_batch`: opening a
+  requester's own batch #1 is a side effect of their own (already-unaudited, per that module's
+  own docstring) `reserve_uploads` call, not a distinct actor decision, unlike `reopen_batch`'s
+  audited `request_media.batch_opened` (a deliberate staff decision on an already-closed
+  request). Documented the reasoning directly in `_get_or_open_initial_batch`'s docstring and
+  added a regression test (`test_opening_the_initial_batch_is_not_audited`) instead of changing
+  behaviour — CLAUDE.md priority 3 doesn't require auditing every DB write, only consequential
+  *actions* by an actor.
+- **The one flaky/real pytest warning left over from a previous wave** ("Error when trying to
+  teardown test databases: ... database is being accessed by other users") came from
+  `tests/e2e/test_smoke.py`'s `live_server` (pytest-django, session-scoped): a real
+  `ThreadedWSGIServer` handling Playwright's HTTP/1.1 keep-alive traffic in per-request worker
+  threads, each with its own Postgres backend session, with no hard guarantee every one of
+  those sessions is closed by the time pytest-django's own session-scoped `django_db_setup`
+  fixture tears down and runs `DROP DATABASE`. Root-caused by reproducing it standalone
+  (`pytest tests/e2e/test_smoke.py -p no:randomly`, ~100s, much faster to iterate on than the
+  full ~150s suite) and bisecting with `--deselect`; ruled out `CONN_MAX_AGE` (already tried
+  forcing it to 0 in `config/settings/test.py` — didn't help, so don't re-try that) and a
+  `LiveServerThread.terminate()`-doesn't-`.join()` theory (Django's `terminate()` already calls
+  `self.join()` — checked the installed Django's source directly rather than assuming). Fixed
+  defensively rather than by chasing the exact leaking thread: a `tests/conftest.py` session-
+  scoped `autouse` fixture (`_terminate_stray_backends_before_db_teardown`) that requests
+  `django_db_setup`/`django_db_blocker` as dependencies (so pytest's LIFO teardown order runs
+  it *right before* `django_db_setup`'s own teardown) and runs `pg_terminate_backend` on every
+  *other* backend still connected to `current_database()`. No-op on a clean run; removes the
+  warning unconditionally regardless of which test (if any) is the actual culprit next time.
+- **When two `Bash` tool calls against the same Postgres-backed pytest suite overlap (e.g. a
+  timed-out call auto-moved to background, then another blocking call issued before checking
+  the first one's result), you get spurious "database is being accessed by other users"
+  noise that has nothing to do with the code under test.** Burned real time here chasing a
+  ghost before noticing two concurrent `pytest -q` processes via `ps -ef`. Before treating a
+  DB-teardown warning as reproducible, confirm there is exactly one pytest process running
+  (`pgrep -af pytest`) — and don't fire off a second full-suite run without first reading the
+  previous one's completion notification/output.
+
+## Fix E (step-2 fix round: security re-check + PRD re-check, parallel with other fix rounds)
+- **A `django_db(transaction=True)` test that reuses a helper (`run_due_jobs_now()`) another
+  test in the *same file* also calls can break that other test even though both pass in
+  isolation** — a real `TransactionTestCase`-style commit+truncate cycle doesn't compose
+  cleanly with Procrastinate's job queue the way plain `pytest.mark.django_db` (one wrapped,
+  rolled-back transaction) does; a later, unrelated test's `run_due_jobs_now()` can then hit
+  `AssistanceRequest.DoesNotExist` from a job that shouldn't even exist anymore. The PoC this
+  slice turned into a real test (`test_poc_cross_draft.py`) used `transaction=True`, but
+  didn't actually need it (two `django.test.Client()` instances share one connection-backed
+  test transaction just fine) — dropped it once bisection (`pytest tests/web/ -q` reproduces
+  deterministically, no `pytest-randomly` in this project, so it's file-collection-order, not
+  random; add/remove files with `--deselect`/run one at a time to bisect) pinned the exact
+  file. **Before trusting a "looks environmental" full-suite failure is pre-existing, run
+  `pytest <the one file that reproduces it> -q` alone, then `-k` bisect which of *your own new
+  test files* is the culprit** — don't assume it's flaky prior-slice infrastructure just
+  because the traceback shows a generic-looking `TransactionManagementError`/`DoesNotExist`
+  deep in Django internals.
+- **`verify_code`'s challenge-selection query needs `draft_id`/`request_id` in its `.filter()`
+  the moment the caller has one, not just in a separate rate-limit counter** — N3: it used to
+  select "the most recent, unconsumed challenge for this `email_key`+`purpose`" with no
+  `draft_id`/`request_id` filter at all (those were only ever used by
+  `_recent_failed_attempts`, a sibling function). An attacker who types a victim's real email
+  into their *own* draft (cooldown blocks a second challenge from being created, since it's
+  keyed on email+purpose) then has their wrong-code guesses land on the *victim's* actual
+  challenge row, burning the victim's real attempt budget. Fix: `verify_code` now requires
+  `draft_id is not None or request_id is not None` up front (`no_challenge` otherwise) and
+  filters the `select_for_update()` queryset by whichever one it got, in addition to
+  `email_key`/`purpose`/`consumed_at__isnull=True` — every existing test that called
+  `verification.verify_code(...)` directly (not through the view, which already passed
+  `draft_id`/`request_id`) needed a `draft_id=` kwarg added or it now gets `no_challenge`
+  instead of exercising the wrong/expired/locked paths it meant to.
+- **A `_after_verified`-style dispatcher that reads "which resource does this apply to" from
+  session state must re-derive it from the thing that was actually verified, not the
+  session** — same H1 shape as an earlier slice's draft_id fix, but for link regeneration:
+  `_after_verified`'s link-regeneration branch used `_pending_link_regen_request_id(request)`
+  (a session key) to build the `RequesterContext` it then regenerated a link for, ignoring
+  `challenge.request_id` entirely. With the `verify_code` fix above already scoping challenge
+  *selection* by the session's `request_id`, this exact bypass is unreachable through the HTTP
+  flow (querying by the wrong id just returns `no_challenge`) — but `_after_verified` itself
+  still needed its own `challenge.request_id != request_id` check as defense in depth (L8),
+  provable by calling `_after_verified` directly with a hand-built mismatched challenge
+  (bypassing `verify_code` entirely) rather than trying to reach it through two real HTTP
+  requests.
+- **A verification action that issues something (a link, a code) needs its own append-only
+  history row and audit `context`, mirroring whatever the *original* verification already
+  does — check both ends independently, an existing "record X" helper for one path doesn't
+  imply the sibling path has one.** L8/M4: `submit_request` already wrote a
+  `RequestContactVerification(purpose="intake", ...)` row and `complete_intake_checks`/etc.
+  set audit context, but `regenerate_link_for_own_request` (link regeneration, "the same kind
+  of event, a different trigger") wrote neither. New `ham.requests.services.
+  record_link_regeneration_verification(*, request_id, method, verified_value, challenge_id)`
+  (plain function, not `@command` — the actor-visible action is still just
+  `requester_link.regenerated`) is the one write path both `ham.web.views_requester` call
+  sites (`_after_verified`'s email-code branch, `request_help_new_link`'s email-link branch)
+  now feed through, with `verification_method` threaded as a new required kwarg on
+  `regenerate_link_for_own_request` itself (a signature change — every direct caller in tests
+  needed updating, not just the two view call sites). `CommandResult(context=..., after=...)`
+  both getting the same `{"verification_method":..., "challenge_id":...}` dict is intentional
+  (M4 wants it on the audit event; `ham.audit.services.record` still adds its own `link_id`
+  from `ctx.link_id` on top for a requester actor, on top of whatever `context` already has —
+  don't assert an exact `context` dict in a test without accounting for that).
+- **`is_masked_view(ctx)` is the one gate multiple independent surfaces (list marker, detail
+  contact block + reveal button + free-text fields, media gallery) must all call, and each of
+  those call sites needs the SAME impersonation-aware fix, not just the function itself** —
+  N5/Q-151 extended `is_masked_view` (already Q-124's "Administrator, no leadership role also
+  granting access") with `ctx.is_impersonating and user_holds_global_role(ctx.real_user_id,
+  ADMINISTRATOR)` (same helper/reasoning as the earlier `reveal_requester_pii` L7 fix — see
+  that fix's own memory entry). But `is_masked_view` being correct doesn't automatically fix
+  every caller: `ham.requests.queries.list_requests`' `has_possible_duplicate` marker (M2) and
+  `RequestDetailRow.contact_note` (NEW-1) each had their own separate, un-gated field
+  assignment that needed touching individually — grep every place a P/C/sensitive field or
+  marker is assigned in a query function, don't assume "the shared helper is fixed" is
+  sufficient. New `ham.requests.queries.can_view_history(ctx)` (`not is_masked_view(ctx) and
+  authorize(ctx, "request.history.view", None).allowed`) replaces a bare `authorize()` call in
+  `ham.web.views_requests._build_detail_context` that had the identical impersonation gap for
+  the History section/duplicate panel — a raw `authorize()` call is *never* enough on its own
+  when the matrix rule's roles include one that changes meaning under impersonation.
+- **A route that streams bytes through the app must scope the *lookup*, not just the media
+  item, through the same query every list/detail screen already uses** — N1:
+  `ham.web.views_requests._serve_media` called `get_ready_item(request_id=..., media_id=...)`
+  directly (scoped only to "does this item exist under this request", no status/role check at
+  all), letting a Pastor fetch photo bytes for a request stuck in `NEEDS_PHONE_CHECK` (Q-025:
+  Director/AD only) by knowing/guessing the request+media ids. Fixed by calling `ham.requests.
+  queries.get_request_by_id(ctx, request_id)` first (404 if `None`, same scoping `list_requests`
+  uses) before ever touching storage. Separately, `read_media_bytes` (`ham.media.services`)
+  loaded the *whole* object into a `bytes` before handing it to `HttpResponse` — added
+  `ObjectStore.open_object(key) -> BinaryIO` to the protocol (local: `Path.open("rb")`; S3:
+  return the `boto3` `StreamingBody` from `get_object` directly, no read() upfront) and a new
+  `ham.media.services.open_media_stream` the view wraps in `django.http.FileResponse` instead
+  of `HttpResponse(data, ...)`.
+- **A background job's storage-deletion side effect belongs behind `transaction.on_commit`
+  when it runs from inside a `@command`'s own `transaction.atomic()` block, and its hook
+  registration should raise loudly if missing, not silently no-op** — N6:
+  `purge_all_for_request` (`ham.media.services`, the spam-purge's registered `ham.requests.
+  services._media_purge_hook`) used to call `store.delete(key)` synchronously mid-transaction;
+  a later failure in the same `purge_expired_request` transaction (e.g. the request-row delete
+  or the `@command` wrapper's own audit/outbox write) would then roll the DB back with the
+  bytes already gone from storage, unrecoverably. Wrapped each `store.delete(key)` in
+  `transaction.on_commit(functools.partial(store.delete, key))`; testing this requires
+  pytest-django's `django_capture_on_commit_callbacks(execute=True)` context manager around
+  the call under test (`on_commit` callbacks never fire in a normal rolled-back-at-teardown
+  `django_db` test otherwise) — existing tests asserting storage was actually deleted needed
+  wrapping, not just new ones. Also changed `if _media_purge_hook is not None: hook(...)` to
+  raise `RuntimeError` when the hook is `None` — a missing registration (a startup-wiring bug,
+  `MediaConfig.ready()` always registers it) used to mean "spam purge silently never deletes
+  storage", which is worse than a loud failure.
+- **`ham.notifications.services.mark_read` needed a read-only sibling
+  (`get_owned_notification`) so a caller can look up "is this mine, what's its subject" without
+  the side effect of marking it read** — N7: `ham.web.views.notification_open` now branches on
+  `ctx.is_impersonating` to call `get_owned_notification` instead of `mark_read` while
+  impersonating, so browsing someone else's inbox to open a linked request doesn't silently
+  change what they see as unread next time they sign in themselves. Same view also wraps the
+  final `redirect(url_name, request_id=...)` in `try/except NoReverseMatch: redirect("web:
+  inbox")` (defensive — no known way to trigger it today, but a future `subject_type` ->
+  wrong-shaped URL name mapping shouldn't 500) and whitelists `request_detail`'s `back_tab`
+  query param against a fixed `_KNOWN_LIST_TABS` set before putting it in the "Back to
+  Requests" link's query string (Django's auto-escaping already blocked attribute breakout,
+  but the destination `requests_list` view's own tab validation was the only thing stopping an
+  unrecognized value from round-tripping into a rendered URL — defense in depth, not a fix for
+  an actual exploit).
+- **A queryset `.update()` that's the one deliberate escape hatch around a model's append-only
+  `save()` guard should be a *named manager method*, not a bare call at the service-layer call
+  site** — N4: `RequestContactVerification.objects.filter(request=request).update(value_key=
+  "")` (the 7-year retention purge's hashed-value erasure, L8) became `RequestContactVerification
+  Manager.erase_value_keys_for_retention(request)` (a custom `models.Manager` subclass,
+  `objects = RequestContactVerificationManager()` — Django's own style-guide linter, `ruff`'s
+  `DJ012`, wants the manager assignment *after* every field, before `Meta`, not before the
+  first field). Lets a test prove "only the purge sweep does this" by grepping source for the
+  method name and for the raw `.update(value_key=` pattern separately (the grep-style check
+  the wave brief asked for) — a hand-written oracle over `ham/**/*.py`, no new dependency.
+- **A required-field validation added to a shared form validator needs every existing test
+  fixture that posts that field re-checked, including ones nested in a different test file's
+  own local wizard-fill helper** — M5/Q-099: `ham.requester_portal.forms.validate_intake_
+  payload`'s `availability` list now rejects empty with "Choose at least one time (Any time
+  works counts)" (it was previously silently optional — `bad_availability` only ever fired for
+  a *wrong* value, not a *missing* one). `tests/web/test_requester_portal_screens.py::
+  _fill_wizard`'s own `no_email=True` branch built a hand-trimmed POST body that dropped
+  `availability` entirely (along with `contact_preference`, which is fine — it's auto-filled
+  for the no-email path) — grep every test fixture/dict literal with `"availability":` (or
+  building one without it) across the whole `tests/` tree, not just the form-validator's own
+  test file, before assuming a new required-field check is safe to land.
+- **A relationship-scoped fixed vocabulary (certification statement codes) must be filtered to
+  "what's actually offered for this relationship" at the point of storage, not just checked as
+  a subset** — cert-codes PRD fix: `statements_satisfied(relationship, accepted)` only ever
+  checked `required.issubset(accepted)` (accepted may be a *superset*), and the old `cleaned
+  ["attested_statements"] = sorted(accepted)` stored the raw POSTed set verbatim, including any
+  stray/forged code (even a *different* relationship's own authority-tick code, since the
+  authority code differs by relationship — `_AUTHORITY_BY_RELATIONSHIP`). Fixed with `accepted
+  & {code.value for code in required_statements(relationship)}` at the point `cleaned[...]` is
+  assigned — intersect, don't just validate a subset relationship and store the untouched
+  input.
+- **A field the admin settings view/model already had, with a stale "the template doesn't
+  render it yet" comment, just needed the template control added** — N15: `ChurchProfile.state`/
+  `views_admin_settings.admin_church_settings` already existed (an earlier slice's Q-147 work);
+  only `admin_church_settings.html` was missing a `<select>` (2-letter `US_STATE_CODES`,
+  `ham.platform.church`, sorted for a stable option order) and the view's stale "doesn't render
+  yet" comment needed correcting once it did. `manage.py seed_dev` (the persona seeder,
+  `ham.identity.management.commands.seed_dev`) now also sets `ChurchProfile.get_solo().state =
+  "FL"` inside its existing transaction, for local dev/Playwright runs to start from a
+  prefilled state instead of "not set" — but never write the literal deployed church name in a
+  comment/docstring anywhere in `ham/` (even explaining *why* FL), `tests/web/test_no_hardcoded
+  _church_or_colors.py::test_no_literal_church_name_in_python_source` greps all of `ham/` (not
+  just `tests/`) for `FORBIDDEN_CHURCH_STRINGS`.
+
+## FIX-F2 (step-2 intake, requester flows/M4/M6/M7/M8 re-check round)
+- **"Fixed but not fixed" review findings (an earlier pass claimed M4/M6/M7/M8 fixed without
+  changing them) need an independently-written failing-before/passing-after test per item, not
+  just a code diff** — every item in this round got a new test file (`tests/**/test_fix_f2_*.py`)
+  that fails on the pre-fix code and passes after, named in the handback, per the parent task's
+  explicit instruction. Don't trust a prior "Fixed" claim in a review doc without re-deriving
+  the check yourself.
+- **A "reason code" and a "free-text justification" collected on the same form question are two
+  separate fields, always** — the recurring bug shape (M4/N-M1: `urgency_reason` was composed
+  into `urgency_justification` via `f"{label}. {justification}"` at *view* level, re-run on
+  every re-save, silently duplicating/mutating the requester's own words) is the same class of
+  mistake as the earlier hazard-note-in-parens bug: never fold a fixed-vocabulary code into a
+  free-text field's *stored* value. Compose "Label. Text" only at *display* time
+  (`ham.requests.presentation.urgency_line`, new — same shape as `hazard_labels`), never at
+  write time. When one such field is optional depending on the other's chosen value (here:
+  justification required only for the "Something else" reason), the DB `CheckConstraint` mirror
+  of the Python validation needs the same conditional shape
+  (`Q(reason="something_else") & ~Q(justification="") | ~Q(reason="something_else")`), not a
+  flat "always required when urgent" — a flat constraint silently regresses the "optional for
+  every other reason" requirement the very next migration.
+- **Adding a new required field to a `SubmittedRequestPayload`/`AssistanceRequest.objects.
+  create()` call touches every test factory that builds an urgent payload, transitively** —
+  `tests/requests/conftest.py::make_payload` is the one shared factory nearly every urgent-
+  request test routes through (directly or via a per-file `_submit`/`_submitted`/`_make_request`
+  wrapper); adding `overrides.setdefault("urgency_reason", "something_else")` there when
+  `urgent_requested` is truthy fixed every call site in one place instead of touching a dozen
+  test files. `ham/requests/management/commands/seed_dev_requests.py`'s own `_create()` (which
+  calls `AssistanceRequest.objects.create()` directly, bypassing `SubmittedRequestPayload`
+  entirely) needed the same new kwarg threaded through by hand — grep for *every* direct
+  `AssistanceRequest.objects.create(...)` call site, not just the one this slice's own service
+  module uses, before trusting a new required-field DB constraint is safe to land.
+- **A "same wording for every purpose" bug (M6) is fixed by threading `purpose` into the shared
+  copy-building function itself, not by branching at every call site** —
+  `verification._code_email_text(*, code, link_url, church, purpose)` now branches once,
+  internally, on `purpose == PURPOSE_INTAKE` vs. link-regeneration; the one call site
+  (`_request`) just passes `purpose` through. Same pattern in the template
+  (`r8_verify.html`'s `{% if purpose == "intake" %}`) and in `confirm_link.html`'s `kind`.
+- **"No enumeration, identical response" (H2) does not mean "the two flows must go through the
+  same code path"** — M7's fix deliberately gives R11b ("check on your request") its own,
+  completely separate issue-link+email function (`ham.requester_portal.services.
+  _issue_and_notify_found_link` / `notifications.send_found_request_email`, own
+  `requester_link.found` audit action, own E4 wording), never touching the
+  `requester_link.regenerate`/`RequesterAccessLinkIssued`/E3 path R11a still uses. The
+  HTTP-visible response (`ChallengeRequestResult("sent")`, no branching) stays identical either
+  way; only the internal code path differs. When an earlier slice's docstring flags "two flows
+  share one event with nothing to tell them apart, coordinator TODO" — that's a real
+  invitation to *split* them, not evidence the sharing was intentional.
+- **A cross-app "facts" lookup dataclass (`ham.requester_portal.services.RequestLinkFacts`,
+  registered by `ham.requests` at `AppConfig.ready()`, per intake.md §2's layering) is the right
+  place to add a new plain-value field (here: `display_number`) that a lower-layer app's data
+  needs to surface in an upper-layer app's UI/email — not a direct model import.** Adding
+  `RequestLinkFacts.display_number`/`PortalRequestFacts.display_number` (computed as
+  `f"HAM #{reference_number:03d}"`, matching `AssistanceRequest.display_number`'s own property
+  exactly, never re-derived differently) let `send_found_request_email` build its subject
+  without `ham.requester_portal.notifications` importing `AssistanceRequest` for this call path
+  at all (it already does so elsewhere, legally, for the *outbox-driven* builders — this one
+  path is different because `find_my_request`'s fake-lookup test fixtures, by design, never
+  create a real `AssistanceRequest` row).
+- **This exact lookup-wiring function is duplicated three times on purpose (documented in
+  `tests/conftest.py::real_portal_lookups`'s own docstring) and all three need the same edit
+  together**: `ham.requester_portal.apps.RequesterPortalConfig.ready()`'s `_facts_lookup`
+  closure, and `tests/conftest.py::real_portal_lookups`'s own copy of the identical closure (its
+  docstring explains *why* it's a second copy rather than calling `ready()` again). Forgetting
+  the test-conftest copy when adding a new `RequestLinkFacts` field produces a subtle failure:
+  tests using the *fake* per-file lookup fixtures (e.g. `tests/requester_portal/
+  test_regenerate_and_find.py`'s own `_lookups`) still worked, but tests using the *shared*
+  `real_portal_lookups` fixture silently got an empty value for the new field (no error, just a
+  blank subject line) until the second copy was updated too.
+- **M8 "already received" (confirming a code/link after the draft already became a request on
+  another device) needs a `reveal: bool` gate, not a uniform response** — whether to show the
+  HAM # and a direct link to the secure page depends on whether *this exact browser* just
+  proved something (a code that matched inside its own session, or a link-consume POST that
+  itself just succeeded) vs. merely replaying an already-dead code/link with no proof at all.
+  New shared context builder `ham.web.views_requester._already_received_context(request_id, *,
+  reveal)` and shared partial template `web/requester/_already_received.html` (included from
+  both `r8_verify.html` and `confirm_link.html`) keep the two "reveal" vs. "neutral" renderings
+  in exactly one place each. Distinguishing "this draft already became a request" from "this
+  draft id is simply unknown" needs a dedicated query
+  (`ham.requester_portal.drafts.consumed_request_id`, `IntakeDraft.objects.filter(pk=...,
+  consumed_at__isnull=False).first().request_id`) — `load_payload`'s existing `None` return
+  means either one identically, by design (no enumeration), so it can't be reused for this.
+  Finding "which draft an already-*used* link token belonged to" (to decide even whether to
+  offer the neutral message) needs its own lookup too, without the usual `consumed_at__isnull=
+  True` filter every other link-consuming query applies —
+  `ham.requester_portal.verification.challenge_for_link_token` (docstring: "used only to
+  detect... never to grant access on its own").
+- **A background job deferred by `submit_request` (the duplicate-check `complete_intake_checks`
+  job) that a test never drains with `run_due_jobs_now()` leaks into the *next* test's own
+  `run_due_jobs_now()` call and blows it up with a confusing `TransactionManagementError`/
+  `DoesNotExist` from a job that isn't even the failing test's own** — `pytest-django`'s
+  per-test transaction rollback does not appear to clean up already-deferred Procrastinate job
+  rows the same way it does ORM rows, at least not reliably enough to trust. Existing convention
+  (`tests/web/test_requester_portal_screens.py::TestFullEmailFlow`'s own comment) is the fix:
+  call `run_due_jobs_now()` once, explicitly, right after any `submit_request`/full-wizard-POST
+  call that creates a real `AssistanceRequest`, even in a test that has nothing to do with that
+  job's own effects — "drains the duplicate-check job so it doesn't leak into a later test's
+  `run_due_jobs_now()` call" is worth writing as a one-line comment every time.
+- **`hazard_labels`'s wrapper-note parse (`"codes (note)"`) is unambiguous with `str.partition`
+  (first occurrence), not `str.rpartition` (last occurrence), once you notice hazard codes
+  themselves never contain a parenthesis** — the codes prefix can only ever contain one kind of
+  character run (`[a-z_,\s]`), so the *first* " (" in the whole string is always the wrapper's
+  own opening paren, no matter how many further "(" / ")" pairs the requester's own note text
+  contains after that. A bare `"none_known"` code is not itself a hazard for display purposes —
+  filter it out of `hazard_labels`'s returned list entirely (not just relabel it) so the
+  caller's pre-existing "no hazards" empty-state branch (shield icon, "None that they know of")
+  renders for it automatically, rather than adding a second special case in every template that
+  calls this function.
+
+## FIX-G (step-2 intake, NH1/NM1 security re-check + UX minors)
+- **"A session/cookie is proof of nothing" is a distinct bug shape from H1/N3's "the wrong
+  challenge got selected" (Fix A) — both need fixing, and fixing one does not fix the other.**
+  NH1: `_already_received_context`'s `reveal=True` branch used to fire whenever *this
+  browser's session* merely still named an already-submitted draft id, even when the POST that
+  reached that branch had just **failed** verification (`verify_code` returned
+  `reason="no_challenge"`, i.e. no correct code was ever entered on this browser). Fixed by
+  keying `reveal` strictly on "did THIS request just independently prove something" (a code
+  that verified inside this exact POST, or a link-consume POST that itself just succeeded),
+  never on session contents alone — the `no_challenge` branch in `ham.web.views_requester.
+  request_help_verify` now hard-codes `reveal=False` and pops `_SESSION_VERIFY` (so a bare
+  replay of the same failed POST doesn't keep re-checking a spent session). Even the
+  legitimate `reveal=True` branches stopped decrypting and handing out a live secure-page
+  token (`ham.requester_portal.services.current_secure_page_path`, deleted outright) — "you
+  proved something" still isn't the same authorization level as "the audited link-issuance
+  path decided to hand you a token"; the reveal template now says "open the link in your
+  email" instead of linking anywhere.
+- **An unauthenticated "prove you own this address" POST must never itself be the thing that
+  mutates state (issues a live credential, revokes an old one) — it may only ever *trigger a
+  send* of something that, when clicked, goes through the exact same audited re-verification
+  path a "my link already expired" flow already uses.** NM1/PRD NEW-2:
+  `ham.requester_portal.services.find_my_request` (R11b "Check on your request") used to call
+  `issue_link`+email directly, synchronously, from the POST handler itself — no click-through,
+  no `verification_method` recorded anywhere. Fixed by giving R11b its own challenge purpose,
+  `RequesterVerificationChallenge.PURPOSE_FIND` (new, alongside `PURPOSE_INTAKE`/
+  `PURPOSE_LINK_REGENERATION` — CharField `choices=` metadata only, no real migration
+  behavior, but `makemigrations` still wants a state migration for it), and a new
+  `ham.requester_portal.verification.request_find_verification` that creates that challenge
+  and emails only a link (an E4-specific text builder, no code — R11b's UI never had a code
+  field) pointing at the **same URL** link-regeneration's own click-through page already uses
+  (`/request-help/new-link/<token>`, reusing `_CONFIRM_PATH_TEMPLATES`) — since
+  `ham.web.views_requester.request_help_new_link`'s POST handler never branches on
+  `challenge.purpose` (only checks `request_id is not None`), no view code needed touching at
+  all: it already calls `regenerate_link_for_own_request` (issues, revokes the old one,
+  records `verification_method="email_link"` + a `RequestContactVerification` row) for
+  whichever purpose's challenge got consumed. The old `_issue_and_notify_found_link`/
+  `send_found_request_email` (notifications.py) are gone entirely — nothing issues a link
+  from the `find_my_request` call path itself anymore, only `request_find_verification`'s own
+  independent rate limits (new rule `RULES.intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY`,
+  Q-121; the "1 per request" limit reuses the existing `REQUESTER_CODE_RESEND_COOLDOWN` rather
+  than inventing a new rule for it — reuse an existing named rule before adding a new one when
+  the numeric value and its rationale really are the same).
+- **A per-address abuse counter that's meant to be independent of a *different* flow sharing
+  the same underlying model needs its own `purpose` value, not a shared one filtered some
+  other way** — `request_find_verification`'s cooldown/daily-cap queries are plain
+  `purpose=PURPOSE_FIND` filters, so R11a's own link-regeneration resends (`purpose=
+  PURPOSE_LINK_REGENERATION`) never eat into R11b's budget or vice versa, for free, the same
+  H2 "split the counters by purpose" pattern Fix A already established.
+- **A rate-limit cooldown/hourly-cap keyed only on the untrusted-input side of a two-sided
+  relationship (here: `email_key` alone) is abusable as a denial-of-service against the
+  *other* side (here: `draft_id`), even when neither side alone is secret** — L(low):
+  `ham.requester_portal.verification._request`'s cooldown and
+  `REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR` queries now additionally filter by `draft_id`
+  when one is given (i.e. for `purpose=PURPOSE_INTAKE` only — link regeneration/find have no
+  browser-created `draft_id` to scope by, they're already scoped by `request_id`), because
+  anyone can create their own draft and type a victim's real email into it with zero proof of
+  ownership, then use *that* draft's sends to burn the shared per-email cooldown/hourly budget
+  and block the victim's own "resend code" button for up to an hour. This incidentally fixed
+  an already-flagged flaky test (`tests/web/test_fix_f2_already_received.py`, real-clock,
+  shared fixed test email `doris.p@example.org` across many test files) — draft-scoping the
+  budget means unrelated tests using the same address no longer share a rate-limit counter at
+  all.
+- **A `FixedClock` (`ham.platform.clock`) advances via `.advance(timedelta)`, not `.tick()`**
+  — there is no `tick` method; grep the class before guessing a name that reads naturally.
+- **`ham.platform.church.church_profile()` returns a frozen `ChurchProfileView` dataclass, not
+  a mutable model instance** — to change the phone/email/etc. a test exercises, mutate the
+  real singleton row instead: `from ham.platform.models import ChurchProfile; row =
+  ChurchProfile.get_solo(); row.ham_phone = "..."; row.save(update_fields=["ham_phone"])` (the
+  view's `phone`/`email` map from the row's `ham_phone`/`ham_email` fields, not same-named).
+- **A free-text note field that's only ever collected for ONE specific fixed-vocabulary code
+  (here: hazards' `hazard_note`, only ever paired with `Hazard.SOMETHING_ELSE` by the form)
+  must be attached to that code specifically when reconstructing a list from a stored
+  comma+paren string, not to "whichever code happens to be first"** — `ham.requests.
+  presentation.hazard_labels` now looks for `"something_else"` among the parsed codes and
+  attaches the note there; when it's absent (a defensive-only case — the form itself requires
+  it) and there's more than one code, the note becomes its own separate item (`code=""`,
+  already-existing rendering shape for "note with no codes at all") rather than silently
+  landing on an unrelated hazard. Kept a narrow backward-compatible exception: when there is
+  *exactly one* code (no "something_else" needed to disambiguate at all), the note still
+  attaches to that lone code, same as before — several pre-existing tests exercise a single
+  arbitrary code + note as a generic "parenthetical-note parsing" fixture, not a hazard-
+  semantics one.
+- **Removing a function whose only caller imported a module for exactly that one call trips
+  `lint-imports`'s "unused ignore" check, and it's a hard failure (exit 1), not a warning** —
+  deleting `ham.requester_portal.notifications.send_found_request_email` (its only reason to
+  import `ham.integrations.email.service`) left a stale `ignore_imports` entry in
+  `pyproject.toml`'s `[tool.importlinter]` section; `lint-imports` fails the whole run on "No
+  matches for ignored import X -> Y" until the now-dead ignore line is deleted too. Grep
+  `pyproject.toml` for the module's own name whenever deleting its last cross-layer import.
+- **A "leadership viewer" page wrapping an already-authorized raw media route
+  (`ham.web.views_requests.request_media_thumb`/`request_media_view`) should reuse the exact
+  same scope/masking checks by hand (`get_request_by_id(ctx, request_id)` then
+  `is_masked_view(ctx)`), not factor `_serve_media` to also return HTML** — the new
+  `request_media_viewer` view (`/requests/<id>/media/<mid>/`, new URL name
+  `request_media_viewer`) sets `Cache-Control: no-store` manually rather than stacking
+  `@never_cache` on top (the two don't compose to the same string — `@never_cache` adds
+  `max-age=0, no-cache, must-revalidate, private` alongside `no-store`, which broke an exact-
+  match test expecting bare `"no-store"`, the same value `_serve_media`'s raw routes send).
+  Gallery thumbnails (`_request_media_gallery.html`) now link `<a href>` at this new route
+  instead of the raw `/view` route; the raw route is unchanged and is what the new page's own
+  `<img>`/`<video src>` still points at.
+- **The e2e/Playwright suite silently times out waiting for a selector (30s, unhelpful stack)
+  when the frontend simply hasn't been built yet in this worktree (`frontend/dist` missing) —
+  not a flaky test.** `npm ci --prefix frontend && npm run build --prefix frontend` once per
+  worktree before trusting any `tests/e2e/*` failure as a real regression; check `ls
+  ham/web/static/web/dist/` or `frontend/dist` first if an e2e test fails on a file this
+  slice never touched.
+- **Verifying "fails before, passes after" empirically for a fix round with many small,
+  interdependent changes**: `git worktree add /tmp/<scratch> <pre-fix-sha>`, copy just the new/
+  changed test files into it (not the source), point a second scratch Postgres DB at it,
+  `migrate` then `pytest` them there — every one should fail (confirms the test actually
+  exercises the old bug, not a tautology), then re-run the same files against the real
+  worktree's post-fix code (should all pass). Clean up with `git worktree remove --force` +
+  `DROP DATABASE` when done; don't leave the scratch worktree/DB behind.

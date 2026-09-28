@@ -1,0 +1,36 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}{% if kind == "new_link" %}Open your request{% else %}Confirm your request{% endif %} &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  {% if already_received %}
+    {% include "web/requester/_already_received.html" %}
+  {% elif valid %}
+    {% if kind == "new_link" %}
+      <h1>Open your request</h1>
+      <p>Tap Continue to open your request page.</p>
+    {% else %}
+      <h1>Confirm your request</h1>
+      <p>Tap Continue to finish sending your request.</p>
+    {% endif %}
+    <form method="post"
+          action="{% if kind == 'intake' %}{% url 'web:request_help_verify_link' token=token %}{% else %}{% url 'web:request_help_new_link' token=token %}{% endif %}">
+      {% csrf_token %}
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <button class="btn btn--primary" type="submit">{% if kind == "new_link" %}Open my request page{% else %}Continue{% endif %}</button>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <h1>This link isn't available</h1>
+    {% if kind == "intake" %}
+      <p>It may have already been used, or it's expired. Your answers are safe &mdash; please
+        go back to your email and try the code instead, or ask for a new code.</p>
+    {% else %}
+      <p>It may have already been used, or it's expired. Please go back to your email and use
+        the newest link, or ask for a new one.</p>
+    {% endif %}
+    <p><a href="{% url 'web:request_help_start' %}">Go to Ask for help</a></p>
+  {% endif %}
+{% endblock %}

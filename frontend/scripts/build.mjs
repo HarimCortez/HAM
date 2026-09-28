@@ -49,6 +49,18 @@ await build({
 });
 console.log("Built dist/sw.js");
 
+// --- 1b. Upload module (R9 "Add photos and videos", S2.7) --------------------------------
+await build({
+  entryPoints: [path.join(root, "src/upload.ts")],
+  bundle: true,
+  outfile: path.join(distDir, "upload.js"),
+  format: "iife",
+  target: "es2022",
+  sourcemap: true,
+  minify: true,
+});
+console.log("Built dist/upload.js");
+
 // --- 2. Self-hosted brand fonts ----------------------------------------------------------
 
 // Package folder name for each approved font (design-system/brands/README.md "Approved

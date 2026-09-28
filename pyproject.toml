@@ -16,6 +16,13 @@ dependencies = [
   "gunicorn>=23.0",
   "django-environ>=0.11",
   "uuid6>=2024.7.10",
+  # Duplicate matching phone keys (ham/requests/matching.py, Q-115). Pure library, no I/O.
+  "phonenumbers>=8.13",
+  # S2.4a object storage adapter: R2/S3-compatible presigned URLs (ham/integrations/storage).
+  "boto3>=1.34",
+  # S2.4b media processing job: re-encode + strip metadata (ham/media/processing.py, Q-120).
+  "pillow>=11.0",
+  "pillow-heif>=0.18",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +31,9 @@ dev = [
   "pytest-django>=4.9",
   "factory-boy>=3.3",
   "time-machine>=2.16",
+  # Test-only: builds a JPEG with real GPS/EXIF tags so tests/media/test_processing.py can
+  # prove ham.media.processing actually strips them (Q-120), not just that it doesn't crash.
+  "piexif>=1.1",
   "ruff>=0.7",
   "mypy>=1.13",
   "django-stubs[compatible-mypy]>=5.1",
@@ -75,10 +85,14 @@ root_package = "ham"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "web -> domain modules -> {authz, audit, outbox, rules, platform} (foundation.md §1)"
+name = "web -> domain modules -> {authz, audit, outbox, rules, platform} (foundation.md §1, intake.md §2)"
 type = "layers"
 layers = [
   "ham.web",
+  "ham.requester_portal",
+  "ham.media",
+  "ham.requests",
+  "ham.notifications",
   "ham.identity",
   "ham.authz",
   "ham.audit",
@@ -103,13 +117,18 @@ forbidden_modules = [
 name = "domain modules never import ham.integrations directly"
 # foundation.md §1: only ham.integrations talks to third parties, only as an outbox
 # subscriber, with one documented exception — S3b's ham.identity calling
-# ham.integrations.email.service.send_transactional_email for sign-in codes/links.
+# ham.integrations.email.service.send_transactional_email for sign-in codes/links. intake.md
+# §2 extends the same rule (and the same kind of documented exception) to the step-2 modules.
 type = "forbidden"
 source_modules = [
   "ham.web",
   "ham.outbox",
   "ham.platform",
   "ham.identity",
+  "ham.requester_portal",
+  "ham.media",
+  "ham.requests",
+  "ham.notifications",
 ]
 forbidden_modules = [
   "ham.integrations",
@@ -121,4 +140,13 @@ ignore_imports = [
   # role-change, impersonation-ended notices, Q-055/Q-049/Q-084) the same way authn/mfa do for
   # sign-in codes; it is the one place identity registers builders with the email subscriber.
   "ham.identity.notifications -> ham.integrations.email.notifications",
+  # S2.3: the requester-portal code/link email, same documented exception as
+  # ham.identity.authn/mfa above (intake.md §2).
+  "ham.requester_portal.verification -> ham.integrations.email.service",
+  # S2.6 (intake.md §2, docs/ux/intake.md §7): requester and leadership email builders, same
+  # documented exception as ham.identity.notifications above. ham.media.notifications does not
+  # exist yet (no builder needed there this slice; L-E4 "new photos" in-app is a later gap) --
+  # add that entry in the same commit that creates the file, per this list's own convention.
+  "ham.requester_portal.notifications -> ham.integrations.email.notifications",
+  "ham.requests.notifications -> ham.integrations.email.notifications",
 ]

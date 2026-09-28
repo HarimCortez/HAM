@@ -9,9 +9,11 @@ path): authorize -> step-up -> impersonation block -> change + audit + outbox, a
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q as models_Q
 
@@ -40,6 +42,55 @@ def mfa_enrolled(user_id: uuid.UUID) -> bool:
     column). Thin wrapper so callers outside `ham.identity` (e.g. the Admin Users screen) don't
     need to import `ham.identity.mfa` directly."""
     return TOTPDevice.objects.filter(user_id=user_id, confirmed_at__isnull=False).exists()
+
+
+def user_holds_global_role(user_id: uuid.UUID | None, role: str) -> bool:
+    """Whether ``user_id`` (the *real*, signed-in person -- never an ``ActorContext``'s
+    already-swapped-to-the-target ``roles``) holds ``role`` as a global (unscoped) assignment
+    right now. `ActorContext.roles` reflects the *effective* (impersonation target's) roles
+    while impersonating, with no field carrying the real actor's own roles (foundation.md §1:
+    "only ham.identity reads auth tables") -- this is the one seam a caller outside
+    `ham.identity` (L7/Q-151: `ham.requests.services.reveal_requester_pii`, checking whether
+    the real actor is an Administrator) uses to ask that question without querying
+    `RoleAssignment` itself."""
+    if user_id is None:
+        return False
+    return RoleAssignment.objects.filter(
+        user_id=user_id, role=role, revoked_at__isnull=True, scope_type__isnull=True
+    ).exists()
+
+
+# S2.5 (intake.md §2, intake-contracts.md §7 "Only ham.identity reads auth tables. ham.
+# notifications gets recipients from a new identity.services.notification_recipients(roles)").
+def notification_recipients(
+    roles_: Iterable[str],
+) -> list[tuple[uuid.UUID, str, bool]]:
+    """Resolves active users holding any of `roles_` (a role set such as "every pastor",
+    "Director and Assistant Director") to `(user_id, email, notify_email)` triples, for a
+    notification builder outside `ham.identity` (`ham.requests`/`ham.notifications`, S2.6) that
+    needs to know who to email/notify without itself reading `User`/`RoleAssignment`
+    (foundation.md §1 "only ham.identity reads auth tables"). Only currently-active,
+    non-disabled users with a currently-active (non-revoked) grant of one of `roles_` — a role
+    held by a disabled account, or since revoked, is never a recipient."""
+    role_set = set(roles_)
+    users = User.objects.filter(
+        role_assignments__role__in=role_set,
+        role_assignments__revoked_at__isnull=True,
+        is_active=True,
+        disabled_at__isnull=True,
+    ).select_related("profile")
+    seen: set[uuid.UUID] = set()
+    recipients: list[tuple[uuid.UUID, str, bool]] = []
+    for user in users:
+        if user.id in seen:
+            continue
+        seen.add(user.id)
+        try:
+            notify_email = user.profile.notify_email
+        except ObjectDoesNotExist:
+            notify_email = True
+        recipients.append((user.id, user.email, notify_email))
+    return recipients
 
 
 # Least-privilege default for an invitation's role list (Q-037, Q-040 lineage): anyone who may
@@ -759,22 +810,38 @@ def update_church_profile(
     *,
     ham_phone: str | None = None,
     ham_email: str | None = None,
+    state: str | None = None,
     time_zone: str | None = None,
     website_url: str | None = None,
+    serves_days: list[int] | None = None,
 ) -> CommandResult:
+    from ham.platform.church import is_valid_us_state
     from ham.platform.models import ChurchProfile
 
     if time_zone is not None and not is_valid_time_zone(time_zone):
         # Q-030/§70.5: must be a real IANA zone name (`zoneinfo.available_timezones()`).
         raise ValueError(f"{time_zone!r} is not a recognized time zone (e.g. America/New_York).")
+    if serves_days is not None:
+        # Q-112 (intake.md §8): ISO weekday numbers only (1=Monday..7=Sunday), no duplicates.
+        if not serves_days or any(d not in range(1, 8) for d in serves_days):
+            raise ValueError("serves_days must be a non-empty list of weekdays 1-7.")
+        serves_days = sorted(set(serves_days))
+    if state is not None:
+        state = state.strip().upper()
+        # Q-147: blank clears it back to "not set" (the intake form then requires the person
+        # to choose their own state, no prefill); anything else must be a real USPS code.
+        if state and not is_valid_us_state(state):
+            raise ValueError(f"{state!r} is not a two-letter US state code.")
 
     profile = ChurchProfile.objects.select_for_update().get(pk=ChurchProfile.get_solo().pk)
     changed: list[str] = []
     for field, value in (
         ("ham_phone", ham_phone),
         ("ham_email", ham_email),
+        ("state", state),
         ("time_zone", time_zone),
         ("website_url", website_url),
+        ("serves_days", serves_days),
     ):
         if value is not None and getattr(profile, field) != value:
             setattr(profile, field, value)

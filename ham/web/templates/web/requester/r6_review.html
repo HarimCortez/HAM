@@ -1,0 +1,135 @@
+{% extends "web/base_public.html" %}
+{% load static web_extras %}
+
+{% block title %}Check and send &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="Check and send" %}
+{% endblock %}
+
+{% block card_modifier %} public-card--review{% endblock %}
+
+{% block public_content %}
+  <h1>Check and send</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  <div class="summary-card-grid">
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h2 class="type-h3">Your need</h2>
+      <a href="{% url 'web:request_help_step' step='need' %}" aria-label="Edit your need">Edit</a>
+    </div>
+    <p>
+      {{ review.need_category_label }}
+      {% if payload.urgent_requested %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
+    </p>
+    <p class="text-secondary">&ldquo;{{ payload.description|default:"" }}&rdquo;</p>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h2 class="type-h3">The home</h2>
+      <a href="{% url 'web:request_help_step' step='home' %}" aria-label="Edit the home">Edit</a>
+    </div>
+    <p>{{ payload.line1|default:"" }}{% if payload.line2 %}, {{ payload.line2 }}{% endif %}, {{ payload.city|default:"" }} {{ payload.postal_code|default:"" }}</p>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h2 class="type-h3">Safety at the home</h2>
+      <a href="{% url 'web:request_help_step' step='safety' %}" aria-label="Edit safety at the home">Edit</a>
+    </div>
+    {% if payload.hazards %}
+      <p>{% for h in payload.hazards %}{{ hazard_labels|get_item:h }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+      {% if payload.hazard_note %}<p class="text-secondary">&ldquo;{{ payload.hazard_note }}&rdquo;</p>{% endif %}
+    {% else %}
+      <p class="text-secondary">None that they know of.</p>
+    {% endif %}
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h2 class="type-h3">Reaching you</h2>
+      <a href="{% url 'web:request_help_step' step='reaching-you' %}" aria-label="Edit how we reach you">Edit</a>
+    </div>
+    <p>{{ payload.full_name|default:"" }} &middot; <span class="u-wrap-anywhere">{{ payload.phone|default:"" }}</span></p>
+    <p class="text-secondary">
+      By {{ contact_preference_labels|get_item:payload.contact_preference|default:"email" }}
+      {% if payload.availability %} &middot; {% for a in payload.availability %}{{ availability_labels|get_item:a }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
+    </p>
+    {% if review.no_email %}
+      <p>We'll call this number to confirm:</p>
+      <p class="summary-card__highlight u-wrap-anywhere">{{ payload.phone|default:"" }}</p>
+    {% else %}
+      <p>We'll send a code to:</p>
+      <p class="summary-card__highlight u-wrap-anywhere">{{ payload.email|default:"" }}</p>
+    {% endif %}
+  </div>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {# Anti-abuse (docs/ux/intake.md §9): honeypot + minimum fill time, fail silently. #}
+    <div class="visually-hidden" aria-hidden="true">
+      <label for="id_{{ honeypot_field }}">Leave this field blank</label>
+      <input type="text" id="id_{{ honeypot_field }}" name="{{ honeypot_field }}" tabindex="-1" autocomplete="off">
+    </div>
+
+    <fieldset id="id_attested_statements"
+              {% if errors.attested_statements %}aria-invalid="true" aria-describedby="id_attested_statements-error"{% endif %}>
+    <legend class="type-h2">Please confirm</legend>
+    <p class="text-secondary" id="id_attested_statements-help">Filling this in for someone? Please read these to them. They're the one agreeing.</p>
+    {% if errors.attested_statements %}<p class="form-field__error" id="id_attested_statements-error"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-alert"></use></svg> {{ errors.attested_statements }}</p>{% endif %}
+
+    {% comment %}
+    B1: wording comes from the one canonical module (ham.requests.certifications), never
+    hard-coded here -- `statement_text` (set by _review_summary) maps each code this
+    relationship requires to its exact, versioned wording.
+    {% endcomment %}
+    {% if review.relationship == "owner" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="owner_authority"
+               {% if "owner_authority" in payload.attested_statements %}checked{% endif %}>
+        <span>{{ review.statement_text.owner_authority }}</span>
+      </label>
+    {% elif review.relationship == "tenant" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="tenant_authority"
+               {% if "tenant_authority" in payload.attested_statements %}checked{% endif %}>
+        <span>{{ review.statement_text.tenant_authority }}</span>
+      </label>
+    {% elif review.relationship == "authorized_family_member" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="family_authority"
+               {% if "family_authority" in payload.attested_statements %}checked{% endif %}>
+        <span>{{ review.statement_text.family_authority }}</span>
+      </label>
+    {% endif %}
+
+    <label class="choice-card choice-card--statement">
+      <input type="checkbox" name="attested_statements" value="responsibility"
+             {% if "responsibility" in payload.attested_statements %}checked{% endif %}>
+      <span>{{ review.statement_text.responsibility }}</span>
+    </label>
+
+    </fieldset>
+
+    <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Your details stay private inside HAM. Only the people
+      handling your request can see them.</p>
+
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Back.
+    {% endcomment %}
+    <p class="wizard-back-link"><a href="{% url 'web:request_help_step' step=prev_step %}">&larr; Back</a></p>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <button class="btn btn--primary" type="submit">Send request</button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

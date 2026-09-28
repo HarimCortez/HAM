@@ -21,6 +21,7 @@
       <p class="app-bar__title">{% block app_bar_title %}{% endblock %}</p>
     </header>
 
+    {% include "web/_urgent_banner.html" %}
     {% include "web/_impersonation_banner.html" %}
 
     <div id="offline-status" class="offline-banner" role="status" hidden>
@@ -58,9 +59,15 @@
       </main>
     </div>
 
-    <nav class="nav nav--bottom" aria-label="Primary">
-      {% include "web/_nav_items.html" with items=bottom_nav_items active_key=bottom_nav_active_key %}
-    </nav>
+    {% comment %}
+    N-M2/M10: full-screen sheets (e.g. the L9 phone-check sheet) can override this to nothing
+    so their own sticky `.action-bar` isn't hidden underneath the fixed bottom nav at <1024.
+    {% endcomment %}
+    {% block bottom_nav %}
+      <nav class="nav nav--bottom" aria-label="Primary">
+        {% include "web/_nav_items.html" with items=bottom_nav_items active_key=bottom_nav_active_key %}
+      </nav>
+    {% endblock %}
   </div>
 </body>
 </html>

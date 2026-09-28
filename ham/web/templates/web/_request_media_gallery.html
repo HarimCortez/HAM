@@ -1,0 +1,82 @@
+{% comment %}
+PRD guardian M3 / UX B1: leadership photo/video gallery, included from `_request_detail.html`
+(`{% include "web/_request_media_gallery.html" %}`) -- kept in its own file so this fix round
+(FIX-B) and FIX-C's template work don't collide on the same lines.
+
+Expects the same context `_build_detail_context` already builds: `detail` (id, display_number)
+and `gallery` (`ham.media.services.MediaGalleryView`: `counts` always present, `items` is
+`None` for a masked (Administrator-only) view -- Q-124/Q-138 -- and a tuple of
+`MediaItemView(id, media_kind, status, ready, index)` otherwise).
+
+Thumbnails load from the authorized, short-lived `request_media.view` thumb route
+(`ham.web.views_requests.request_media_thumb`), never a raw storage URL; alt text is "HAM
+#<number> photo/video <index>" only -- never a filename, status detail, or anything else that
+could carry PII (§68). FIX-G UX minor: each thumbnail now links to a minimal HTML viewer page
+(`request_media_viewer`, "&larr; Back to HAM #NNN") instead of straight to the raw `/view`
+route -- the installed PWA has no browser chrome, so opening the raw file had no way back. The
+raw `/view` route is unchanged and still what that page's own `<img>`/`<video>` embeds.
+{% endcomment %}
+{% load web_extras %}
+{% comment %}
+FIX-F1 Gallery: the viewer opens in the same tab (no `target="_blank"` -- on a phone that
+stranded Marcus in a tab with no "Back"); the fallback chip prints a label, not the raw status;
+one shared `role="status"`/`aria-live` region for the whole gallery instead of one per
+processing chip (each was separately announced on load); a `space-8` gap before this section.
+{% endcomment %}
+<section class="media-gallery" aria-labelledby="request-detail-photos-{{ detail.id }}">
+  <{{ heading_tag|default:"h3" }} id="request-detail-photos-{{ detail.id }}">
+    Photos ({{ gallery.counts.photos }}) &middot; Videos ({{ gallery.counts.videos }})
+  </{{ heading_tag|default:"h3" }}>
+  {% if gallery.items is None %}
+    <p class="text-secondary">
+      {{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }},
+      {{ gallery.counts.videos }} video{{ gallery.counts.videos|pluralize }}
+      &middot; not shown to the Administrator role.
+    </p>
+  {% elif gallery.items %}
+    <div class="visually-hidden" role="status" aria-live="polite">
+      {% for item in gallery.items %}{% if item.status == "processing" or item.status == "uploaded" %}{{ item.media_kind|capfirst }} {{ item.index }} processing. {% endif %}{% endfor %}
+    </div>
+    <ul class="media-gallery__grid">
+      {% for item in gallery.items %}
+        <li class="media-gallery__item">
+          {% if item.status == "ready" %}
+            {% if item.media_kind == "photo" %}
+              <a
+                class="media-gallery__link"
+                href="{% url 'web:request_media_viewer' request_id=detail.id media_id=item.id %}"
+              >
+                <img
+                  class="media-gallery__thumb"
+                  src="{% url 'web:request_media_thumb' request_id=detail.id media_id=item.id %}"
+                  alt="{{ detail.display_number }}, photo {{ item.index }}"
+                  loading="lazy"
+                >
+              </a>
+            {% else %}
+              <a
+                class="media-gallery__link media-gallery__link--video"
+                href="{% url 'web:request_media_viewer' request_id=detail.id media_id=item.id %}"
+                aria-label="{{ detail.display_number }}, video {{ item.index }}"
+              >
+                <span class="text-secondary" aria-hidden="true">&#9654;&nbsp;Video {{ item.index }}</span>
+              </a>
+            {% endif %}
+          {% elif item.status == "processing" or item.status == "uploaded" %}
+            <span class="chip chip--neutral">
+              {{ item.media_kind|capfirst }} {{ item.index }} &middot; processing&hellip;
+            </span>
+          {% elif item.failure_code == "processing_unavailable" %}
+            <span class="chip chip--attention">
+              {{ item.media_kind|capfirst }} {{ item.index }} &middot; couldn't be processed
+            </span>
+          {% else %}
+            <span class="chip chip--neutral">{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ item.status|media_status_label }}</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-secondary">No photos or videos yet.</p>
+  {% endif %}
+</section>

@@ -52,7 +52,14 @@ class NotificationEmail:
 
 Builder = Callable[[OutboxEvent], "NotificationEmail | list[NotificationEmail] | None"]
 
-_builders: dict[str, Builder] = {}
+# S2.0 (intake.md §2 "Email builder registry change (integrations, S2.0): register_notification
+# keeps a list of builders per event type"): a list, not a single slot, so one outbox event can
+# drive more than one email built by more than one module — e.g. a step-2 `RequestSubmitted`
+# needs both a requester-facing "we received your request" email (built by
+# `ham.requester_portal.notifications`) and, later, a leadership one, from two different
+# modules' own `AppConfig.ready()` registrations, without either module knowing about the
+# other's existence.
+_builders: dict[str, list[Builder]] = {}
 
 
 def register_notification(event_type: str, builder: Builder) -> None:
@@ -60,33 +67,36 @@ def register_notification(event_type: str, builder: Builder) -> None:
     subscriber send an email whenever `event_type` is emitted. The builder may return
     `None` to mean "no email for this particular event" (e.g. a preference was off), one
     `NotificationEmail`, or a list of them (e.g. Q-055: one role-change event notifies every
-    active Administrator)."""
-    _builders[event_type] = builder
+    active Administrator). Calling this more than once for the same `event_type` (from
+    different modules) appends, it does not replace — every registered builder for that event
+    type runs."""
+    _builders.setdefault(event_type, []).append(builder)
 
 
 def unregister_notification(event_type: str) -> None:
-    """Test-only: undo `register_notification`."""
+    """Test-only: undo every `register_notification` call for `event_type`."""
     _builders.pop(event_type, None)
 
 
 def handle_email_event(event: OutboxEvent) -> None:
-    builder = _builders.get(event.event_type)
-    if builder is None:
+    builders = _builders.get(event.event_type)
+    if not builders:
         logger.info(
             "outbox.email: no notification builder registered for event type",
             extra={"event_type": event.event_type, "event_id": str(event.id)},
         )
         return
-    result = builder(event)
-    if result is None:
-        return
-    emails = result if isinstance(result, list) else [result]
     channel = get_default_channel()
-    for email in emails:
-        channel.send(
-            to=email.to,
-            subject=email.subject,
-            text_body=email.text_body,
-            html_body=email.html_body,
-            category=email.category,
-        )
+    for builder in builders:
+        result = builder(event)
+        if result is None:
+            continue
+        emails = result if isinstance(result, list) else [result]
+        for email in emails:
+            channel.send(
+                to=email.to,
+                subject=email.subject,
+                text_body=email.text_body,
+                html_body=email.html_body,
+                category=email.category,
+            )

@@ -48,6 +48,25 @@ services:
       # trusted by the sign-in IP throttle (`ham.web.auth_views._client_ip`).
       - key: HAM_TRUSTED_PROXY_COUNT
         value: "1"
+      # Security review M5: `config/settings/prod.py` now refuses to boot without this
+      # (requester link/code HMAC keys, ham.platform.otp) -- no value is set here, only the
+      # key name; the actual secret is entered in the Render dashboard.
+      - key: HAM_TOKEN_HMAC_KEYS
+        sync: false
+      # Security review M5: `config/settings/prod.py` now refuses to boot with the
+      # dev/test-only local-filesystem adapter configured -- production must use the
+      # R2/S3-compatible adapter. Credentials/bucket/endpoint are secrets, entered in the
+      # Render dashboard (no values here).
+      - key: HAM_OBJECT_STORE_BACKEND
+        value: ham.integrations.storage.s3.R2ObjectStore
+      - key: HAM_S3_BUCKET
+        sync: false
+      - key: HAM_S3_ENDPOINT_URL
+        sync: false
+      - key: HAM_S3_ACCESS_KEY_ID
+        sync: false
+      - key: HAM_S3_SECRET_ACCESS_KEY
+        sync: false
     buildCommand: "python manage.py migrate --noinput"
 
   - type: worker
@@ -93,3 +112,30 @@ services:
           type: web
           name: ham-web
           envVarKey: HAM_FIELD_ENCRYPTION_KEY
+      # N2 fix: `config.settings.prod` (imported by every management command, including
+      # `procrastinate worker`) fails fast at boot without these -- the worker would never
+      # have started in production. `fromService` (not a second `sync: false` value) so the
+      # worker can never drift from ham-web's own secret, same reasoning as HAM_FIELD_
+      # ENCRYPTION_KEY above.
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_TOKEN_HMAC_KEYS
+      - key: HAM_OBJECT_STORE_BACKEND
+        value: ham.integrations.storage.s3.R2ObjectStore
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_S3_BUCKET
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_S3_ENDPOINT_URL
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_S3_ACCESS_KEY_ID
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_S3_SECRET_ACCESS_KEY

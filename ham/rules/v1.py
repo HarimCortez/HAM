@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-3"
+RULES_VERSION = "2026.09.28-8"
 
 
 def rule(
@@ -344,6 +344,190 @@ class RequesterAccessRules:
     )
     SURVEY_RATING_MIN: int = rule(1, label="Lowest satisfaction rating", sources=("PRD §54",))
     SURVEY_RATING_MAX: int = rule(5, label="Highest satisfaction rating", sources=("PRD §54",))
+    REQUESTER_ACCESS_AFTER_CLOSE: timedelta = rule(
+        timedelta(days=7),
+        label="Normal requester link keeps working this long after a request closes without "
+        "being completed (Cancelled, Not Executable, or a final rejection); after that the "
+        "requester can get a new 14-day link",
+        sources=("PRD §7.3", "PRD §52", "Q-116"),
+        note=proposed(
+            "Q-116",
+            "Mirrors the 7 days after completion. A rejection that can still be reconsidered "
+            "is not a close.",
+        ),
+        provisional=("Q-116",),
+    )
+    EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS: bool = rule(
+        True,
+        label="A new link asked for before normal access ends (for example, a lost link) "
+        "lasts as long as the normal link would, instead of a fixed 14 days; the old link "
+        "stops working either way",
+        sources=("PRD §7.3", "Q-117"),
+        note=proposed(
+            "Q-117",
+            "'No' would mean every new link lasts exactly 14 days from when it is issued.",
+        ),
+        provisional=("Q-117",),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Public request form, requester codes and abuse limits (PRD §6, §7.1; Q-100, Q-121, Q-127)
+# --------------------------------------------------------------------------------------
+# The requester's emailed code deliberately has its OWN names (same values as sign-in, Q-121
+# "code limits as sign-in"), so tightening staff sign-in later cannot silently change what an
+# older requester has to cope with, and vice versa.
+_Q121 = proposed(
+    "Q-121",
+    "No CAPTCHA; a hidden trap field, a minimum fill time and these limits. Code limits "
+    "match staff sign-in (Q-070).",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class IntakeRules:
+    INTAKE_DRAFT_LIFETIME: timedelta = rule(
+        timedelta(hours=24),
+        label="An unfinished request form (not yet confirmed with the emailed code) is kept, "
+        "encrypted, for this long and then erased",
+        sources=("PRD §6", "PRD §68", "Q-100", "Q-127"),
+    )
+    REQUESTER_CODE_LENGTH: int = rule(
+        6,
+        label="Digits in the code emailed to a requester",
+        unit="digits",
+        sources=("PRD §7.1", "Q-100"),
+    )
+    REQUESTER_CODE_LIFETIME: timedelta = rule(
+        timedelta(minutes=15),
+        label="The code or link emailed to a requester is valid for (single use)",
+        sources=("PRD §7.1", "Q-100", "Q-032"),
+    )
+    REQUESTER_CODE_MAX_ATTEMPTS: int = rule(
+        5,
+        label="Wrong code entries before the requester's emailed code stops working (their "
+        "answers are kept; they can ask for a new code)",
+        unit="tries",
+        sources=("PRD §7.1", "Q-100", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR: int = rule(
+        5,
+        label="Code emails to one requester email address in any rolling hour",
+        unit="emails",
+        sources=("PRD §7.1", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    REQUESTER_CODE_RESEND_COOLDOWN: timedelta = rule(
+        timedelta(seconds=30),
+        label="Wait before a requester can ask to resend the code",
+        sources=("PRD §7.1", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY: int = rule(
+        20,
+        label="Wrong codes for one requester email address in any rolling 24 hours before "
+        "further tries for that address are refused for the day",
+        unit="attempts",
+        sources=("PRD §7.1", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    REQUESTER_CHALLENGE_RETENTION: timedelta = rule(
+        timedelta(days=7),
+        label="A used, expired or abandoned requester code/link record is erased after",
+        sources=("PRD §68", "Q-121"),
+        note=proposed(
+            "Q-121",
+            "Same as staff sign-in: kept only to enforce the daily limit, then erased.",
+        ),
+        provisional=("Q-121",),
+    )
+    INTAKE_FORMS_PER_IP_PER_HOUR: int = rule(
+        10,
+        label="New request forms started from one internet address in any rolling hour",
+        unit="forms",
+        sources=("PRD §6", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY: int = rule(
+        3,
+        label="Requests sent with one email address in any rolling 24 hours (a helper can "
+        "still send a few for different people)",
+        unit="requests",
+        sources=("PRD §5", "PRD §6", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    FIND_REQUEST_TRIES_PER_IP_PER_HOUR: int = rule(
+        20,
+        label="'Find my request' tries from one internet address in any rolling hour",
+        unit="tries",
+        sources=("PRD §7.3", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    INTAKE_MIN_FILL_TIME: timedelta = rule(
+        timedelta(seconds=3),
+        label="A form sent faster than this after it was opened is treated as a robot (the "
+        "person sees the normal 'Check your email' page and nothing is sent)",
+        sources=("PRD §6", "Q-121"),
+        note=proposed(
+            "Q-121",
+            "Q-121 names a minimum fill time without a number; 3 seconds (architecture plan "
+            "§9) is far below what any person needs to fill in the form.",
+        ),
+        provisional=("Q-121",),
+    )
+    REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR: int = rule(
+        20,
+        label="Requester verification codes/links sent to any address, from one internet "
+        "address, in any rolling hour",
+        unit="emails",
+        sources=("PRD §7.1", "Q-121"),
+        note=_Q121,
+        provisional=("Q-121",),
+    )
+    # Q-146 (proposed default in use): the per-email daily submission cap
+    # (INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY)
+    # doesn't apply to Q-025's "I don't use email" path, since there is no email to key on --
+    # a separate, phone-keyed cap fills that gap (the per-IP form-start cap above still applies
+    # to this path too, same as every other draft).
+    NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY: int = rule(
+        3,
+        label="Requests sent with 'I don't use email' for one phone number in any rolling 24 hours",
+        unit="requests",
+        sources=("PRD §6", "Q-025", "Q-121", "Q-146"),
+        note=proposed(
+            "Q-146",
+            "3 per phone number per rolling 24 h, in the rules module (per-IP is the existing "
+            "INTAKE_FORMS_PER_IP_PER_HOUR, which already covers every draft including this "
+            "one).",
+        ),
+        provisional=("Q-146",),
+    )
+    # FIX-G NM1/PRD NEW-2: "Check on your request" (R11b) no longer issues a live link
+    # directly from an unauthenticated POST -- it sends a one-time verification link first
+    # (reusing the link-regeneration click-through machinery), with its own rate limits so a
+    # burst of "find" tries can't be used to enumerate/spam a real person's address. The
+    # per-request cooldown reuses REQUESTER_CODE_RESEND_COOLDOWN (Q-121); this is the new
+    # per-address daily cap.
+    FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY: int = rule(
+        3,
+        label="'Find my request' verification emails to one address in any rolling 24 hours",
+        unit="emails",
+        sources=("PRD §7.3", "Q-121"),
+        note=proposed(
+            "Q-121",
+            "3 per address per rolling 24 h, same shape as INTAKE_SUBMISSIONS_PER_EMAIL_PER_"
+            "DAY. The response is identical either way (no enumeration).",
+        ),
+        provisional=("Q-121",),
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -380,6 +564,85 @@ class MediaRules:
         "(unless approved for publication)",
         sources=("PRD §47.2", "PRD §47.4", "PRD §76"),
     )
+    MEDIA_RETENTION_CLOCK_ON_CANCELLATION: bool = rule(
+        True,
+        label="Photos and videos of a Cancelled request or project are deleted on the same "
+        "90-day / 30-day clock, counted from cancellation",
+        sources=("PRD §47", "PRD §68", "Q-128"),
+        note=proposed(
+            "Q-128",
+            "§47 names only Completed and Rejected; without this, media on a cancelled "
+            "request would never be deleted.",
+        ),
+        provisional=("Q-128",),
+    )
+    REQUESTER_PHOTO_MAX_BYTES: int = rule(
+        25 * 1024 * 1024,
+        label="Largest photo file a requester may upload",
+        unit="bytes",
+        sources=("PRD §45", "PRD §69", "Q-119"),
+        note=proposed(
+            "Q-119",
+            "Counted in binary megabytes (1 MB = 1,048,576 bytes), the generous reading, so a "
+            "file a phone shows as 25 MB is never refused.",
+        ),
+        provisional=("Q-119",),
+    )
+    REQUESTER_VIDEO_MAX_BYTES: int = rule(
+        500 * 1024 * 1024,
+        label="Largest video file a requester may upload (still at most 2 minutes long)",
+        unit="bytes",
+        sources=("PRD §45", "PRD §69", "Q-119"),
+        note=proposed("Q-119", "Binary megabytes, as for photos."),
+        provisional=("Q-119",),
+    )
+    REQUESTER_PHOTO_TYPES: tuple[str, ...] = rule(
+        ("image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"),
+        label="Photo formats a requester may upload",
+        sources=("PRD §45", "PRD §69", "Q-119"),
+        note=proposed(
+            "Q-119",
+            "Types are detected from the file's content, not its name. HEIF is listed with "
+            "HEIC because iPhones report either.",
+        ),
+        provisional=("Q-119",),
+    )
+    REQUESTER_VIDEO_TYPES: tuple[str, ...] = rule(
+        ("video/mp4", "video/quicktime"),
+        label="Video formats a requester may upload",
+        sources=("PRD §45", "PRD §69", "Q-119"),
+        note=proposed("Q-119", "MP4 and MOV (QuickTime)."),
+        provisional=("Q-119",),
+    )
+    MEDIA_UPLOAD_INTENT_LIFETIME: timedelta = rule(
+        timedelta(hours=1),
+        label="An unconfirmed upload reservation (a slot taken but never completed) is "
+        "released after",
+        sources=("PRD §45",),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
+    PRESIGNED_UPLOAD_URL_LIFETIME: timedelta = rule(
+        timedelta(minutes=15),
+        label="A presigned upload (PUT) URL handed to a requester's browser stays valid for",
+        sources=("PRD §45", "PRD §69"),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
+    PRESIGNED_VIEW_URL_LIFETIME: timedelta = rule(
+        timedelta(seconds=60),
+        label="A presigned view (GET) URL for a thumbnail/photo/video stays valid for",
+        sources=("PRD §69",),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
+    MEDIA_PROCESSING_TIMEOUT: timedelta = rule(
+        timedelta(hours=1),
+        label="An item stuck in 'processing' (the worker died mid-job) is treated as failed after",
+        sources=("PRD §45",),
+        note="Engineering value, fix-round M3 (security review): without this an item that "
+        "never finishes processing holds its slot forever. Not a Q-numbered open question.",
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -410,6 +673,18 @@ class RetentionRules:
         CalendarYears(7),
         label="Volunteer agreement records are kept this long after the volunteer becomes inactive",
         sources=("PRD §42",),
+    )
+    REQUEST_RECORD_RETENTION_AFTER_CLOSE: CalendarYears = rule(
+        CalendarYears(7),
+        label="Requester name, email, phone and street address are kept this long after a "
+        "request closes, then erased (ZIP code, category and outcome are kept for reports)",
+        sources=("PRD §58", "PRD §68", "Q-127"),
+    )
+    SPAM_REQUEST_RETENTION: timedelta = rule(
+        timedelta(days=90),
+        label="A request closed as spam or a test is erased completely this long after it "
+        "was closed",
+        sources=("PRD §68", "Q-107", "Q-127"),
     )
 
 
@@ -643,6 +918,7 @@ class Rules:
     requester_access: RequesterAccessRules = group(
         RequesterAccessRules, label="Requester links and completion survey"
     )
+    intake: IntakeRules = group(IntakeRules, label="Public request form and requester codes")
     media: MediaRules = group(MediaRules, label="Media uploads and retention")
     retention: RetentionRules = group(RetentionRules, label="Record retention")
     auth: AuthRules = group(AuthRules, label="Sign-in and security")
@@ -676,6 +952,32 @@ def cancellation_band(days_before: int, rules: Rules = RULES) -> str:
         if days_before >= lower:
             return code
     raise AssertionError("unreachable: last band has lower bound 0")  # pragma: no cover
+
+
+MEDIA_KINDS = ("photo", "video")
+# Statuses whose entry starts the §47 media clock. COMPLETED and REJECTED come from §47;
+# CANCELLED from Q-128. Anything else (e.g. NOT_EXECUTABLE) has no decided clock yet and
+# is refused rather than guessed.
+MEDIA_RETENTION_CLOSING_STATUSES = ("COMPLETED", "REJECTED", "CANCELLED")
+
+
+def media_retention_period(
+    media_kind: str, closing_status: str, rules: Rules = RULES
+) -> timedelta | None:
+    """How long after ``closing_status`` was entered a photo/video is deleted (§47, Q-128).
+
+    Returns ``None`` when no deletion clock applies (only possible for CANCELLED if the
+    Q-128 rule is ever switched off). The §47.4 publication exception is per item and is the
+    caller's job. Raises ``ValueError`` for an unknown kind or a status without a rule.
+    """
+    m = rules.media
+    if media_kind not in MEDIA_KINDS:
+        raise ValueError(f"unknown media kind {media_kind!r}")
+    if closing_status not in MEDIA_RETENTION_CLOSING_STATUSES:
+        raise ValueError(f"no media retention rule for status {closing_status!r}")
+    if closing_status == "CANCELLED" and not m.MEDIA_RETENTION_CLOCK_ON_CANCELLATION:
+        return None
+    return m.PHOTO_RETENTION_AFTER_CLOSE if media_kind == "photo" else m.VIDEO_RETENTION_AFTER_CLOSE
 
 
 def check_reliability_penalties(
@@ -804,6 +1106,50 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
             p.append(f"{name} must be at least 1")
     if not a.ACCOUNT_INVITATION_LIFETIME > a.SIGN_IN_CODE_LIFETIME:
         p.append("an account invitation must outlive a single sign-in code")
+
+    it = rules.intake
+    if not ra.REQUESTER_ACCESS_AFTER_CLOSE > timedelta(0):
+        p.append("requester access after close must be positive")
+    if not it.INTAKE_DRAFT_LIFETIME > it.REQUESTER_CODE_LIFETIME:
+        p.append("an unfinished form must outlive the requester code sent for it")
+    if not timedelta(0) < it.REQUESTER_CODE_RESEND_COOLDOWN < timedelta(hours=1):
+        p.append("requester resend cooldown must be positive and shorter than the hourly window")
+    if not timedelta(0) < it.INTAKE_MIN_FILL_TIME < it.INTAKE_DRAFT_LIFETIME:
+        p.append("minimum fill time must be positive and shorter than the draft lifetime")
+    for name in (
+        "REQUESTER_CODE_LENGTH",
+        "REQUESTER_CODE_MAX_ATTEMPTS",
+        "REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR",
+        "INTAKE_FORMS_PER_IP_PER_HOUR",
+        "INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY",
+        "FIND_REQUEST_TRIES_PER_IP_PER_HOUR",
+    ):
+        if getattr(it, name) < 1:
+            p.append(f"{name} must be at least 1")
+    if not it.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY >= it.REQUESTER_CODE_MAX_ATTEMPTS:
+        p.append("the daily wrong-code cap must allow at least one full code's tries")
+    if not it.REQUESTER_CHALLENGE_RETENTION > timedelta(days=1):
+        p.append("requester code records must outlive the rolling 24-hour wrong-code window")
+
+    m = rules.media
+    if not 0 < m.REQUESTER_PHOTO_MAX_BYTES <= m.REQUESTER_VIDEO_MAX_BYTES:
+        p.append("upload size limits must be positive, photos no larger than videos")
+    if not timedelta(0) < m.PRESIGNED_UPLOAD_URL_LIFETIME <= m.MEDIA_UPLOAD_INTENT_LIFETIME:
+        p.append("presigned upload URL must not outlive the reservation it belongs to")
+    if not timedelta(0) < m.PRESIGNED_VIEW_URL_LIFETIME:
+        p.append("presigned view URL lifetime must be positive")
+    if not timedelta(0) < m.MEDIA_PROCESSING_TIMEOUT:
+        p.append("media processing timeout must be positive")
+    for name, prefix in (("REQUESTER_PHOTO_TYPES", "image/"), ("REQUESTER_VIDEO_TYPES", "video/")):
+        types = getattr(m, name)
+        if not types or len(set(types)) != len(types):
+            p.append(f"{name} must be non-empty and unique")
+        if any(not t.startswith(prefix) or t != t.lower() for t in types):
+            p.append(f"{name} must be lower-case {prefix}* media types")
+    if not timedelta(0) < rules.retention.SPAM_REQUEST_RETENTION:
+        p.append("spam retention must be positive")
+    if not rules.retention.REQUEST_RECORD_RETENTION_AFTER_CLOSE.years >= 1:
+        p.append("request record retention must be at least a year")
 
     o = rules.outbox
     if not (o.OUTBOX_MAX_ATTEMPTS >= 1 and o.OUTBOX_BACKOFF_INITIAL <= o.OUTBOX_BACKOFF_MAX):

@@ -11,8 +11,15 @@ import uuid
 import pytest
 
 from ham.authz.context import ActorContext
-from ham.authz.nav import admin_group_items, bottom_nav_for, more_items, nav_for
+from ham.authz.nav import _ITEMS, admin_group_items, bottom_nav_for, more_items, nav_for
 from ham.identity.management.commands.seed_dev import PERSONAS
+
+# S2.0 (intake.md §7, §10): `nav_for` exposes every destination a role could reach, including
+# any still `built=False` seam (so `authorize()`/permission tests can exercise them before the
+# screen exists) — only *built* destinations are promised to be reachable on a phone
+# (usability C2); `ham.web.nav`'s own template-facing helpers filter on `.built` too. `requests`
+# itself flipped to `built=True` in S2.8.
+_BUILT_KEYS = {item.key for item in _ITEMS if item.built}
 
 
 def _ctx(role_list: tuple[str, ...]) -> ActorContext:
@@ -32,16 +39,18 @@ def test_bottom_nav_never_exceeds_five_items(email, _full_name, role_list):
     assert len(tabs) <= 5, f"{email} ({role_list}): {[t.key for t in tabs]}"
 
 
-def test_administrator_bottom_nav_is_home_admin_inbox_more():
+def test_administrator_bottom_nav_is_home_requests_admin_inbox_more():
+    # S2.8: "requests" (built now) inserts a direct tab between Home and Admin for every role
+    # that may see the list, including the Administrator's view-only Q-124 access.
     ctx = _ctx(("ADMINISTRATOR",))
     keys = [item.key for item in bottom_nav_for(ctx)]
-    assert keys == ["home", "admin", "inbox", "more"]
+    assert keys == ["home", "requests", "admin", "inbox", "more"]
 
 
 def test_director_bottom_nav_ends_in_more_not_a_direct_me_tab():
     ctx = _ctx(("HAM_DIRECTOR",))
     keys = [item.key for item in bottom_nav_for(ctx)]
-    assert keys == ["home", "inbox", "more"]
+    assert keys == ["home", "requests", "inbox", "more"]
     assert "me" not in keys
 
 
@@ -77,7 +86,7 @@ def test_every_full_nav_destination_is_reachable_from_the_mobile_set(email, _ful
     phone (usability C2: "an Administrator on a phone cannot sign out ... Audit log and Me are
     off-screen")."""
     ctx = _ctx(role_list)
-    full_keys = {item.key for item in nav_for(ctx)}
+    full_keys = {item.key for item in nav_for(ctx)} & _BUILT_KEYS
     bottom_keys = {item.key for item in bottom_nav_for(ctx)}
     admin_keys = {item.key for item in admin_group_items(ctx)}
     more_keys = {item.key for item in more_items(ctx)}

@@ -1,0 +1,95 @@
+{% extends "web/base_public.html" %}
+{% load static web_extras %}
+
+{% block title %}{{ row.display_number }} &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block card_modifier %} public-card--request-status{% endblock %}
+
+{% block public_content %}
+  <div class="request-status-grid">
+  <div class="request-status-grid__main">
+  {% if welcome %}
+    <svg width="48" height="48" class="success-hero" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check-big"></use></svg>
+    <p class="type-h3 text-secondary">{% if first_name %}Thank you, {{ first_name }}.{% else %}Thank you.{% endif %}</p>
+  {% endif %}
+  {% comment %}
+  M6: the request title is always the h1 -- the greeting is a separate line above it, never
+  the heading itself, and never the full name (M6/M14).
+  {% endcomment %}
+  <h1>Your request &middot; {{ row.display_number }}</h1>
+
+  <div class="status-card">
+    {% if row.urgent_requested %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
+    <span class="chip chip--{{ status_chip.tone }} chip--lg"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_chip.icon }}"></use></svg></span> {{ status_chip.label }}</span>
+    <p>{{ status_sentence }}</p>
+    {% if welcome and row.urgent_requested %}
+      <div class="inline-alert inline-alert--attention" role="status">
+        <p>Because this is urgent, we've let our pastors know right away. If anyone is in
+          danger, call <a href="tel:911">911</a>.</p>
+      </div>
+    {% endif %}
+    {% if next_steps %}
+      <p class="type-label">What happens next</p>
+      <ol>
+        {% for step in next_steps %}<li>{{ step }}</li>{% endfor %}
+      </ol>
+    {% endif %}
+    {% if welcome and masked.email %}<p class="text-secondary">We've emailed a link to this page to {{ masked.email }} so you can check on your request anytime.</p>{% endif %}
+  </div>
+
+  {% if can_add_photos and batch_open %}
+    <h2>Things we need from you</h2>
+    <div class="action-card">
+      <h3>Add photos of the problem</h3>
+      <p>They help us understand the work.</p>
+      {% if batch_reopen_reason %}
+        <p class="quiet-block"><span class="type-label">HAM asked:</span> &ldquo;{{ batch_reopen_reason }}&rdquo;</p>
+      {% endif %}
+      <a class="btn btn--primary" href="{% url 'web:request_help_photos' token=token %}">Add photos</a>
+    </div>
+  {% endif %}
+
+  {% if row.status == "CANCELLED" and offers_new_request %}
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--secondary" href="{% url 'web:request_help_start' %}">Ask for help again</a>
+      </div>
+    </div>
+  {% endif %}
+  </div>
+
+  <div class="request-status-grid__side">
+  <h2>Your request</h2>
+  <dl class="kv-list">
+    <dt>Category</dt><dd>{{ need_category_label }}</dd>
+    <dt>What's needed</dt><dd>&ldquo;{{ row.description }}&rdquo;</dd>
+    <dt>Safety</dt><dd>{{ hazards|default:"None noted" }}</dd>
+    <dt>Home</dt><dd>{{ property_type_label }} &middot; {{ row.city }} {{ row.postal_code }}</dd>
+    <dt>Visits</dt><dd>{{ availability|default:"Not specified" }}</dd>
+    <dt>Photos</dt><dd>{{ photo_count }}</dd>
+  </dl>
+
+  <div class="masked-block masked-block--self">
+    <p>{{ masked.email }}{% if masked.email and masked.phone %} &middot; {% endif %}{{ masked.phone }}</p>
+    <p>{{ masked.street }} &middot; {{ masked.city }} {{ masked.postal_code }}</p>
+    <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Shown partly to keep your details private.</p>
+  </div>
+
+  <h2>How to reach us</h2>
+  <p>
+    {% if church.phone or church.email %}
+      Questions?
+      {% if church.phone %}Call <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a>{% endif %}
+      {% if church.phone and church.email %} or {% endif %}
+      {% if church.email %}email <a href="mailto:{{ church.email }}">{{ church.email }}</a>{% endif %}.
+    {% endif %}
+    We're glad to help.
+  </p>
+
+  <p class="text-secondary">
+    No longer need help? Call us{% if church.phone %} at {{ church.phone|phone_national }}{% endif %} and we'll
+    close your request.
+  </p>
+  </div>
+  </div>
+{% endblock %}

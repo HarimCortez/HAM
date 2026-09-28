@@ -60,8 +60,456 @@
   navigation/screens gaps the ux/ui reviewers file (Q-091, Q-092, ...) — update the entry to
   "Done"/"Closed" with a one-line pointer to the fix and its tests, don't just delete it.
 
+## Step 2 (Intake), S2.7: public requester screens (R1-R12)
+- Location: views `ham/web/views_requester.py`, urls `ham/web/urls_requester.py` (spliced
+  into `ham/web/urls.py` already), templates `ham/web/templates/web/requester/*.html`
+  (`_step_header.html`/`_error_summary.html` partials), CSS appended to the end of
+  `ham/web/static/web/shell.css` under the "Step 2 (Intake), S2.7" banner comment.
+- Every requester route name is public (`ham/authz/guard.py` `PUBLIC_ROUTES`) — there is no
+  `ActorContext`/sign-in for a requester (PRD §7). Per-request access control is the draft
+  resume cookie (`ham.requester_portal.cookies`) or the access-link token
+  (`ham.requester_portal.services.resolve_token`) the view resolves itself, exactly like
+  `ham.web.auth_views`'s sign-in-link family.
+- The wizard is one view per step (`request_help_step(request, step)`), not one Django
+  `Form` per step: each POST merges that step's fields into the whole draft payload and calls
+  `ham.requester_portal.forms.validate_intake_payload` on the *merged* result, then only shows
+  the errors belonging to that step's own field set (`_errors_for_step`) — reuses the portal's
+  one whole-payload validator instead of duplicating field rules.
+- Anti-abuse (honeypot + minimum fill time, `ham.requester_portal.antiabuse`): the fill-time
+  clock starts once, in the session, when the wizard is first begun
+  (`request_help_begin`/`_SESSION_FORM_OPENED_AT`) — not re-stamped on the review step's own
+  GET, or a real multi-step fill (which takes longer than the review page alone) can still
+  trip "too fast" incorrectly. Tests that drive the whole flow via the Django test client (near
+  -instant) must backdate this session key past `RULES.intake.INTAKE_MIN_FILL_TIME` (see
+  `tests/web/test_requester_portal_screens.py`'s `_backdate_form_opened_at`) or the submission
+  silently no-ops (by design — same page, nothing sent). A real-browser (Playwright) test
+  instead just waits out the real `INTAKE_MIN_FILL_TIME` before clicking Send.
+- The secure page's own read model is `ham.requests.queries.get_request_for_requester` (added
+  by S2.7, not S2.2 — `RequestDetailRow` is leadership-shaped and calls `authorize()`
+  internally, wrong for a self-view already scoped by the resolved link token). Returns raw
+  field values; the view/template is responsible for masking (`ham.requester_portal.projection
+  .masked_contact`) before render.
+- R9 upload module: `frontend/src/upload.ts`, built to `frontend/dist/upload.js` (added a
+  second `esbuild.build()` call in `frontend/scripts/build.mjs`; keep both in sync if the
+  build script changes shape again). Talks to `POST .../media/reserve` (JSON) ->
+  `ham.media.services.reserve_uploads`, then PUTs straight to the presigned URL with
+  `Content-Type` from the reservation response (`PresignedUpload` carries no headers of its
+  own), then `POST` the per-file `complete_url` -> `ham.media.services.complete_upload`.
+  `XMLHttpRequest`, not `fetch` (upload progress events).
+- Gotcha: a Django test-suite-wide `#[0-9a-fA-F]{6}` hex-color-hard-coding check
+  (`tests/web/test_no_hardcoded_church_or_colors.py`) also matches HTML numeric character
+  references like `&#128274;` (6 hex-looking digits) — use `&#x1F512;`-style hex entities
+  (the `x` breaks the match) or a literal Unicode character instead.
+- Gotcha: `ham.requester_portal.services`'s three cross-app lookups
+  (`register_request_facts_lookup` etc.) are *global* module state; other test files reset
+  them to `None` on teardown instead of restoring the real production callables
+  (`RequesterPortalConfig.ready()`'s own registration), so a view-level test that runs after
+  one of those in the same pytest process needs its own autouse fixture re-registering the
+  real callables (copy `tests/requester_portal/test_submission_flow.py`'s
+  `_real_portal_lookups` fixture) — don't rely on process-startup registration surviving.
+- Playwright text selectors: `text=Confirm` (unquoted, substring) can match unrelated prose
+  containing the word ("Or tap **Confirm my email**...") as well as the actual button, and
+  clicking the wrong match times out waiting for navigation with no obvious error. Scope to
+  the tag: `button:has-text('Confirm')`.
+
+## Step 2 (Intake) fix round FIX-C (step2-ui-visual-qa.md / step2-ux-usability.md / privacy-security.md)
+- **Layer rule for label maps:** `ham.requests` sits *below* `ham.requester_portal` in the
+  layer order, so `ham.requests.presentation` (leadership labels) can't import
+  `ham.requester_portal.choices` (hazard/availability vocab) even though the codes are
+  identical -- duplicated `HAZARD_LABELS`/`AVAILABILITY_LABELS` there by hand, commented "keep
+  in sync". `ham.web` (top of the stack) CAN import both, so `views_requester.py`'s R10
+  `_hazards_display`/`_availability_display` were rewritten to delegate to
+  `ham.requests.presentation.hazard_labels`/`availability_labels` instead of keeping their own
+  second, buggier parser (the old one broke when a hazard note itself contained a comma).
+- **A template tag name can be a variable.** Django templates are plain text substitution
+  before HTML parsing, so `<{{ heading_tag }} id="...">...</{{ heading_tag }}>` legitimately
+  renders `<h2>...</h2>` or `<h3>...</h3>` depending on context -- used this to fix L2's
+  heading-order (`_request_detail.html`'s sections are `<h2>` on the standalone page, `<h3>`
+  in the split pane, from one shared partial) instead of duplicating every section block.
+- **`{{ var|filter }}` escapes; literal template text doesn't.** A pre-existing test asserted
+  on a raw apostrophe (`b"We've received your request"`) that used to come from literal
+  template text; once R10's welcome-mode text was unified to go through the same
+  `{{ status_sentence }}` variable the non-welcome path already used, Django's autoescaping
+  turned it into `We&#x27;ve received your request` -- byte-exact response-content tests need
+  to assert the escaped form once a literal moves into a variable (matches the existing "HTML
+  escaping" gotcha above, worth re-checking any time inline copy becomes a context var).
+- **`django.views.decorators.cache.never_cache` composes fine with `@requires_action`/
+  `@require_http_methods`** despite `requires_action` mutating the bare function's `__dict__`
+  rather than wrapping it -- `functools.wraps` (which both Django decorators use) copies
+  `__dict__` forward through the chain either way, so decorator order around it doesn't matter
+  for the route guard. Added to `request_detail`, `request_reveal_contact`,
+  `request_phone_check`, `request_help_secure_page` (privacy/security L5).
+- **The close-note-in-URL fix (H3):** `request_close`'s POST error path now re-renders
+  `web/request_close.html` directly with `status=422` and the posted `reason_code`/`note`
+  instead of `redirect(...?note=...)`. The L5 "Close this one as a duplicate..." link now
+  passes `?duplicate_of=<uuid>` only; the view resolves that id to the matched request's
+  display number itself server-side (never trusts a client-supplied note string).
+- **Split-view row navigation (M12)** is a progressive-enhancement inline `<script>` in
+  `requests_list.html`, not a new frontend/dist bundle: every row's real `href` is the
+  standalone detail page (works at every width, JS off); a small script rewrites each row's
+  `href` to `?tab=...&id=<uuid>` (same list page) only when `matchMedia("(min-width: 1280px)")`
+  matches, which is what actually keeps the split view instead of navigating away.
+- **`.filter-bar-sheet` (M16):** a `<details>` without `open` collapses the filters behind a
+  "Filters" summary below 768px; `@media (min-width: 768px) { .filter-bar-sheet:not([open])
+  .filter-bar { display: flex; } }` forces it open above that width by overriding the UA
+  stylesheet's `details:not([open]) > :not(summary) { display: none }` rule (author CSS beats
+  UA CSS at equal-ish specificity, so this works without ever setting the `open` attribute).
+- **Icons:** `icons.svg` had no `siren`/`hourglass`/`inbox`/`shield-check`/`circle-alert`/
+  `circle-check`/`circle-help`/`phone`/`phone-incoming`/`chevron-right`/`info`/`image-off`
+  before this round; added them (same hand-drawn outline style, `.disclosure summary::after`'s
+  chevron is drawn with CSS borders instead, to avoid a static-URL dependency in a CSS file
+  whitenoise may hash-rename).
+- **`AttentionItem`/`AttentionCard` (ham.requests.attention, ham.notifications.attention)**
+  don't carry enough shape for true per-request urgent cards (M17's "Urgent · HAM #050 needs a
+  phone check · waiting 3h [Call now]" as its own card) without a registry-wide shape change --
+  out of scope for this fix round; only the wording (`_plural_verb_phrase`, oldest-waiting
+  context folded into `title`) and the awareness-row-never-gets-a-chip bug were fixed. Flagged
+  in the handback as a follow-up if the product owner wants the full per-request split.
+- **Known open items handed back, not fixed:** M2 (secondary-link/Back-bar placement rework
+  across R1/R2/R8/R12), full `aria-invalid`/`aria-describedby` wiring on every R2-R5 field
+  (only R6's error summary + certification group got it), the wizard "Good to know" aside and
+  R1-R6/R9 desktop two-column layout (M9 desktop), R3's "Owner's full name" always-visible bug,
+  R5 "I don't use email" not locking the contact-preference group, per-request urgent Home
+  cards (see above).
+
+## Step 2 (Intake) fix round FIX-D (leftover Majors from FIX-C's visual/UX reports)
+- **`{# ... #}` is a single-line Django comment tag.** The tokenizer regex is `{#.*?#}`
+  *without* `re.DOTALL`, so `.` never matches `\n` — a `{# #}` comment that spans more than one
+  physical line is never recognized as a tag at all, and the literal comment text (including
+  internal dev notes) renders straight into the page. This was already present in several
+  templates from earlier fix rounds (`home.html`, `requests_list.html`, `_request_detail.html`,
+  `_error_summary.html`, `r6_review.html`, `r9_photos.html`, `r10_secure_page.html` — the R10
+  one put a stray paragraph of dev notes right above the real `<h1>`) and I reintroduced it
+  twice myself before catching it. Always use the block form for anything that doesn't fit one
+  line: `{% comment %}...{% endcomment %}`. `tests/web/test_fix_d_no_leaking_template_comments
+  .py` now scans every template in `ham/` for this pattern so it can't regress silently again.
+- **M2 remainder (secondary links/Back/Resend/Start over below the sticky bar):** fixed by
+  moving the secondary `<form>` (Start over, Resend) to live *outside* the primary `<form>`,
+  with the button living inside `.action-bar__inner`/`.form-actions` via `form="<id>"` (a
+  submit button's `form=` attribute overrides which `<form>` it submits, regardless of DOM
+  nesting) — R1, R2, R8. Other secondary content (R1's "Already asked"/"Prefer to talk" links)
+  just needed reordering above the form in the template; wrapped in `.public-card__links` (new,
+  `shell.css`) for consistent spacing, not a new component.
+- **R3 "Owner's full name" / R5 "I don't use email" locking contact preference:** both are
+  progressive enhancement done with CSS `:has()`, not JS-only — `#owner-name-field { display:
+  none } fieldset:has(input[value="authorized_family_member"]:checked) + #owner-name-field {
+  display: block }` in shell.css. R5's lock instead swaps a `.choice-card--locked` (new
+  modifier: `bg.sunken`, dashed border, non-interactive) in for the fieldset via the existing
+  JS pattern (matches R2/R4's precedent for reveal groups) since the real enforcement is
+  already 100% server-side (`ham.requester_portal.forms.validate_intake_payload` always forces
+  `contact_preference = phone_call` when `no_email` is set, regardless of what's posted) — the
+  UI only needed to *look* locked, not actually block a value from being submitted.
+- **Per-field `aria-invalid`/`aria-describedby` + error-summary anchors (R2-R5):** every
+  fieldset that can error now has `id="id_<field>"` (some, like R4's hazards or R5's contact
+  preference, previously had no id or a different one — `_error_summary.html`'s generic
+  `href="#id_{{field}}"` link depends on that id existing verbatim); help/error `<p>`s got
+  matching `id="id_<field>-help"`/`-error"` ids referenced from the input's
+  `aria-describedby`. R6 is the one step that *doesn't* use `#id_<field>` anchors (the field
+  isn't on the review page) — it already had its own `review_errors` → step Edit-URL scheme
+  from FIX-C; left that alone.
+- **Wizard desktop 2-column (visual M9 remainder), no real spec-matched step rail:** `base_
+  public.html` grew one new hook, `{% block card_modifier %}` on the `.public-card` div, so a
+  template can opt into a modifier class without editing the shared shell. `.public-card:has(>
+  .wizard-aside)` becomes a `size.wizard-max` 2-column grid at >=1280 (all direct children
+  except the aside forced to `grid-column: 1`, since CSS Grid's default auto-placement would
+  otherwise scatter them across both columns) — R1-R5 and R9 each `{% include "web/requester/
+  _wizard_aside.html" %}` after their form, with `aside_heading`/`aside_body` context set in
+  `views_requester.py`'s `_STEP_ASIDE` map (`_step_context` looks it up per step). R6 has no
+  aside by design (per spec); instead `public-card--review` widens the card to `wizard-max`
+  and `.summary-card-grid` turns the 4 summary cards 2x2. R7/R10 (`r10_secure_page.html`) got
+  its own, different 2-column treatment (`size.requester-wide-max`, `3fr 2fr`,
+  `public-card--request-status`/`.request-status-grid`) since that page has no aside at all —
+  don't reuse `.wizard-aside`'s grid rules for it. The step rail itself was *not* built (an
+  accepted simplification per both visual QA passes).
+- **Home attention cards, one per urgent+actionable request (visual M17 remainder):**
+  `ham.requests.attention.awaiting_approval_cards` (renamed from the old singular
+  `awaiting_approval_card`) now returns a list: one `AttentionCard` per urgent request in
+  `AWAITING_APPROVAL` (title `"{display_number} · {need_category_label}"`, `href=
+  "/requests/<uuid>"` straight to that request, PII-free per Q-132) for Pastor/Board rep, plus
+  one aggregate card for the rest ("N requests are/is waiting for a decision"). Director/AD's
+  muted awareness row stays a single card and is now *never* urgent-flagged (no more danger
+  chip on a non-actionable row) — the home.html template's chip logic (`item.urgent and not
+  item.muted`) was already correct; the bug was the provider always setting `urgent=True` on
+  the shared aggregate regardless of `muted`. No `AttentionItem`/`AttentionCard` shape change
+  was needed — `title`/`url`/`urgent`/`muted` already supported this; only how many cards a
+  provider returns, and what it puts in each one's `href`.
+- **Shared `.filter-bar` (M16) on `audit_log_list.html`:** wrapped each bare `<label>`+
+  `<select>`/`<input>` pair in its own `.filter-bar__field` (same fix L1's requests list
+  already had), since `.filter-bar select, .filter-bar input { width: 100% }` at <768 was
+  forcing every bare control full width with no wrapper to keep its label attached, separating
+  them onto different rows. `admin_users_list.html` did **not** need the same treatment — its
+  labels are `.visually-hidden`, so there was nothing visible to separate in the first place;
+  confirmed with a test rather than changed.
+- **Test DB transaction gotcha, take 2:** a *new* test file marked `pytest.mark.django_db(
+  transaction=True)` that drives the requester wizard through a review-step POST (which defers
+  a "send verification code" Procrastinate job) without ever draining that job will leak an
+  undrained `status='todo'` row into whatever `run_due_jobs_now()` call happens to run next in
+  the same pytest process — even in a completely unrelated test file — and that test then sees
+  an extra, unexpected email in `mail.outbox`. If a new view-level test doesn't specifically
+  need `transaction=True` (real cross-request session/cookie continuity works fine under the
+  default rollback-per-test `django_db` marker — `transaction=True` is only for tests that
+  themselves call `run_due_jobs_now()`/need Procrastinate to see committed rows), just use
+  plain `@pytest.mark.django_db`; it rolls back and nothing leaks.
+
 ## Known open item (handed back, not fixed)
 - Audit log at >=1280 (visual QA M3): chose fix option (b) — dropped the `.list-detail`
   wrapper so the table fills the width — over building a real split-pane detail view (option
   a). A `?event=<uuid>` query param rendering the detail in a second grid column is the next
   step if the product owner wants that back.
+
+## S2.8 (step 2 leadership screens L1-L11)
+- Real `.list-detail` split view: `?id=<uuid>` on `GET /requests` selects the detail pane
+  (defaults to the top row); `_build_detail_context(ctx, request_id, revealed=...)` in
+  `ham/web/views_requests.py` builds one context dict reused by both `web/requests_list.html`
+  (via `{% include "web/_request_detail.html" with ... standalone=False %}`, renaming every
+  key so it doesn't collide with the list page's own context) and the standalone
+  `web/request_detail.html` (`{% include %}` with no `with`, sharing the full view context).
+  The partial picks `<h1>`/`<h2>` off `standalone` so a split-view page never carries two
+  `<h1>`s. `.list-detail .split-detail { display: none }` below 1280 — the detail pane is
+  still server-rendered on that response, just hidden, rather than a second template.
+- **A `@requires_action`-decorated view is a plain function**, not a runtime wrapper — the
+  decorator only sets an attribute the route *guard middleware* reads via
+  `request.resolver_match`'s view function. Calling one view directly from another in Python
+  (`requests_needs_phone_check` delegating to `requests_list(request, forced_tab=...)`) does
+  **not** re-run any authz check; only going through URL dispatch does. Safe and the normal
+  pattern for "this route is a filtered variant of that one."
+- **`blocked_while_impersonating` in the matrix blocks the whole route, not just the mutating
+  call.** If a GET+POST view shares one `@requires_action("some.command")` and that action is
+  `blocked_while_impersonating` (e.g. `request.contact_verify_phone`), the route guard 404s
+  the GET too — there's no way to show a sheet with a disabled button while impersonating
+  under that pattern. Don't design a UI that assumes the GET is reachable; the neutral 404 *is*
+  the impersonation-blocked experience for that whole screen.
+- A reveal that must sometimes be un-audited (`ham.requests.services.reveal_requester_pii`,
+  Q-024) is called directly from the view, not through `@command` — it does its own
+  `authorize()` + conditional audit. The view still must catch `PermissionDenied` itself (no
+  `@command` wrapper doing it) and return `not_found.html` (404), e.g. for the Administrator.
+- `ham.notifications.services.needs_response_for`/`updates_for`/`urgent_banner_for` are the
+  only entry points Home/Inbox/the shell need; "Needs response" is never stored (computed live
+  by `ham.notifications.attention.attention_items_for`). The urgent banner (§10/§35, Q-123) is
+  wired into `ham.web.context_processors.shell` (not each view) so it shows app-wide — guard
+  it with `isinstance(actor.user_id, uuid.UUID)`, since a couple of unit tests build a bare
+  `ActorContext` with a placeholder string `user_id` to exercise the route guard in isolation.
+- `bottom_nav_for` (`ham/authz/nav.py`) is a hand-maintained tab list, not "every built item";
+  flipping a `NavItem.built` flag to `True` does **not** automatically add it to the mobile
+  bottom nav or the More page — you must decide where it goes and update
+  `tests/authz/test_nav_mobile.py`'s exact-match assertions (`test_administrator_bottom_nav_...`,
+  `test_director_bottom_nav_...`) and `tests/e2e/test_smoke.py`'s nav-label assertions
+  together, or the mobile smoke test fails on an apparently unrelated persona.
+- Icons: `icons.svg` had no `lock`/`eye`/`triangle-alert`/`phone-call`/`copy`/`clipboard-list`
+  symbols before this slice; added them (same hand-drawn outline style). Never use an HTML
+  numeric character reference for an icon glyph (`&#128274;` etc.) — `tests/web/
+  test_no_hardcoded_church_or_colors.py`'s hex-color regex (`#[0-9a-fA-F]{3,8}\b`) false-
+  -positives on a 3/6/8-hex-digit-*looking* entity number, and also on a literal request
+  number placeholder like `"e.g. HAM #047"` in copy — avoid a bare `#NNN` in template text.
+- A `{% include %}`'d partial needs its **own** `{% load %}` line for any tag it uses
+  (`static`, `web_extras`, ...); Django's `{% load %}` is per-template-file, not inherited from
+  the including template, and the failure mode (`Invalid block tag ... expected 'elif' /
+  'else' / 'endif'`) looks like a mismatched `{% if %}` even though the real bug is a missing
+  `{% load %}` a few lines up.
+- **`transaction=True` / `live_server` e2e tests (`tests/e2e/*`) commit real rows with no
+  per-test rollback.** If a test's flow defers a Procrastinate job (e.g. `submit_request`'s
+  `defer_complete_intake_checks`) and then the test *also* independently drives the state
+  machine forward (a UI action, or calling the command directly) without ever letting that
+  original job run, the job row is left `status='todo'` in the shared test DB **permanently**
+  (it survives across separate `pytest` invocations, not just within one run) — the next
+  *unrelated* test anywhere in the suite that calls `ham.jobs.run_due_jobs_now()` will pick it
+  up, find the request has already moved on, and blow up with a `WRONG_STATE` `ValueError`
+  that `run_due_jobs_now()` re-raises. Symptom: assertion failures in totally unrelated test
+  files, reproducible only when the whole suite runs together, gone when the e2e file is
+  excluded. Fix: at the end of any `transaction=True` e2e test that leaves a job undrained,
+  `DELETE FROM procrastinate_jobs WHERE status = 'todo'` via a raw cursor (not
+  `run_due_jobs_now()`, which tries to *execute* stale rows too, including ones a previous
+  interrupted run of the same test already left behind, and needs an ambient transaction for
+  `select_for_update()` that a bare test function doesn't have).
+
+## Step 2 (Intake) fix round FIX-F1 (final visual pass, step2-ui-visual-qa.md / -ux-usability.md
+"Re-check at 90f28d8")
+- **B1 (sticky action bar clipped at 200% text / 195px):** `.action-bar { container-type:
+  inline-size }` + `@container (max-width: 22em) { .action-bar__inner { flex-direction:
+  column } }`, with `flex-wrap: wrap` on `.action-bar__inner` itself as the no-container-query
+  fallback. The earlier "fixed" commit (FIX-C) never actually added this — always verify a
+  claimed fix by reading the CSS diff, not the commit message.
+- **N3 (the 200%-text proof script never enlarged anything):** `page.add_init_script(...)`
+  runs before `<html>` exists, so `document.documentElement.style.fontSize = ...` at the top
+  level throws and is silently swallowed by Playwright — wrap it in `document
+  .addEventListener('DOMContentLoaded', () => { ... })`. Proof: assert
+  `getComputedStyle(document.documentElement).fontSize === '32px'` after navigation, not just
+  that the screenshot "looks" bigger — compare the regenerated PNG's height to a same-page
+  non-200% screenshot (a real fix makes a `full_page` screenshot 2-3x taller from wrapped
+  text/stacked rows).
+- **N1 (leadership filter bar invisible at >=768):** don't rely on `.filter-bar-sheet:not(
+  [open]) .filter-bar { display: flex }` to override a closed `<details>` — Chromium 131+
+  hides closed `<details>` content through its `::details-content` slot in a way `display`
+  can't reach, so `checkVisibility()` stays false even though the element "looks" laid out
+  (76px box, per the QA report). Fix: render the `<details open>` server-side always (so it
+  works with JS off and at every width), then a small inline script removes the `open`
+  attribute on mobile viewports only (`matchMedia("(max-width: 767px)")`) to restore the
+  "starts collapsed" behaviour — the opposite direction from the old (broken) "closed by
+  default, JS/CSS opens it at desktop" approach.
+- **N2 (wizard aside stretching row 1, ~130px dead space above the h1 at >=1280):**
+  `.wizard-aside { grid-row: 1 / -1 }` inside a grid with no explicit `grid-template-rows`
+  doesn't reliably span "all the rows the other column needs" — `-1` doesn't resolve the way
+  you'd expect without an explicit row template. Fixed *without* touching any per-step
+  template (several, e.g. r2_need.html, were a parallel fix's file-ownership) by making it a
+  pure CSS change on the shared `.public-card:has(> .wizard-aside)` selector: `row-gap: 0`
+  (so the aside spanning multiple auto rows doesn't also inherit a full `gap` between every
+  column-1 child) + `.wizard-aside { grid-row: 1 / span 99 }` (spans comfortably past any
+  realistic number of rows instead of relying on `-1`). A `.wizard-main` wrapper div was the
+  UI designer's first suggestion but would have required editing every per-step template
+  (including ones this fix round didn't own) and would have silently broken the `:has(>
+  .wizard-aside)` selector for any template that still nested the aside include one level
+  deeper — the CSS-only fix has neither problem. Proved with a Playwright test measuring
+  `h1.getBoundingClientRect().top - .public-card.getBoundingClientRect().top` before/after.
+- **N4 (`scrollable-region-focusable`, axe serious):** `tabindex="0"` on `.split-detail`
+  (it already had `role="region"` + `aria-label`) — axe wants a scrollable region to be
+  reachable by keyboard even with no focusable content inside it.
+- **N-M2/M10 (L9 primary button hidden behind the fixed bottom nav at <1024):** gave
+  `base.html`'s bottom nav its own `{% block bottom_nav %}` (default: the real nav) so a
+  full-screen-sheet template (`request_phone_check.html`) can override it to nothing —
+  simpler than trying to offset one sticky bar around another with `calc()` and safe-area
+  insets, and it's the only page in this slice that's a true full-screen sheet. Proved with
+  `document.elementFromPoint()` at the primary button's center, comparing against an
+  `element_handle()` (not `document.querySelector('button')` again inside `page.evaluate` —
+  that can resolve to a *different* button on a page with more than one).
+- **N5 (urgent banner squeezed to ~170px text column at 390):** the bug wasn't really "flex: 1
+  shrinks it" — it was that `min-width: var(--ham-size-target-min)` resolves to `48px` (a
+  tap-target token, not a text-readability one); the `, 200px` in the old rule was a CSS `var()`
+  *fallback* that never applied because the variable **is** defined. `flex: 1 1 16em; min-width:
+  0` fixed it. Wrapped the two banner actions (`<a>` + `<form>`) in one `<span
+  class="urgent-banner__actions">` so they move to their own row as a unit instead of each
+  wrapping independently.
+- **Home urgent-card cap:** `AttentionCard`/`AttentionItem` still don't carry enough shape for
+  a "which card is first" flag (see FIX-D's note above) — solved by having the *view*
+  (`ham.web.views.home`) compute `first_urgent_kind` (the first urgent+non-muted item's
+  `.kind`) once and pass it as a separate context var, rather than changing the shared
+  dataclass. `ham.requests.attention.MAX_URGENT_CARDS` (module constant, not `ham.rules` — a
+  display cap isn't a business rule) folds anything past 3 individual urgent cards into one
+  "N more urgent" card.
+- **Icons:** `icons.svg` had no `key-round`/`building`/`building-2`/`caravan`/`dog`/
+  `droplets`/`zap`/`bug`/`circle-ellipsis`/`file-x` before this round (R3/R4 choice-card icons
+  + the R9 rejected-upload-tile icon, all named exactly per design-system/screens/intake.md).
+  R2's icons (also specified there) were **not** added — r2_need.html was a parallel fix's
+  file-ownership this round.
+- **`get_item` template filter (`ham/web/templatetags/web_extras.py`) now humanizes an
+  unknown key** (`"yard_outdoor"` -> `"Yard outdoor"`) instead of returning the raw code
+  verbatim, for any label-map lookup app-wide (visual QA minor: pre-fix seed rows with a
+  retired code showed the snake_case code). New `media_status_label` filter (same file) for
+  the gallery's fallback chip, backed by `ham.media.models.STATUS_CHOICES`.
+- **Gallery (`_request_media_gallery.html`) is its own file, not part of
+  `_request_detail.html`** — the wave-brief's exclusion list only named `_request_detail.html`
+  for the parallel fix, so the gallery partial (viewer `target="_blank"` removal, one shared
+  `role="status"` region instead of one per processing chip, fallback status label) was fair
+  game. `media_gallery_for`'s query only ever returns `ready`/`processing`/`uploaded`/
+  `rejected+processing_unavailable` items, so the template's final `{% else %}` fallback
+  branch is legitimately unreachable through the real service today — tested by rendering the
+  partial directly with `render_to_string` and a synthetic dataclass item instead of driving
+  the full view (that also sidesteps needing a real request/media fixture for a defensive-code
+  path).
+- **Upload picker layout (`data-icons-url`):** `frontend/src/upload.ts`'s `addRejectedTile`
+  needed an icon (`file-x`), but the module has no way to know the *hashed* static URL for
+  `icons.svg` (whitenoise may rename it) — passed it through as a `data-icons-url` attribute
+  on the same `data-upload-root` div that already carries `data-reserve-url`, read once in the
+  constructor, not a hardcoded path in the TS module.
+- **Proof-test discipline this round:** for every item, reverted just that one change (CSS
+  block, template line, or an `origin/feature/step-2-intake:<path>` `git show` dump for a
+  whole file) via a plain file copy/restore — never `git stash` on a shared worktree stash
+  stack — reran the new test to confirm it failed, then restored the fix and reran to confirm
+  it passed. Caught two cases where a first-draft test *didn't* actually fail pre-fix (N5's
+  first "banner height < 140px" threshold, N1's "processing" count of 1 with only one item) —
+  worth budgeting time for this "does it actually fail" step, not just writing an
+  assertion that looks plausible.
+
+## Step 2 (Intake) fix round FIX-H (final visual pass, step2-ui-visual-qa.md "Final re-check
+   at f1d4fb9")
+- **N6 (Back/Start over drops out of the sticky bar under `@container(max-width:22em)`):** the
+  in-bar Back/Start-over button gets an `.action-bar__back` class and is hidden by that
+  container query; its "in-flow" twin is a plain `<p class="wizard-back-link"><a>...</a></p>`
+  (or a `.link-button` for R2's Start-over, since that's a same-page confirm-submit, not a
+  link) placed as a sibling *before* `.action-bar`, inside the same `<form>` — never inside
+  `.action-bar` itself, or it would still add to the sticky band's own height. The toggle needs
+  its own size container: `form:has(> .action-bar) { container-type: inline-size; }` — the link
+  isn't a descendant of `.action-bar` (which already has its own, separate `container-type` for
+  the primary/ghost stacking rule), so it can't react to that container's query. Two different
+  containers (form's un-bled width vs. the bar's own full-bleed width) measuring "the same"
+  22em threshold slightly differently was a known simplification, not a bug — confirmed they
+  agree at every width this actually gets tested at (390+200% text, 195px).
+- **N7 (mid-word breaks in icon choice-cards) has two independent causes, not one:**
+  1. `overflow-wrap: anywhere` on `.choice-card` (which also shrinks a flex item's min-content
+     contribution, letting it collapse arbitrarily small) became `break-word` + `hyphens: auto`
+     (`lang="en"` was already on both `base.html`/`base_public.html`) so a label breaks only at
+     real word/hyphenation boundaries, not anywhere.
+  2. That alone *reintroduced text overflowing past the card* (a real regression, caught by a
+     test only after writing it): `break-word`, unlike `anywhere`, does **not** shrink a flex
+     item's automatic min-content size — the label `<span>`'s default `min-width: auto` kept it
+     sized to its *unbroken* content width, so the flex row just overflowed instead of
+     wrapping. Fix: `.choice-card > span:last-child { min-width: 0; }`, so the label can
+     actually shrink to the space the icon/radio leave, and only then does break-word/hyphens
+     get a chance to wrap it.
+  3. Icon-bearing grids (`.choice-grid:has(.choice-card__icon)`) also got a wider minimum
+     column (15em, vs. 10.5em for icon-less grids) — deliberately **1 column at 390, 2 columns
+     in the 640px wizard main column at >=1280** for icon cards. This is an intentional
+     regression against the old B3 test (`tests/e2e/test_fix_f1_choice_grid.py`), which
+     asserted the *old* narrower grid was 2 columns at 390 — updated it to assert 1 column at
+     390 / 2 at 1280 instead of deleting the coverage.
+  4. **Proof-test gotcha:** neither "does the word appear intact in `innerText`" nor "does the
+     label's own `scrollWidth <= clientWidth`" actually detects a mid-word wrap — the DOM text
+     node is never split, and a wrapped-but-not-overflowing box passes both checks. The only
+     check that actually catches it is geometric: `document.createRange()` over just that
+     word's substring, then `range.getClientRects().length` — more than 1 means the word itself
+     painted across more than one line (raw split or hyphenated), regardless of whether the box
+     around it overflowed.
+- **M2 (short-page bar, R8/R11b/R12) is a stretch-and-push-to-bottom trick, not `min-height:
+  100dvh` alone:** `min-height` on the card doesn't move a normal-flow, non-sticky-triggered
+  element to the bottom of a taller-than-content box by itself. Below 1024 (`.action-bar` is
+  already `position: static` at >=1024, so this doesn't apply there):
+  `.public-shell__content:has(.action-bar) { align-items: stretch }` (was `flex-start`) lets
+  `.public-card` fill the available height; `.public-card:has(.action-bar) { display:flex;
+  flex-direction:column }` plus (for form-wrapped bars) `.public-card > form:has(.action-bar)
+  { flex:1; display:flex; flex-direction:column }` propagates that height down to whichever box
+  directly wraps the bar; `.public-card:has(.action-bar) .action-bar { margin-top: auto }`
+  (scoped to <1024 only — doesn't touch the desktop static layout) is what actually pushes it
+  to the bottom. On a page whose real content already exceeds the available height, the free
+  space is zero and this is a no-op (bar just follows the content as before, same as pre-fix).
+  Every existing public-card+action-bar template (R2-R6, R8, R9, R11b, R12, phone-check) uses
+  the same two building blocks (card, and optionally a wrapping `<form>`) so this needed zero
+  template changes — pure `shell.css`.
+- **M2 (wizard aside before the bar):** moved each step's `{% include "_wizard_aside.html" %}`
+  from after `</form>` to right after the intro copy, before `<form>` (R1, R2, R4, R5, R9) — a
+  direct child either way, so the >=1280 `.public-card:has(> .wizard-aside)` grid (explicit
+  `grid-column`/`grid-row` on every child) is unaffected by DOM order. R3's aside is a special
+  case: it repeats the page's own intro line ("Filling this in for someone else?..."), so
+  instead of moving it, `_wizard_aside.html` grew an `aside_repeats_intro` context var (passed
+  via `{% include ... with aside_repeats_intro=True %}` **from the template**, not the view —
+  `views_requester.py` is a parallel fix's file this round) that adds a
+  `wizard-aside--repeats-intro` modifier class, hidden below 1280 only (still in the DOM, still
+  shows in the >=1280 side column, a different-enough reading context that the repeat is fine
+  there).
+- **M3 (R2 category icons):** `ham.requests.models.NeedCategory`'s enum values (not the old,
+  now-deleted `ham.requester_portal.choices` copy) map to icons inline in `r2_need.html`, same
+  `{% if value == ... %}` chain pattern as R3/R4's icon selection. Added `droplet`/`plug-zap`/
+  `door-closed`/`layers`/`accessibility`/`paint-roller`/`trees` to `icons.svg` (house/circle-help
+  already existed). New `.choice-card--full { grid-column: 1 / -1 }` modifier keeps "Something
+  else or not sure" full width and last, inside the same grid as the other 8 cards (not a
+  separate element outside the grid, unlike R4's "None known" exclusion card).
+- **Polish, worth remembering:**
+  - A formatted phone number is short/bounded, unlike the arbitrary long values
+    `.u-wrap-anywhere` guards against — new `.u-nowrap { white-space: nowrap }` utility for
+    those (R7N's phone line).
+  - "Waiting under 1 h" (`ham.requests.attention._waiting_words`/`_oldest_waiting_words`) is a
+    plain Python string, not a template — the non-breaking-space fix
+    (`f"waiting {round(hours)} h"`) lives there, not as CSS, since CSS `white-space:nowrap`
+    on the whole title would also stop a long title from wrapping at all.
+  - `.upload-tile__remove`: shrunk the *visible* circle to 32px (was a 48px solid circle
+    nearly reaching a small thumb's centre) while keeping a real 48px tap target via a
+    `::before` pseudo-element with a negative `inset` — never shrink the actual accessible
+    target size to fix a visual-only complaint.
+  - The L9 "What to say" disclosure chevron/stray-glyph/padding items in the last QA re-check
+    turned out to already be fixed on this branch (verified by rendering it — `.disclosure
+    summary::marker { content: ""; display: none }` plus `display: flex` on the summary, from
+    an earlier round, does suppress the native marker in Chromium 141) — re-verify visually
+    before assuming a stale QA note still applies; don't "fix" something that isn't broken.
+  - `git checkout <old-commit> -- <paths>` (restore just the touched files to the prior commit,
+    run the new tests, then `git checkout HEAD -- <paths>` to restore) is a clean way to get a
+    real fail-before/pass-after proof across *many* files at once in one shot, instead of
+    reverting one CSS rule at a time — as long as you commit your in-progress work first so
+    `HEAD`/`HEAD~1` are meaningful anchors, and restore before continuing.

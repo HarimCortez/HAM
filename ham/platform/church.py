@@ -26,8 +26,15 @@ class ChurchProfileView:
     logo_alt: str
     phone: str
     email: str
+    # PRD-GAP Q-147: proposed default in use; owner may change. The church's own 2-letter
+    # USPS state code, used to prefill R3's "The home" step ("Florida · Change") -- "" means
+    # not set yet (Admin hasn't filled it in).
+    state: str
     time_zone: str
     website_url: str
+    # Q-112 (intake.md §8): ISO weekday numbers (1=Monday..7=Sunday) HAM serves requesters on;
+    # read by `ham.requester_portal.forms` for the public intake form's availability choices.
+    serves_days: tuple[int, ...]
 
 
 def church_profile() -> ChurchProfileView:
@@ -47,14 +54,81 @@ def church_profile() -> ChurchProfileView:
         logo_alt=brand.logo_alt,
         phone=row.ham_phone,
         email=row.ham_email,
+        state=row.state,
         time_zone=row.time_zone,
         website_url=row.website_url,
+        serves_days=tuple(row.serves_days),
     )
 
 
 def is_valid_time_zone(name: str) -> bool:
     """Q-030/§70.5: the church profile's time zone must be a real IANA zone name."""
     return bool(name) and name in zoneinfo.available_timezones()
+
+
+# Q-147: the 50 states + DC, USPS 2-letter codes -- used both to validate the church profile's
+# own `state` field and the public intake form's R3 "The home" address state (`ham.requester_
+# portal.forms`). Not a `ham.rules` value (no timedelta/limit/weight, CLAUDE.md), a fixed
+# reference vocabulary, same reasoning as `ham.requester_portal.choices`.
+US_STATE_CODES: frozenset[str] = frozenset(
+    {
+        "AL",
+        "AK",
+        "AZ",
+        "AR",
+        "CA",
+        "CO",
+        "CT",
+        "DE",
+        "DC",
+        "FL",
+        "GA",
+        "HI",
+        "ID",
+        "IL",
+        "IN",
+        "IA",
+        "KS",
+        "KY",
+        "LA",
+        "ME",
+        "MD",
+        "MA",
+        "MI",
+        "MN",
+        "MS",
+        "MO",
+        "MT",
+        "NE",
+        "NV",
+        "NH",
+        "NJ",
+        "NM",
+        "NY",
+        "NC",
+        "ND",
+        "OH",
+        "OK",
+        "OR",
+        "PA",
+        "RI",
+        "SC",
+        "SD",
+        "TN",
+        "TX",
+        "UT",
+        "VT",
+        "VA",
+        "WA",
+        "WV",
+        "WI",
+        "WY",
+    }
+)
+
+
+def is_valid_us_state(code: str) -> bool:
+    return bool(code) and code.strip().upper() in US_STATE_CODES
 
 
 def format_church_time(moment: dt.datetime, *, church: ChurchProfileView | None = None) -> str:

@@ -65,6 +65,14 @@ INSTALLED_APPS = [
     "ham.identity",
     "ham.authz",
     "ham.audit",
+    # Step 2 (Intake, S2.0 seams): empty apps until S2.1-S2.5 land models/services
+    # (intake.md §2 module list, §10 "empty apps with apps.py, INSTALLED_APPS and import-
+    # linter layers"). Listed in dependency order (top to bottom of the layers contract in
+    # pyproject.toml): web > requester_portal > media > requests > notifications > identity.
+    "ham.requester_portal",
+    "ham.media",
+    "ham.requests",
+    "ham.notifications",
     "ham.web",
 ]
 
@@ -188,6 +196,40 @@ ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
 # HAM_ENV=production). Never a fixed business *rule* (CLAUDE.md "no magic numbers") — it's a
 # secret, so it belongs here, not in `ham.rules`.
 HAM_FIELD_ENCRYPTION_KEY = env("HAM_FIELD_ENCRYPTION_KEY", default="")
+
+# S2.0 (intake.md §3 `RequesterAccessLink`, `ham.platform.otp`): HMAC key(s) for requester
+# link/code hashing, comma-separated, first = current signing key, every key tried on lookup
+# so rotating this doesn't invalidate months-old links already emailed out. Deliberately not
+# `SECRET_KEY` (rotating that for an unrelated reason must never kill live requester links).
+# Empty (dev/test default) falls back to a SECRET_KEY-derived key inside `ham.platform.otp`
+# itself — set this explicitly in production, same as `HAM_FIELD_ENCRYPTION_KEY`.
+HAM_TOKEN_HMAC_KEYS = env("HAM_TOKEN_HMAC_KEYS", default="")
+
+# S2.0 (intake.md §2, `ham.platform.storage`): dotted path to the `ObjectStore` implementation
+# this deployment uses (S2.4a: an S3-compatible/R2 adapter and a local-filesystem adapter).
+# Empty until S2.4a lands; `ham.platform.storage.get_object_store()` raises a clear
+# `RuntimeError` naming this setting rather than an opaque import error if called first.
+# Dev/test default to the local-filesystem adapter (no external dependency needed to run
+# `make test`/`make run`); production sets this to the R2/S3-compatible adapter instead.
+HAM_OBJECT_STORE_BACKEND = env(
+    "HAM_OBJECT_STORE_BACKEND", default="ham.integrations.storage.local.LocalObjectStore"
+)
+
+# S2.4a local-filesystem ObjectStore adapter (dev/test only — never used in production, which
+# always sets HAM_OBJECT_STORE_BACKEND to the R2 adapter above). Where "uploaded" files live
+# on disk; gitignored, like STATIC_ROOT.
+HAM_LOCAL_STORAGE_ROOT = env(
+    "HAM_LOCAL_STORAGE_ROOT", default=str(BASE_DIR / "var" / "object_storage")
+)
+
+# S2.4a R2/S3-compatible ObjectStore adapter (production). Cloudflare R2 exposes an
+# S3-compatible API; any real S3-compatible endpoint works the same way. Never hard-code a
+# bucket name or credentials (CLAUDE.md "Secrets come from environment variables").
+HAM_S3_BUCKET = env("HAM_S3_BUCKET", default="")
+HAM_S3_ENDPOINT_URL = env("HAM_S3_ENDPOINT_URL", default="")
+HAM_S3_REGION = env("HAM_S3_REGION", default="auto")
+HAM_S3_ACCESS_KEY_ID = env("HAM_S3_ACCESS_KEY_ID", default="")
+HAM_S3_SECRET_ACCESS_KEY = env("HAM_S3_SECRET_ACCESS_KEY", default="")
 
 # Session cookie ceiling: the *longest* possible HAM session (Q-032's standard/passwordless
 # lifetime). `ham.identity.middleware.SessionLifetimeMiddleware` enforces the shorter

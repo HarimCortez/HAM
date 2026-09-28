@@ -44,6 +44,31 @@ PUBLIC_ROUTES: frozenset[str] = frozenset(
         "manifest",
         "service_worker",
         "offline",
+        # S2.4a: the dev-only local-storage adapter's stand-in for a presigned S3/R2 URL.
+        # Authorization here is the signed, time-limited, single-purpose token itself (see
+        # ham.integrations.storage.dev_views), exactly like a real presigned URL never goes
+        # through this ActorContext-based guard either.
+        "local-storage-object",
+        # S2.7: the public requester screens (PRD §7 "requesters have no account"). Every
+        # name here is `ham/web/urls_requester.py`'s own; per-request access control is the
+        # draft cookie / access-link token the view itself resolves
+        # (`ham.requester_portal.services.resolve_token`), exactly like the sign-in-link
+        # family above is public at the route-guard layer and self-checks the token.
+        "request_help_start",
+        "request_help_begin",
+        "request_help_start_over",
+        "request_help_step",
+        "request_help_verify",
+        "request_help_verify_link",
+        "request_help_new_link",
+        "request_help_saved",
+        "request_help_secure_page",
+        "request_help_photos",
+        "request_help_media_reserve",
+        "request_help_media_complete",
+        "request_help_media_remove",
+        "request_help_link_expired_send",
+        "request_help_find",
     }
 )
 

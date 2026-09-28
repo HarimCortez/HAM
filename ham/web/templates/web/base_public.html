@@ -15,8 +15,8 @@
     {% include "web/_impersonation_banner.html" %}
 
     <main id="main-content" class="public-shell__content" tabindex="-1">
-      <div class="public-card">
-        <p class="public-card__eyebrow">Home Assistance Ministry &middot; {{ church.name }}</p>
+      <div class="public-card{% block card_modifier %}{% endblock %}">
+        {% block eyebrow %}<p class="public-card__eyebrow">Home Assistance Ministry &middot; {{ church.name }}</p>{% endblock %}
         {% if messages %}
           <ul class="messages">
             {% for message in messages %}

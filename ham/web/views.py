@@ -11,9 +11,9 @@ from django.conf import settings
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
 from ham.authz.guard import requires_action
 from ham.authz.matrix import authorize
@@ -84,6 +84,19 @@ def home(request):
         context["recent_sign_in_failures"] = _recent_sign_in_failures(ctx)
     if authorize(ctx, "user.invite").allowed and not authorize(ctx, "user.list").allowed:
         context["show_invite_card"] = True
+
+    # S2.8 (intake.md §6, navigation.md §8.3 group 4): "Needs your attention" — computed live
+    # by every registered attention provider, never stored (ham.notifications.attention). The
+    # urgent banner itself is app-wide (see ham.web.context_processors.shell), not set here.
+    from ham.notifications.services import needs_response_for
+
+    items = needs_response_for(ctx)
+    context["attention_items"] = items
+    # FIX-F1 minor 1: only the first urgent+actionable card is a primary (solid) button --
+    # a whole column of solid-primary "Open" buttons (seen with a lot of urgent awaiting-
+    # approval requests at once) breaks the "one primary action" pattern.
+    first_urgent = next((item for item in items if item.urgent and not item.muted), None)
+    context["first_urgent_kind"] = first_urgent.kind if first_urgent else None
     return render(request, "web/home.html", context)
 
 
@@ -110,8 +123,73 @@ def _recent_sign_in_failures(ctx) -> dict[str, object]:
 @require_GET
 @requires_action("shell.use")
 def inbox(request):
-    """Inbox placeholder (foundation.md §10; navigation.md §4)."""
-    return render(request, "web/inbox.html")
+    """Inbox: "Needs response" (live attention items) + "Updates" (stored notifications)
+    (foundation.md §10; navigation.md §4; intake.md §6, PRD §35). The urgent banner is
+    app-wide (ham.web.context_processors.shell), not set here."""
+    from ham.notifications.services import needs_response_for, updates_for
+
+    ctx = request.actor
+    return render(
+        request,
+        "web/inbox.html",
+        {
+            "needs_response": needs_response_for(ctx),
+            "updates": updates_for(ctx),
+        },
+    )
+
+
+@require_http_methods(["POST"])
+@requires_action("notification.acknowledge")
+def notification_acknowledge(request, notification_id):
+    """Acknowledges the app-wide urgent banner for this person (§10/§35, Q-123)."""
+    from ham.authz.commands import PermissionDenied
+    from ham.notifications.services import acknowledge_notification
+
+    try:
+        acknowledge_notification(request.actor, notification_id=notification_id)
+    except PermissionDenied:
+        pass
+    next_url = request.POST.get("next") or reverse("web:home")
+    return redirect(next_url)
+
+
+_NOTIFICATION_SUBJECT_URL_NAMES = {
+    "request": "web:request_detail",
+}
+
+
+@require_GET
+@requires_action("shell.use")
+def notification_open(request, notification_id):
+    """Usability M13: an Inbox "Updates" row is a link, not inert text -- opens the
+    notification's subject (marking it read on the way) instead of leaving the pastor to find
+    the request themselves on the Requests list.
+
+    N7: while impersonating, this reads the notification without marking it read
+    (`get_owned_notification`, not `mark_read`) -- an Administrator browsing someone else's
+    inbox to look something up shouldn't silently change what that person sees as unread when
+    they next sign in themselves. A malformed/unknown subject (bad `subject_type`, or a
+    `subject_id` that no longer reverses to a real route, e.g. a since-deleted request) always
+    redirects to the inbox rather than 500ing."""
+    from django.urls import NoReverseMatch
+
+    from ham.notifications.services import get_owned_notification, mark_read
+
+    ctx = request.actor
+    if ctx.is_impersonating:
+        notification = get_owned_notification(ctx, notification_id)
+    else:
+        notification = mark_read(ctx, notification_id)
+    if notification is None:
+        return redirect("web:inbox")
+    url_name = _NOTIFICATION_SUBJECT_URL_NAMES.get(notification.subject_type)
+    if url_name is None:
+        return redirect("web:inbox")
+    try:
+        return redirect(url_name, request_id=notification.subject_id)
+    except NoReverseMatch:
+        return redirect("web:inbox")
 
 
 @require_GET

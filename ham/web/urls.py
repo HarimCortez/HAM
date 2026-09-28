@@ -2,6 +2,9 @@ from django.urls import path
 
 from . import (
     auth_views,
+    urls_inbox,
+    urls_requester,
+    urls_requests,
     views,
     views_admin_settings,
     views_admin_users,
@@ -18,6 +21,16 @@ urlpatterns = [
     path("api/v1/me", views.api_me, name="api_me"),
     path("", views.home, name="home"),
     path("inbox", views.inbox, name="inbox"),
+    path(
+        "inbox/notifications/<uuid:notification_id>/acknowledge",
+        views.notification_acknowledge,
+        name="notification_acknowledge",
+    ),
+    path(
+        "inbox/notifications/<uuid:notification_id>/open",
+        views.notification_open,
+        name="notification_open",
+    ),
     path("admin", views.admin_index, name="admin_index"),
     path("more", views.more, name="more"),
     path("offline", views.offline, name="offline"),
@@ -124,4 +137,8 @@ urlpatterns = [
         views_audit.audit_export_download,
         name="audit_export_download",
     ),
+    # --- Step 2 (Intake), S2.0 seams: real routes land in S2.7/S2.8 --------------------------
+    *urls_requests.urlpatterns,
+    *urls_requester.urlpatterns,
+    *urls_inbox.urlpatterns,
 ]

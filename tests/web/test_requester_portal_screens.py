@@ -1,0 +1,368 @@
+"""S2.7 integration tests: the public requester screens R1-R12, driven through Django's test
+client exactly like a browser would hit them (no account, PRD §7 "requesters have no
+account") — see `tests/requester_portal/test_submission_flow.py` for the service-layer
+equivalent this slice builds a UI on top of.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+from django.core import mail
+from django.test import Client
+from django.urls import reverse
+
+from ham.jobs import run_due_jobs_now
+from ham.platform import otp
+from ham.requester_portal.models import RequesterVerificationChallenge
+
+pytestmark = pytest.mark.django_db(transaction=True)
+
+
+@pytest.fixture(autouse=True)
+def _real_portal_lookups(real_portal_lookups):
+    """Shared fixture (`tests/conftest.py::real_portal_lookups`): registers the real
+    `ham.requester_portal.services` lookups and restores them -- not `None` -- on teardown, so
+    this module's view tests don't depend on run order relative to sibling files that register
+    fakes (e.g. `tests/requester_portal/test_links.py`)."""
+
+
+@pytest.fixture
+def local_storage(tmp_path, settings):
+    settings.HAM_LOCAL_STORAGE_ROOT = str(tmp_path)
+    settings.HAM_OBJECT_STORE_BACKEND = "ham.integrations.storage.local.LocalObjectStore"
+    return tmp_path
+
+
+def _step_payload(**overrides) -> dict:
+    steps = {
+        "need": {"need_category": "roof_or_ceiling", "description": "Water leaks in."},
+        "home": {
+            "relationship_to_property": "owner",
+            "line1": "1400 NW Example Ave",
+            "city": "Miami",
+            "state": "FL",
+            "postal_code": "33125",
+            "property_type": "house",
+        },
+        "safety": {"hazards": ["none_known"]},
+        "reaching-you": {
+            "full_name": "Doris Palmer",
+            "phone": "(305) 555-0142",
+            "email": "doris.p@example.org",
+            "contact_preference": "email",
+            "availability": ["any_time"],
+        },
+    }
+    steps.update(overrides)
+    return steps
+
+
+def _fill_wizard(client: Client, *, no_email: bool = False, urgent: bool = False) -> None:
+    resp = client.get(reverse("web:request_help_start"))
+    assert resp.status_code == 200
+    resp = client.post(reverse("web:request_help_begin"), follow=True)
+    assert resp.status_code == 200
+    assert resp.redirect_chain[-1][0] == reverse("web:request_help_step", kwargs={"step": "need"})
+    _backdate_form_opened_at(client)
+
+    steps = _step_payload()
+    need_data = dict(steps["need"])
+    if urgent:
+        need_data["urgent_requested"] = "1"
+        need_data["urgency_reason"] = "water_or_damage"
+    resp = client.post(
+        reverse("web:request_help_step", kwargs={"step": "need"}), need_data, follow=True
+    )
+    assert resp.status_code == 200, resp.content
+
+    resp = client.post(
+        reverse("web:request_help_step", kwargs={"step": "home"}), steps["home"], follow=True
+    )
+    assert resp.status_code == 200, resp.content
+
+    resp = client.post(
+        reverse("web:request_help_step", kwargs={"step": "safety"}), steps["safety"], follow=True
+    )
+    assert resp.status_code == 200, resp.content
+
+    reaching = dict(steps["reaching-you"])
+    if no_email:
+        # M5/Q-099: availability is required even on the no-email path.
+        reaching = {
+            "full_name": reaching["full_name"],
+            "phone": reaching["phone"],
+            "no_email": "1",
+            "availability": reaching["availability"],
+        }
+    resp = client.post(
+        reverse("web:request_help_step", kwargs={"step": "reaching-you"}), reaching, follow=True
+    )
+    assert resp.status_code == 200, resp.content
+
+
+def _review_page(client: Client) -> bytes:
+    resp = client.get(reverse("web:request_help_step", kwargs={"step": "review"}))
+    assert resp.status_code == 200
+    return resp.content
+
+
+class TestFullEmailFlow:
+    def test_form_to_secure_page_and_one_photo(self, client: Client, local_storage):
+        _fill_wizard(client)
+        html = _review_page(client)
+        assert b"Send request" in html
+
+        mail.outbox.clear()
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {"attested_statements": ["owner_authority", "responsibility"]},
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert len(mail.outbox) == 1
+
+        challenge = RequesterVerificationChallenge.objects.get(
+            purpose="intake", email_key=otp.hash_value("doris.p@example.org")
+        )
+        challenge.code_hash = otp.hash_value("111222")
+        challenge.save(update_fields=["code_hash"])
+
+        resp = client.post(reverse("web:request_help_verify"), {"code": "111222"}, follow=True)
+        assert resp.status_code == 200, resp.content
+        secure_url = resp.redirect_chain[-1][0]
+        assert secure_url.startswith("/request-help/r/")
+        assert b"HAM #" in resp.content
+        # FIX-C: the greeting/status now render through `status_sentence` (a template
+        # variable) on the welcome page too, not literal template text, so the apostrophe is
+        # HTML-escaped like everywhere else a variable renders it.
+        assert b"We&#x27;ve received your request" in resp.content
+
+        # Drains the duplicate-check job `submit_request` deferred, so it doesn't leak into a
+        # later test's `run_due_jobs_now()` call.
+        run_due_jobs_now()
+
+        token = secure_url.split("/request-help/r/")[1].split("?")[0]
+
+        # R9: reserve + PUT + complete one photo.
+        photos_resp = client.get(reverse("web:request_help_photos", kwargs={"token": token}))
+        assert photos_resp.status_code == 200
+
+        # Security review M2: the presigned PUT is signed for the exact declared length, so
+        # the body below must be exactly that many bytes.
+        photo_body = b"\xff\xd8\xff" * 10
+        reserve_resp = client.post(
+            reverse("web:request_help_media_reserve", kwargs={"token": token}),
+            data=json.dumps(
+                {
+                    "files": [
+                        {
+                            "media_kind": "photo",
+                            "content_type": "image/jpeg",
+                            "declared_bytes": len(photo_body),
+                        }
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert reserve_resp.status_code == 200, reserve_resp.content
+        reserved = json.loads(reserve_resp.content)["files"][0]
+
+        put_path = reserved["put_url"].split("http://testserver", 1)[-1]
+        put_resp = client.put(put_path, data=photo_body, content_type="image/jpeg")
+        assert put_resp.status_code == 204
+
+        complete_resp = client.post(reserved["complete_url"])
+        assert complete_resp.status_code == 200, complete_resp.content
+        assert json.loads(complete_resp.content)["status"] == "uploaded"
+
+        secure_resp = client.get(reverse("web:request_help_secure_page", kwargs={"token": token}))
+        assert secure_resp.status_code == 200
+        assert b"Photos" in secure_resp.content
+
+
+def _backdate_form_opened_at(client: Client) -> None:
+    """S2.7's min-fill-time anti-abuse check (`ham.requester_portal.antiabuse`) is keyed off
+    when the whole form was started (session, set by `request_help_begin`), not real wall-clock
+    time elapsed while a test drives the client instantly -- backdate it so these tests never
+    trip the "treated as a robot" branch (docs/ux/intake.md §9)."""
+    import datetime as dt
+
+    from ham.platform.clock import now as clock_now
+    from ham.requester_portal import antiabuse
+    from ham.rules import RULES
+    from ham.web.views_requester import _SESSION_FORM_OPENED_AT
+
+    opened_at = clock_now() - RULES.intake.INTAKE_MIN_FILL_TIME - dt.timedelta(seconds=1)
+    session = client.session
+    session[_SESSION_FORM_OPENED_AT] = antiabuse.sign_form_opened_at(now=opened_at)
+    session.save()
+
+
+class TestNoEmailFlow:
+    def test_saves_without_a_code_and_shows_r7n(self, client: Client):
+        _fill_wizard(client, no_email=True)
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {"attested_statements": ["owner_authority", "responsibility"]},
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_saved")
+        assert b"HAM #" in resp.content
+        assert b"call you" in resp.content
+
+
+class TestStepValidation:
+    def test_missing_required_field_shows_inline_error_and_keeps_answers(self, client: Client):
+        client.get(reverse("web:request_help_start"))
+        client.post(reverse("web:request_help_begin"))
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "need"}),
+            {"need_category": "", "description": ""},
+        )
+        assert resp.status_code == 422
+        assert b"Choose what kind of help" in resp.content
+
+
+class TestUnknownToken:
+    def test_unknown_token_shows_neutral_page(self, client: Client):
+        resp = client.get(
+            reverse("web:request_help_secure_page", kwargs={"token": "not-a-real-token"})
+        )
+        assert resp.status_code == 200
+        assert b"couldn&#x27;t open this page" in resp.content or b"could" in resp.content
+
+
+class TestFindMyRequest:
+    def test_same_response_regardless_of_match(self, client: Client):
+        resp = client.post(reverse("web:request_help_find"), {"email": "nobody@example.org"})
+        assert resp.status_code == 200
+        assert b"Check your email" in resp.content
+
+
+class TestLinkExpiredAndNewLink:
+    def test_expired_link_offers_masked_email_then_new_link(self, client: Client, local_storage):
+        # Build a real request+link the fast way (service layer), then supersede it.
+        import uuid
+
+        from ham.authz.context import RequesterContext
+        from ham.requester_portal import services
+        from ham.requester_portal.models import RequesterAccessLink
+        from ham.requests.certifications import required_statements
+        from ham.requests.services import SubmittedRequestPayload, submit_request
+        from ham.requests.states import VerificationMethod
+
+        payload = SubmittedRequestPayload(
+            full_name="Expired Link Test",
+            phone="+13055550199",
+            email="expired@example.org",
+            line1="1 Test St",
+            city="Miami",
+            state="FL",
+            postal_code="33101",
+            property_type="single_family_home",
+            relationship_to_property="owner",
+            need_category="plumbing",
+            preferred_contact_method="email",
+            attested_statements=required_statements("owner"),
+            verification_method=VerificationMethod.EMAIL_CODE,
+            verified_value="expired@example.org",
+        )
+        ctx = RequesterContext(request_id=None)
+        request = submit_request(
+            ctx, draft_id=uuid.uuid4(), verification_id=uuid.uuid4(), payload=payload
+        )
+        issued = services.issue_link(request_id=request.id, kind=RequesterAccessLink.KIND_INITIAL)
+        old_token = issued.token
+        # Supersede it (simulating time passing / a later regeneration).
+        services.issue_link(request_id=request.id, kind=RequesterAccessLink.KIND_REGENERATED)
+
+        resp = client.get(reverse("web:request_help_secure_page", kwargs={"token": old_token}))
+        assert resp.status_code == 200
+        assert b"link has expired" in resp.content
+        assert b"e\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2@example.org" in resp.content
+
+        # Drain the setup's own emails (S2.6 "request received" / "new link") first.
+        run_due_jobs_now()
+        run_due_jobs_now()
+        mail.outbox.clear()
+        send_resp = client.post(
+            reverse("web:request_help_link_expired_send", kwargs={"token": old_token}),
+            follow=True,
+        )
+        assert send_resp.status_code == 200
+        assert send_resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert len(mail.outbox) == 1
+
+        challenge = RequesterVerificationChallenge.objects.get(
+            purpose="link_regeneration", request_id=request.id
+        )
+        challenge.code_hash = otp.hash_value("333444")
+        challenge.save(update_fields=["code_hash"])
+
+        code_resp = client.post(reverse("web:request_help_verify"), {"code": "333444"}, follow=True)
+        assert code_resp.status_code == 200, code_resp.content
+        assert code_resp.redirect_chain[-1][0].startswith("/request-help/r/")
+
+
+class TestAntiAbuseAtHttpLayer:
+    """S2.7 wires `ham.requester_portal.antiabuse`'s honeypot + min-fill-time checks into
+    `request_help_step`'s review-step POST (docs/ux/intake.md §9: "no third-party trackers or
+    CAPTCHAs"). Neither check is exercised anywhere else at the HTTP layer -- the pure logic
+    is unit-tested in isolation by `tests/requester_portal/test_antiabuse.py`, and the view
+    code that actually calls it (`ham/web/views_requester.py`'s `bot = ... or not ...` line)
+    had no test proving the two are actually wired together. A tripped check must fake the
+    exact same "success" response a real person gets (so a bot learns nothing) while sending
+    no email and creating no verification challenge (`ham.requester_portal.services.
+    submit_and_issue_link` is therefore never reached with credentials no one asked for)."""
+
+    def test_honeypot_field_filled_fakes_success_and_sends_nothing(self, client: Client):
+        from ham.requester_portal import antiabuse
+
+        _fill_wizard(client)
+        mail.outbox.clear()
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {
+                "attested_statements": ["owner_authority", "responsibility"],
+                antiabuse.HONEYPOT_FIELD_NAME: "https://spam.example",
+            },
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert mail.outbox == []
+        assert not RequesterVerificationChallenge.objects.filter(purpose="intake").exists()
+
+    def test_submitting_faster_than_min_fill_time_fakes_success_and_sends_nothing(
+        self, client: Client
+    ):
+        client.get(reverse("web:request_help_start"))
+        client.post(reverse("web:request_help_begin"), follow=True)
+        # Deliberately skip `_backdate_form_opened_at`: the session's real "form opened at"
+        # timestamp is only moments old -- faster than any real person could fill 4 steps.
+        steps = _step_payload()
+        for step_name in ("need", "home", "safety", "reaching-you"):
+            client.post(
+                reverse("web:request_help_step", kwargs={"step": step_name}),
+                steps[step_name],
+                follow=True,
+            )
+        mail.outbox.clear()
+        resp = client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {"attested_statements": ["owner_authority", "responsibility"]},
+            follow=True,
+        )
+        assert resp.status_code == 200, resp.content
+        assert resp.redirect_chain[-1][0] == reverse("web:request_help_verify")
+        run_due_jobs_now()
+        assert mail.outbox == []
+        assert not RequesterVerificationChallenge.objects.filter(purpose="intake").exists()

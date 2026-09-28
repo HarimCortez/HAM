@@ -32,6 +32,18 @@ STEP_UP_ACTION_LABELS = {
     "me.sign_in_email.change": "Change sign-in email",
 }
 
+MEDIA_TYPE_LABELS = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/heic": "HEIC",
+    "image/heif": "HEIF",
+    "image/webp": "WebP",
+    "video/mp4": "MP4",
+    "video/quicktime": "MOV",
+}
+
+_MEGABYTE = 1024 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class RuleRow:
@@ -96,6 +108,10 @@ def format_value(value: object, unit: str = "", key: str = "", unit_one: str = "
         return _join([ROLE_LABELS.get(str(v), str(v)) for v in value])
     if key.endswith("STEP_UP_ACTIONS") and isinstance(value, tuple):
         return _join([STEP_UP_ACTION_LABELS.get(a, a) for a, _kind in value])
+    if key.endswith("_TYPES") and isinstance(value, tuple):
+        return _join([MEDIA_TYPE_LABELS.get(str(v), str(v)) for v in value])
+    if key.endswith("_BYTES") and isinstance(value, int) and value % _MEGABYTE == 0:
+        return f"{value // _MEGABYTE} MB"
     if isinstance(value, tuple):
         text = _join([str(v) for v in value])
         return f"{text} {unit}".strip()

@@ -1,0 +1,16 @@
+{% comment %}
+Step header (design-system/components.md C§21): eyebrow "Step N of 5 · Title" + progress bar.
+Context: step_number, step_count, step_title.
+{% endcomment %}
+<div class="step-header">
+  {% comment %}
+  FIX-D (visual QA Minor 6): "Last step" is R8's own eyebrow (a different, non-wizard screen,
+  not this partial) -- R6 is step 5 of 5 like every other step here, not "last".
+  {% endcomment %}
+  <p class="step-header__eyebrow">
+    Step {{ step_number }} of {{ step_count }} &middot; {{ step_title }}
+  </p>
+  <div class="step-header__progress" aria-hidden="true">
+    <div class="step-header__progress-fill" style="width: {% widthratio step_number step_count 100 %}%"></div>
+  </div>
+</div>

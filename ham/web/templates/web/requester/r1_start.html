@@ -1,0 +1,54 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Ask for help &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Ask for help with your home</h1>
+  <p>Our church's men's ministry helps with repairs and safety work for people who can't
+    manage it alone. Anyone may ask. There's no cost to ask.</p>
+
+  <div class="inline-alert inline-alert--attention" role="status">
+    <p><strong>In danger right now?</strong> Fire, a gas smell, sparking wires or flooding:
+      call <a href="tel:911">911</a> first.</p>
+  </div>
+
+  {% comment %}
+  FIX-H M2: below 1280 the "Good to know" aside used to render after the sticky bar, so it
+  scrolled up underneath it. Moved above the form(s) so it's always before the bar in DOM/
+  reading order; the >=1280 grid (shell.css, keyed off `.wizard-aside`) still puts it in its
+  own side column regardless of this position.
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" %}
+
+  {% if has_resume %}
+    <div class="inline-alert inline-alert--info" role="status">
+      <p>You started a request on this browser.</p>
+    </div>
+    <div class="public-card__links">
+      <button class="link-button" type="submit" form="start-over-form">Start over</button>
+    </div>
+    <form method="post" action="{% url 'web:request_help_begin' %}">
+      {% csrf_token %}
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit">Continue my request</button>
+      </div>
+    </form>
+    <form method="post" id="start-over-form" action="{% url 'web:request_help_start_over' %}"
+          onsubmit="return confirm('Start over? Your saved answers will be erased.');">
+      {% csrf_token %}
+    </form>
+  {% else %}
+    <p>Takes about 5 minutes. Have your address and a phone number ready. We'll email you a
+      code to confirm it's you. No email? That's OK too.</p>
+    <div class="public-card__links">
+      <p><a href="{% url 'web:request_help_find' %}">Already asked? Check on your request</a></p>
+      {% if church.phone %}<p>Prefer to talk? <a href="tel:{{ church.phone }}">Call {{ church.phone }}</a>.</p>{% endif %}
+    </div>
+    <form method="post" action="{% url 'web:request_help_begin' %}">
+      {% csrf_token %}
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit">Start</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

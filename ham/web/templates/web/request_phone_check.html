@@ -1,0 +1,72 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Record a phone check · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Phone check{% endblock %}
+{% comment %}
+N-M2/M10: this is a full-screen sheet with its own sticky action bar (Verified by phone
+call). Drop the fixed bottom nav so the two sticky bars don't stack and hide the primary
+button behind the tab bar at <1024.
+{% endcomment %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Record a phone check &middot; {{ request_row.display_number }}</h1>
+    <p>Call the person who asked and confirm they made this request. Then record it here.</p>
+    <p class="locked-note"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> {% if is_director %}Leadership only{% else %}Leadership only &middot; viewing is logged{% endif %}</p>
+    <p><strong>{{ revealed.full_name }}</strong> &middot; <span class="u-wrap-anywhere">{{ revealed.phone|phone_national }}</span></p>
+    {% if contact_note %}<p class="text-secondary u-wrap-anywhere">{{ contact_note }}</p>{% endif %}
+
+    <p>
+      <a class="btn btn--secondary btn--full-mobile" href="tel:{{ revealed.phone }}" aria-label="Call {{ revealed.full_name }}, {{ revealed.phone|phone_national }}">
+        <svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg>
+        Call {{ revealed.phone|phone_national }}
+      </a>
+    </p>
+
+    <details class="disclosure">
+      <summary>What to say</summary>
+      <div class="quiet-block">
+        <p>"Hello, this is {your first name} from the Home Assistance Ministry at
+        {{ church.name }}. We received a request for help with your home, number
+        {{ request_row.display_number }}. Did you ask us for help? &hellip; Is this the best
+        number for us to call you with updates?"</p>
+      </div>
+    </details>
+
+    {% if is_impersonating %}
+      <p class="locked-note">Phone checks can't be recorded while acting as someone else.</p>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <fieldset class="form-field">
+          <legend class="visually-hidden">Confirm the phone check</legend>
+          <label class="choice-card choice-card--statement">
+            <input type="checkbox" name="confirmed">
+            <span>I spoke with {{ revealed.full_name }} by phone, and they confirmed they
+            asked for this help.</span>
+          </label>
+        </fieldset>
+        <p class="text-secondary">
+          What happens next: {{ request_row.display_number }} goes to the pastors and Board
+          for review. They won't get an email, so please tell them that.
+        </p>
+        <div class="action-bar">
+          <div class="action-bar__inner">
+            <button class="btn btn--primary" type="submit">Verified by phone call</button>
+          </div>
+        </div>
+      </form>
+    {% endif %}
+
+    <p>
+      <a href="{% url 'web:request_close' request_id=request_row.id %}?reason=spam&amp;note=">They didn't ask for this &rsaquo;</a>
+    </p>
+    <p>
+      <a href="{% url 'web:request_close' request_id=request_row.id %}?reason=requester_withdrew&amp;note=">They no longer need help &rsaquo;</a>
+    </p>
+    <p class="text-secondary">No answer? Nothing to record. It stays on the list so you or a colleague can try again.</p>
+  </div>
+{% endblock %}

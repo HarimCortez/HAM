@@ -1,0 +1,32 @@
+{% extends "web/base_public.html" %}
+{% load web_extras %}
+
+{% block title %}Check on your request &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  {% if submitted_email %}
+    <h1>Check your email</h1>
+    <p>If we have a request under <strong>{{ submitted_email }}</strong>, we've sent a link to
+      open it. It can take a minute.</p>
+    {% if church.phone %}<p><a href="tel:{{ church.phone }}">Didn't get it? Call {{ church.phone|phone_national }}</a></p>{% endif %}
+  {% else %}
+    <h1>Check on your request</h1>
+    <form method="post">
+      {% csrf_token %}
+      {# Anti-abuse (docs/ux/intake.md §9): honeypot + minimum fill time, fail silently. #}
+      <div class="visually-hidden" aria-hidden="true">
+        <label for="id_{{ honeypot_field }}">Leave this field blank</label>
+        <input type="text" id="id_{{ honeypot_field }}" name="{{ honeypot_field }}" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="form-field">
+        <label for="id_email">Email</label>
+        <input type="email" id="id_email" name="email" autocomplete="email" required>
+      </div>
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <button class="btn btn--primary" type="submit">Email me a link</button>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

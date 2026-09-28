@@ -139,3 +139,109 @@ For requester name, address, phone, circumstances, and license numbers when the 
 - **Reveal on demand** (design proposal, not yet a numbered PRD question; only where the UX spec hides a value by default from a role that is allowed to see it): Ghost button "Show address" (`eye` icon); reveal is audited — add small `text.tertiary` note "Viewing is logged". Re-hides on navigation.
 - Partial reveal (design proposal): only where the UX spec/PRD permits, e.g. general area before assignment per Q-004. Show the permitted part + lock icon for the rest.
 - Never used in Google Calendar, dashboards or reports — those simply omit the field.
+
+---
+
+# Additions for step 2 (Intake), v1.3
+
+Used by `design-system/screens/intake.md`. Class names are proposals in the same BEM style as `ham/web/static/web/shell.css`; reuse existing classes (`.btn--*`, `.chip--*`, `.inline-alert--*`, `.card`, `.form-field`, `.list-detail`, `.sheet`) wherever they already fit. New tokens in v1.3: `--ham-breakpoint-short`, `--ham-size-{icon-xl, list-row-min, chip, chip-lg, choice-card-min, code-input-max, dropzone-height, progress-height, accent-bar, empty-max, modal-sm, modal-md, split-list, split-list-min, split-list-max, step-rail, aside, wizard-max, requester-wide-max}`, `--ham-type-code-entry-*`, `--ham-shadow-bar-top`. (`shell.css` already reads `--ham-size-chip`, `--ham-size-empty-max` and `--ham-size-modal-sm` with fallbacks; the fallbacks can now go.)
+
+**Large-text contract (requester pages).** Every component below must work for a 390px phone with the browser/OS text size at 200% *and* at 200% page zoom (≈195 CSS px wide), with no horizontal page scroll:
+- Heights are `min-height`, never `height`, so controls grow with their text. Labels wrap; nothing truncates except record titles.
+- Any value that can be long and unbroken (email addresses, street lines, file names) gets `overflow-wrap: anywhere`.
+- Multi-column grids use **container queries on the grid**, not viewport media queries, so they collapse to one column when the text is large (thresholds in `em`, which scale with the text).
+- Icons in cards and chips are sized in `em` relative to the label (1.25em) with the `--ham-size-icon-*` value as the minimum, so they scale with the text instead of looking tiny.
+
+## 19. Choice card, choice chip (radio / checkbox as a big target)
+For "What kind of help?", "Whose home is it?", "Type of home", hazards (R4), "This is urgent" and the certification ticks.
+- **Anatomy (`.choice-card`):** a real `<input type="radio|checkbox">` inside a `<label>` that is the whole card. Left: the 24px control (`accent-color: var(--ham-action-primary-bg)`); optional icon (`--ham-size-icon-lg`, `text.secondary`); label (`type-body-lg` 600 on requester pages, `type-label` in the app); optional hint line (`type-body` on requester pages / `type-small` in the app, `text.secondary`).
+- **Box:** `bg.surface`, 1.5px `border.strong`, `radius-md`, padding `space-3` block / `space-4` inline, gap `space-3`, `min-height: var(--ham-size-choice-card-min)`, text top-aligned with the control.
+- **States:** hover (pointer) `bg.hover`; focus-visible = focus ring on the **card** (`:has(:focus-visible)`), not only the tiny control; **selected** `bg.selected` + 2px `border.selected` (inset so the size doesn't jump) + icon and label `text.brand`; disabled `bg.sunken`, `text.disabled`, reason as text below the group; error: the fieldset (not each card) gets the error message above the cards and a 2px `tone.danger.icon` left rule on the group.
+- **Grid (`.choice-grid`):** CSS grid, gap `space-2` (requester) / `space-3` (roomy). Columns by container query: `repeat(auto-fill, minmax(min(100%, 11em), 1fr))`. At 390 with normal text this gives 2 columns for short labels; at 200% text it gives 1. Long-label groups (relationship, certification, hazard "None") are always 1 column.
+- **Exclusive card** (`.choice-card--exclusive`, "None that I know of"): full width, separated from the grid by `space-4` and a `text.secondary` "or" line (`type-body`), `shield-check` icon. Ticking it clears the others and vice versa; a visually hidden `aria-live="polite"` line announces what was cleared.
+- **Reveal card** ("This is urgent"): a checkbox card whose checked state reveals content directly below it, inside the same visual group (`space-3` gap, left 2px `border.selected` rule on the revealed area). The revealed area is in the DOM after the card, not in a popover.
+- **Certification tick** (`.choice-card--statement`): 1 column, label `type-body-lg` **400** (it's a sentence, not a title), bold only on the inserted owner name. Never pre-ticked.
+- **Choice chip (`.choice-chip`):** for multi-select sets of short answers ("Why is it urgent?", visit days and times). Pill `radius-pill`, `min-height: var(--ham-size-target-min)`, padding-inline `space-4`, `type-label`, 1.5px `border.strong`, `bg.surface`; selected = `bg.selected` + `border.selected` + leading `check` icon (the icon is the non-color signal). Wraps (`flex-wrap`, gap `space-2`). A chip that is really a single choice (radio) uses the same look with `role` from the native radio.
+- **A11y:** every set is a `fieldset` + `legend` (`type-label`, or `type-h3` when it's the step's main question); hints linked with `aria-describedby`. No custom ARIA widgets.
+- **Don't:** use cards for more than ~10 options; use a toggle for a one-off tick; put a link inside a card label (the whole card is the label).
+
+## 20. Code input (6-digit email code)
+- **Anatomy (`.code-input`):** label "Code from your email" (`type-label`) → one `<input>` (`inputmode="numeric"`, `autocomplete="one-time-code"`, `maxlength` large enough for pasted spaces) → helper (`type-body`, `text.secondary`) → error.
+- **Box:** `max-width: var(--ham-size-code-input-max)`, width 100%, `min-height: var(--ham-size-control-lg)`, `type-code-entry` (tabular-nums, `font-feature-settings: "ss02"`), centered text, 1.5px `border.strong`, `radius-md`, `bg.surface`. Placeholder none (no fake digits).
+- **Never** six separate boxes: they break paste, autofill, screen readers and large text.
+- **States:** focus = `border.selected` + ring; checking (after the 6th digit) = the Confirm button enters loading, the field goes `aria-busy` and read-only; wrong = `tone.danger.icon` border + message with tries left; expired/locked = field disabled + `attention` inline alert with **Send a new code**; success = replaced by the next screen (no green flash).
+- **Narrow/large text:** a container query drops `letter-spacing` to `0.1em` below `16em` of field width so 6 digits never overflow.
+
+## 21. Step indicator (wizard header and step list)
+- **Step header (`.step-header`, every size):** eyebrow "Step 2 of 5 · The home" (`type-label`, `text.secondary`; R8 says "Last step") → progress bar (`--ham-size-progress-height`, track `bg.sunken`, fill `action.primary.bg`, `radius-pill`, `role="progressbar"` hidden from AT because the text already says it: `aria-hidden="true"`) → `h1` → quiet caption "Your answers are saved." (`type-body` on requester pages, never `type-small`; `text.tertiary`; 16px `cloud-check` icon, decorative). Spacing: eyebrow→bar `space-2`, bar→h1 `space-4`, h1→caption `space-1`, caption→first field `space-6`.
+- **Step list (`.step-list`, ≥1024 only):** an `<ol>` in a `nav aria-label="Steps"`, width `--ham-size-step-rail`, sticky at `top: calc(var(--ham-size-appbar-height) + var(--ham-space-8))`. Item: min 48px, `radius-md`, 24px step marker circle + label (`type-label`). Done: `circle-check` icon `tone.active.icon` + label as a link (`text.link`, no underline until hover) back to that step. Current: `bg.selected`, `text.brand`, 4px (`--ham-size-accent-bar`) left bar `border.selected`, `aria-current="step"`. Upcoming: `circle-dashed` `text.tertiary`, not a link.
+- Hidden below 1024; the header's text carries the progress there.
+
+## 22. Sticky action bar
+The thumb-zone home of the one primary action (P§1). Formalizes step 1's `.public-shell .form-actions` rule.
+- **Anatomy (`.action-bar`):** `position: sticky; bottom: 0`, `bg.surface`, top 1px `border.default`, `--ham-shadow-bar-top` only while content is scrolled beneath it, padding `space-3` block / `space-4` inline + `env(safe-area-inset-bottom)`, `z: --ham-z-sticky`. Contents centered to the page column (`max-width: var(--ham-size-form-max)` on requester pages).
+- **Layout:** `[Back / Start over (Ghost)] [Primary, flex: 1]`, gap `space-3` (≥ 8px apart, WCAG 2.5.8). A loading primary locks its width.
+- **Large text:** if the bar's inner width is under `22em` (container query), Back leaves the bar and renders in the form flow directly after the last field as a Ghost button; the bar holds the primary only. The bar must never exceed 25% of the viewport height: button labels are short (≤ 3 words) and never wrap to more than 2 lines. When the viewport is shorter than `breakpoint.short` (`(max-height: 480px)`, landscape phone), the bar becomes static at the end of the form.
+- **Keyboard open (mobile):** the bar stays above the on-screen keyboard (it's in normal flow with sticky, not `position: fixed`); fields scroll into view above it (`scroll-padding-bottom` = bar height).
+- **≥1024:** not sticky. The same buttons sit at the end of the form card: Ghost left, primary right (`justify-content: space-between`).
+- **With bottom nav (signed-in, <768):** sits directly above the bottom nav; bottom nav hides on scroll-down only on screens that have this bar (C§2).
+
+## 23. Review summary card (R6)
+- `.card` with a header row: section name (`type-h3`) left, **Edit** Link-style button right (`min-height` 48px, `aria-label="Edit your need"`). Body: a `kv-list` in `type-body-lg`; quoted description in `text.secondary`, clamped to 4 lines with "Show all" (the full text is also one Edit away). Highlighted value (the email or phone the code/call goes to): `type-h3` weight on its own line, `overflow-wrap: anywhere`, preceded by its lead-in line.
+- Card gap `space-3`; 1 column below 1024, 2×2 grid at ≥1280 (`grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr))`).
+
+## 24. Upload tile, drop zone, upload summary (R9; P§8)
+- **Pickers:** mobile: **Take a photo** (Primary lg, `camera`) + **Choose from my phone** (Secondary lg, `images`), stacked full width, gap `space-3`. ≥1024: **Choose photos or videos** (Secondary) inside the drop zone; **Take a photo** is hidden where there's no camera capture.
+- **Drop zone (`.dropzone`, ≥768 only):** `min-height: var(--ham-size-dropzone-height)`, 2px dashed `border.strong`, `radius-lg`, `bg.surface`, centered `upload` icon (`--ham-size-icon-lg`, `text.secondary`) + "Drag photos here, or" + the button. Drag-over: `bg.selected`, `border.selected` dashed, text "Drop to add". Works entirely without drag and drop.
+- **Tile (`.upload-tile`):** grid item, 1:1 thumbnail `radius-md`, `bg.sunken` while loading; **status strip below the image** on `bg.surface` (never text over the photo, whose colors we can't control): progress bar (`--ham-size-progress-height`, fill `action.primary.bg` on `bg.sunken`) + `type-small` status ("Uploading 60%", "Waiting to upload", "Getting your video ready…", "Uploaded" with `circle-check` `tone.success.icon`, "Couldn't upload" with `circle-alert` `tone.danger.icon` + **Retry** Link button). Remove: 48×48 icon button (`x`) at the tile's top-right on a `bg.surface` circle with `shadow-sm`, `aria-label="Remove photo 3"`. Video: `play` badge + duration ("0:42") bottom-left on a `bg.inverse` pill (`text.on-inverse`, `type-small`), which is a solid fill, so contrast holds on any image.
+- **Grid:** `repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr))`, gap `space-2`: 3-up at 390 with normal text, 1–2-up at 200% text (the minimum is in rem, so it grows with the text), 5-up in the 640 column at desktop.
+- **Summary (`.upload-summary`):** above the grid, `type-label`: "4 of 10 photos · 0 of 3 videos" (tabular-nums), plus a polite live region with "3 of 4 uploaded". Offline: `attention` inline alert with `cloud-off`.
+- **Limit reached:** pickers disabled and the reason shown as text directly under them (not a tooltip).
+
+## 25. Masked contact block (extends §18)
+Three variants of one component (`.masked-block`), all `radius-md`, padding `space-4`, `bg.sunken`, gap `space-2`.
+1. **Requester self-view (R10, `--self`):** partial values as text: "d•••@gmail.com", "(•••) •••-0142", "Street address on file · Miami 33142". Bullet characters are `aria-hidden`; a visually hidden span reads "email ending in gmail dot com". `lock` 16px + "Shown partly to keep your details private." (`type-body`, `text.secondary`). No button.
+2. **Leadership hidden (L2, `--hidden`):** header row: label "Requester & contact" (`type-h3`) + lock note ("Leadership only" or "Leadership only · viewing is logged", `type-small`, `text.secondary`, `lock` icon). Body: `lock` + "Hidden" (`type-label`, `text.secondary`) + reason "Visible to HAM leadership and approvers." (`type-small`) + the fields that are hidden, as words ("Name, phone, email, street address"). Action: **Show contact details** Secondary md (`eye`), `aria-label` includes "for HAM #047". No fake data, and nothing real sent to the client until the click.
+3. **Revealed (`--revealed`):** background switches to `bg.surface` with 1.5px `border.default`; the lock note stays (and is part of the region's accessible name). Values `type-body-lg`, `overflow-wrap: anywhere`; phone is a `tel:` link and on <1024 also a Secondary **Call** button; email a `mailto:` link. **Hide** Ghost sm. Focus moves to the "Requester & contact" heading.
+4. **No access (Administrator, `--none`):** as variant 2 without the button: "Hidden · Not shown to the Administrator role."
+- **Don't:** blur real values, use hover to reveal, or show "••••" in place of fields leadership can't see at all.
+
+## 26. Requester status card (R7, R10)
+- `.card` (`radius-lg`, padding `space-5`, `bg.surface`) with a 4px top bar in the tone's `-icon` color (`--ham-size-accent-bar`; decorative). Row: Urgent chip (if any) + status chip at `--ham-size-chip-lg`. Then the plain sentence (`type-body-lg`, `text.primary`), then "What happens next" (`type-label`) + a numbered list (`type-body-lg`, `space-2` between items).
+- **Requester chip labels and tones** (requester words from N§5; the staff chip keeps the §52 name and tone):
+
+| Staff status | Requester chip | Tone tokens | Icon |
+|---|---|---|---|
+| Submitted | Received | `--ham-tone-info-*` | `inbox` |
+| Awaiting Approval | Being reviewed | `--ham-tone-info-*` (not amber: nothing is waiting on her) | `hourglass` |
+| Cancelled | Closed | `--ham-tone-neutral-*` | `ban` |
+| (priority) | Urgent | `--ham-status-priority-urgent-*` | `siren` |
+
+  Later statuses get requester labels when their steps are designed.
+- **Success hero (R7, R7N):** above the card, a `circle-check-big` at `--ham-size-icon-xl` in `tone.success.icon` (decorative, `aria-hidden`) and the h1. No confetti, no animation beyond the normal enter.
+
+## 27. Action card ("Things we need from you", R10) and attention card (leadership Home)
+- **Action card (`.action-card`):** `.card` with left `--ham-size-accent-bar` in `tone.attention.icon`; title `type-h3`; one sentence `type-body-lg`; optional reason from HAM in a quote block (`bg.sunken`, `radius-sm`, padding `space-3`, prefixed "HAM asked:" in `type-label`); one button (Primary lg, full width on mobile). The first action card's button is the page's only primary.
+- **Attention card (`.attention-card`):** C§7 row promoted to a card for Home: left accent bar in the item's tone, 24px tone icon + title (`type-label`), context line (`type-small`, `text.secondary`, e.g. "oldest waiting 1 day"), right-aligned action (Secondary sm at ≥1024, full-width Secondary md at <768). **Urgent** variant: Urgent chip before the title, accent bar `tone.danger.icon`, action becomes Primary ("Call now"). **Awareness** variant (not actionable): no bar, no button, `text.secondary` title with "Owner: pastors · awareness only" and excluded from counts (N§8.3).
+
+## 28. Request row (L1, L8) and markers
+- **Row (`.request-row`):** whole row is one link to the detail; `min-height: var(--ham-size-list-row-min)`; padding `space-3` block / `space-4` inline; `border.subtle` separators. Line 1: Urgent chip (if any) + **HAM #047 · Roof or ceiling** (`type-label`, `text.primary`; the number is `white-space: nowrap`). Line 2: status chip (`outline` variant) + age ("3 days", `type-small`, `text.secondary`, `tabular-nums`). Line 3 (only if any): markers.
+- **Marker (`.marker`):** inline icon 16px + word, `type-small`, `text.secondary`; separated by `space-3`; wrap freely. Set: `copy` "Earlier request" · `image` "4 photos" · `phone` "Updates by phone" · `phone-call` "Phone check needed" (this one uses `tone.attention.fg` text and icon, since it's the Director's to-do).
+- **Selected (split view):** `bg.selected` + left `--ham-size-accent-bar` `border.selected` + `aria-current="true"`. Hover `bg.hover`.
+- **Table form (1024–1279):** the same data as columns: Request · Status · Age · Markers; rows 52px; chip `outline`.
+- Never shows name, street, neighborhood or ZIP (Q-132).
+
+## 29. Tabs with counts (saved views)
+- `role="tablist"` only if panels switch in place; since each view is its own URL, use a `nav` of links with `aria-current="page"` (`.view-tabs`). Item: min 48px, padding-inline `space-4`, `type-label` `text.secondary`; count in a `chip--tag` style pill (`bg.sunken`, `type-chip`); current: `text.brand` + 3px bottom bar `border.selected`. Track: bottom 1px `border.default`.
+- **Mobile:** single row, horizontal scroll *inside the tab row only* (`overflow-x: auto`, `scroll-snap`), with 24px fade masks at the edges as overflow cues and the current tab scrolled into view. At 200% text the row still scrolls; the page never does.
+
+## 30. Error summary
+- `inline-alert--danger` at the top of the form, `role="alert"`, `tabindex="-1"`, receives focus on submit. Title "Please check {n} things" (`type-label`) + a list of links, each to its field ("Choose what kind of help you need"). The links use `tone.danger.fg` with an underline (not `text.link`), which is 6.80:1 on `tone.danger.bg`.
+
+## 31. Disclosure and overflow menu
+- **Disclosure (`.disclosure`):** native `<details><summary>`; summary is a 48px row, `type-label`, `text.link`, `chevron-right` rotating 90° (`duration-fast`, off under reduced motion). Content indented `space-6`, `type-body` (`type-body-lg` on requester pages).
+- **Overflow menu (`More ▾`):** Secondary md button with `ellipsis` + "More"; opens a popover menu (≥1024: `bg.surface-raised`, `radius-md`, `shadow-md`, items 48px, `type-body`) or a bottom sheet listing the same items (<1024). Menu items that open a consequential sheet end with "…".
+
+## 32. Sheet sizes (extends §14)
+- **Small** (`--ham-size-modal-sm`): L10 close, L11 more photos. **Medium** (`--ham-size-modal-md`): L9 phone check.
+- **Full-screen sheet (<768):** for sheets whose content is longer than half the screen (L9): full height, no drag handle, app-bar-style header on `bg.surface` with ✕ (48px) left and the title (`type-h3`), the body scrolls, and the primary sits in the §22 action bar.

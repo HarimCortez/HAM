@@ -22,25 +22,14 @@ from ham.authz.guard import requires_action
 from ham.identity import authn, mfa
 from ham.identity.models import User
 from ham.identity.web import handle_command_errors, safe_next_url
+from ham.platform import net
 from ham.platform.clock import now as clock_now
 from ham.rules import RULES
 
-
-def _client_ip(request: HttpRequest) -> str:
-    """Best-effort client IP for the sign-in rate limit (security review M3, round 3 N5).
-
-    A client can send its own, entirely fake `X-Forwarded-For` prefix — only the right-most
-    `settings.HAM_TRUSTED_PROXY_COUNT` hops were actually appended by proxies HAM controls
-    (Render's edge proxy adds exactly one). Trusting the *first* hop (as this used to) let
-    anyone bypass the per-IP throttle just by sending a made-up header. `HAM_TRUSTED_PROXY_COUNT
-    = 0` (no proxy in front, e.g. local dev/tests) means "ignore the header entirely"."""
-    trusted = settings.HAM_TRUSTED_PROXY_COUNT
-    if trusted > 0:
-        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
-        if len(hops) >= trusted:
-            return hops[-trusted]
-    return request.META.get("REMOTE_ADDR", "")
+# S2.0: moved to `ham.platform.net.client_ip` so `ham.requester_portal`'s own public-form rate
+# limits (intake.md §9) can reuse it without importing `ham.web`. Kept as a thin re-export
+# here (not deleted) — an existing test imports `ham.web.auth_views._client_ip` directly.
+_client_ip = net.client_ip
 
 
 def actor_of(request: HttpRequest) -> ActorContext:

@@ -48,6 +48,39 @@ h3 {
   margin: 0 0 var(--ham-space-1);
 }
 
+/* B3 (step2 visual QA): the browser default fieldset/legend (grey border, inline 16px
+   legend, `min-inline-size: min-content` that overflows at large text) has no reset
+   anywhere in the app, so every fieldset renders as an unstyled box. C§19 A11y requires
+   every choice-card/chip set to be a real fieldset+legend, so this has to work everywhere,
+   not just on requester pages. */
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+legend {
+  padding: 0;
+  width: 100%;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-3);
+}
+
+/* S§0.3: the main question of a requester step is type-h2 in the legend. */
+.public-shell fieldset > legend {
+  font: var(--ham-type-h2-weight) var(--ham-type-h2-size) / var(--ham-type-h2-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-3);
+}
+
+fieldset + fieldset,
+fieldset + .form-field,
+.form-field + fieldset {
+  margin-top: var(--ham-space-8);
+}
+
 a {
   color: var(--ham-text-link);
 }
@@ -137,6 +170,43 @@ a:hover {
 .app-bar__logo-link {
   min-height: var(--ham-size-target-min);
   padding-block: var(--ham-space-2);
+}
+
+/* --- Urgent banner (PRD §10, §35, Q-123; docs/ux/intake.md §12.3 G1) ---------------------- */
+.urgent-banner {
+  position: sticky;
+  top: var(--ham-size-appbar-height);
+  z-index: var(--ham-z-appbar);
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border-bottom: 1px solid var(--ham-tone-danger-border);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ham-space-2) var(--ham-space-4);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.urgent-banner__icon {
+  flex: none;
+  color: var(--ham-tone-danger-icon, currentColor);
+}
+
+/* N5: `flex: 1; min-width: var(--ham-size-target-min)` let the text shrink to ~80px at 390,
+   wrapping "Urgent request needs a pastor..." to 7 lines beside the buttons and making the
+   sticky banner ~22% of the viewport. Give it a sane basis to wrap *itself* onto its own line
+   at, instead of squeezing down to the tap-target minimum. */
+.urgent-banner__text {
+  flex: 1 1 16em;
+  min-width: 0;
+}
+
+.urgent-banner__actions {
+  display: flex;
+  gap: var(--ham-space-2);
+  flex: none;
 }
 
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
@@ -268,6 +338,9 @@ a:hover {
 .nav--bottom > .nav > li {
   /* Minor 1: items were left-aligned instead of sharing the row's width. */
   flex: 1;
+  /* Visual QA NM3: without this the items keep their min-content width at 200% text, so the
+     last tab ("More") was clipped by `overflow: hidden` and unreachable. */
+  min-width: 0;
 }
 
 .nav--bottom .nav__link {
@@ -279,6 +352,35 @@ a:hover {
   border-radius: 0;
   font: var(--ham-type-nav-compact-weight) var(--ham-type-nav-compact-size) /
     var(--ham-type-nav-compact-line-height) var(--ham-font-ui);
+}
+
+/* Visual QA NM3: at 200% text or ~195px the 64px-minimum tabs no longer fit, and the last tab
+   ("More") was clipped off-screen. When the bar itself is narrow, keep every tab reachable:
+   drop the minimum, keep each label as the link's accessible name (visually hidden), and
+   enlarge the icon so the tab still reads clearly. */
+.nav--bottom {
+  container-type: inline-size;
+}
+
+@container (max-width: 20em) {
+  .nav--bottom .nav__link {
+    min-width: 0;
+    padding-inline: var(--ham-space-1);
+  }
+
+  .nav--bottom .nav__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .nav--bottom .nav__icon {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 /* Minor 1: the selected tab gets a 32x4px pill above the icon, not just the fill
@@ -407,8 +509,11 @@ a:hover {
   color: var(--ham-text-secondary);
 }
 
-.empty-state h3 {
-  /* M11: titles read as text.primary; only the body copy is secondary. */
+.empty-state h3,
+.empty-state h2 {
+  /* M11: titles read as text.primary; only the body copy is secondary. Some empty states
+     use h2 instead of h3 to keep heading order correct when there's no h2 above them on the
+     page (axe heading-order, requests_list.html). */
   color: var(--ham-text-primary);
 }
 
@@ -493,6 +598,39 @@ a:hover {
   line-height: var(--ham-type-body-lg-line-height);
 }
 
+/* B2 (step2 visual QA): any user-typed value (email, street, description, a pasted URL,
+   file names) has no maximum word length, and without this it forces the whole page to
+   scroll sideways -- worst at 200% text where `.summary-card__highlight` was previously the
+   only element with the rule. Applied broadly rather than per-element so a future field
+   doesn't reintroduce the bug. */
+.public-shell p,
+.public-shell dd,
+.public-shell li,
+.public-shell .form-field__help,
+.request-detail p,
+.request-detail dd,
+.request-detail li,
+.u-wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* FIX-H polish: a formatted phone number ((305) 555-0177) is short and bounded -- unlike the
+   arbitrary long values `.u-wrap-anywhere` guards against, it should never break mid-number. */
+.u-nowrap {
+  white-space: nowrap;
+}
+
+/* M8: requester metadata (kv-list labels, field helpers, field errors) never drops below
+   type-body -- these were inheriting the app-wide type-small size meant for the leadership
+   side. */
+.public-shell .kv-list dt,
+.public-shell .form-field__help,
+.public-shell .form-field__error,
+.public-shell li {
+  font-size: var(--ham-type-body-size);
+  line-height: var(--ham-type-body-line-height);
+}
+
 /* M4: on mobile the primary action sits in a sticky full-width bar so it's always reachable
    without scrolling past a keyboard; secondary actions (Resend, Sign out) stay left-aligned
    in their own row below the form, not inside this bar. */
@@ -557,14 +695,24 @@ a:hover {
   background: var(--ham-action-secondary-bg-hover);
 }
 
+/* Minor 11: the pale danger-tint look reads as informational, not as the app's one
+   destructive action (L10 Close request). Solid fill instead, same pattern as `.btn--primary`. */
 .btn--danger {
-  background: var(--ham-tone-danger-bg);
-  color: var(--ham-tone-danger-fg);
-  border: 1.5px solid var(--ham-tone-danger-border);
+  background: var(--ham-tone-danger-icon);
+  color: var(--ham-text-on-primary);
+  border: none;
 }
 
 .btn--danger:hover {
-  background: var(--ham-tone-danger-border);
+  background: var(--ham-tone-danger-fg);
+}
+
+/* M10 (L9 phone check): a Secondary that goes full width below 768, e.g. the "Call" button
+   -- large, unambiguous target on the phone a Director actually uses in the field. */
+@media (max-width: 767px) {
+  .btn--full-mobile {
+    width: 100%;
+  }
 }
 
 /* M4/M9: Ghost — no fill, no border, used for a page's least-important action (Sign out on
@@ -723,6 +871,27 @@ input[type="radio"] {
   margin: 0;
 }
 
+/* Optional leading icon (C§11): wraps everything else in one child so the icon can sit to
+   its left without disturbing the plain column layout every other `.inline-alert` still
+   relies on. */
+.inline-alert:has(> .inline-alert__icon) {
+  flex-direction: row;
+  gap: var(--ham-space-3);
+}
+
+.inline-alert__icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.inline-alert:has(> .inline-alert__icon) > :not(.inline-alert__icon) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  flex: 1;
+  min-width: 0;
+}
+
 .inline-alert--info {
   background: var(--ham-tone-info-bg);
   color: var(--ham-tone-info-fg);
@@ -739,6 +908,14 @@ input[type="radio"] {
   background: var(--ham-tone-attention-bg);
   color: var(--ham-tone-attention-fg);
   border-color: var(--ham-tone-attention-border);
+}
+
+/* S2.8 (design-system/screens/intake.md §4 L2 "Cancelled"): a closed request's banner is
+   neither an error nor a success — never danger/attention (docs/ux/intake.md L5 alert rule). */
+.inline-alert--neutral {
+  background: var(--ham-tone-neutral-bg);
+  color: var(--ham-tone-neutral-fg);
+  border-color: var(--ham-tone-neutral-border);
 }
 
 .inline-alert--danger {
@@ -758,6 +935,8 @@ input[type="radio"] {
   border: 1px solid;
   font: var(--ham-type-chip-weight) var(--ham-type-chip-size) / var(--ham-type-chip-line-height)
     var(--ham-font-ui);
+  /* M13: a status chip must never wrap into a 2-line pill on a narrow row. */
+  white-space: nowrap;
 }
 
 .chip__icon {
@@ -803,13 +982,34 @@ input[type="radio"] {
   border-color: var(--ham-tone-danger-border);
 }
 
+/* M13: L1/L8 rows use the outline variant of the same tone (C§28 "status chip (outline
+   variant) + age") instead of a plain grey `chip--tag`, so a status reads the same tone on
+   the row as it does on the detail header. */
+.chip--outline {
+  background: transparent;
+}
+
+/* C§26 requester status chip. */
+.chip--lg {
+  height: var(--ham-size-chip-lg, 32px);
+  padding-inline: var(--ham-space-4);
+}
+
 /* Filter bar (patterns.md §3) */
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ham-space-2);
+  gap: var(--ham-space-3);
   align-items: center;
   margin-bottom: var(--ham-space-5);
+}
+
+/* L1 groups each label+control in its own `.filter-bar__field` column (M16); align those
+   columns to their bottom edge so the controls line up even when one column's label wraps
+   and another's doesn't. Other `.filter-bar` users (audit log, admin users) don't use
+   `.filter-bar__field` and keep the plain centered baseline above. */
+.filter-bar:has(.filter-bar__field) {
+  align-items: end;
 }
 
 .filter-bar select,
@@ -822,6 +1022,7 @@ input[type="radio"] {
   color: var(--ham-text-primary);
   font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
     var(--ham-font-ui);
+  min-width: 0;
 }
 
 .filter-bar label {
@@ -829,13 +1030,68 @@ input[type="radio"] {
     var(--ham-font-ui);
 }
 
+/* M16: a label and its control never separate onto different lines/rows -- each pair is its
+   own flex column, and the bar itself wraps pair-by-pair instead of label/select drifting
+   apart independently. */
+.filter-bar__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  min-width: 0;
+  flex: 1 1 10em;
+}
+
+.filter-bar__field--search {
+  flex: 2 1 14em;
+}
+
+.filter-bar__submit {
+  flex: none;
+}
+
 @media (max-width: 767px) {
   .filter-bar,
+  .filter-bar__field,
   .filter-bar select,
   .filter-bar input {
     width: 100%;
   }
 }
+
+/* M16: filters collapse behind a disclosure at <768 so they don't push the list below the
+   fold; the trigger shows the active filter count. At >=768 the disclosure is always open
+   and looks like a normal inline bar. */
+.filter-bar-sheet {
+  margin-bottom: var(--ham-space-5);
+}
+
+.filter-bar-sheet__trigger {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .filter-bar-sheet__trigger {
+    display: flex;
+    align-items: center;
+    min-height: var(--ham-size-target-min);
+    color: var(--ham-text-link);
+    cursor: pointer;
+    font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+      var(--ham-font-ui);
+  }
+
+  .filter-bar-sheet .filter-bar {
+    margin-top: var(--ham-space-2);
+    margin-bottom: var(--ham-space-3);
+  }
+}
+
+/* N1: the <details> is server-rendered `open` (requests_list.html) so the filter bar is
+   always in the accessibility tree and passes checkVisibility() at >=768 without depending on
+   CSS to reveal a closed <details> -- Chromium 131+ hides closed <details> content through its
+   ::details-content slot in a way `display` can't override. `.filter-bar-sheet__trigger`'s
+   `display: none` default (above) already hides the disclosure triangle at >=768; a small
+   inline script in requests_list.html collapses the sheet back down on mobile viewports only. */
 
 .filter-bar__summary {  color: var(--ham-text-secondary);
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
@@ -916,12 +1172,29 @@ input[type="radio"] {
   display: block;
 }
 
+/* Below 1280 the detail pane is server-rendered but not shown inline (rows link to the
+   standalone detail page instead, design-system/screens/intake.md §4 L1 "1024-1279: table...
+   Row click opens L2 full page"). */
+.list-detail .split-detail {
+  display: none;
+}
+
 @media (min-width: 1280px) {
   .list-detail {
     display: grid;
-    grid-template-columns: minmax(360px, 420px) 1fr;
+    grid-template-columns: minmax(var(--ham-size-split-list-min), var(--ham-size-split-list-max)) 1fr;
     gap: var(--ham-space-6);
     align-items: start;
+  }
+
+  .list-detail .split-detail {
+    display: block;
+    /* M12: the detail pane scrolls on its own, independent of the row list beside it, and
+       stays reachable without scrolling the whole page past the app bar. */
+    position: sticky;
+    top: calc(var(--ham-size-appbar-height) + var(--ham-space-4));
+    max-height: calc(100vh - var(--ham-size-appbar-height) - var(--ham-space-8));
+    overflow-y: auto;
   }
 }
 
@@ -1016,6 +1289,26 @@ input[type="radio"] {
   color: var(--ham-text-tertiary);
 }
 
+/* Visual QA / axe heading-order: lets a heading's *element* follow correct nesting (h1 -> h2
+   -> h3, never a skip) while its *look* stays whatever the design calls for -- e.g. R6's
+   summary-card titles are semantically h2 (no h2 exists between the page h1 and them) but
+   should still read visually like h3. */
+.type-h3 {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-1);
+}
+
+.type-label {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.type-body {
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
+}
+
 /* Minor 12: spacing utilities, so page templates stop reaching for inline `style=` (still
    tokens only, never a literal px value). */
 .mt-4 {
@@ -1054,6 +1347,11 @@ input[type="radio"] {
 .home-grid {
   display: grid;
   gap: var(--ham-space-6);
+}
+
+.home-grid > * {
+  /* Visual QA NM3: grid items default to min-width:auto and pushed the page wide at 200% text. */
+  min-width: 0;
 }
 
 .home-grid > div > .card,
@@ -1122,4 +1420,1160 @@ input[type="radio"] {
   border: 1px solid var(--ham-border-default);
   border-radius: var(--ham-radius-md);
   padding: var(--ham-space-2) var(--ham-space-3);
+}
+
+/* ===========================================================================================
+   Step 2 (Intake) leadership screens L1-L11 (docs/ux/intake.md §6; design-system/screens/
+   intake.md §3-4, C§19-§32). Tokens only.
+   =========================================================================================== */
+
+/* --- Attention list (Home / Inbox "Needs response", C§27) -------------------------------- */
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-3);
+}
+
+.attention-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ham-space-2) var(--ham-space-3);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  border: 1px solid var(--ham-border-default);
+  border-left: var(--ham-size-accent-bar, 4px) solid var(--ham-tone-attention-icon);
+  border-radius: var(--ham-radius-md);
+  background: var(--ham-bg-surface);
+}
+
+.attention-card--urgent {
+  border-left-color: var(--ham-tone-danger-icon);
+}
+
+.attention-card--muted {
+  border-left: none;
+  background: transparent;
+  color: var(--ham-text-secondary);
+}
+
+.attention-card__title {
+  flex: 1;
+  /* Visual QA NM3: a bare 12em pushed Pastor Home to 551px wide at 390 + 200% text. */
+  min-width: min(12em, 100%);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+/* M17: the phone-check attention card's phone-call icon (design-system/screens/intake.md
+   "Director/AD Home"). */
+.attention-card__icon {
+  flex: none;
+  color: var(--ham-text-secondary);
+}
+
+/* Usability M13: the Inbox "Updates" row (title + relative time) uses the same link as the
+   admin index/More lists, just spread across the row instead of left-aligned. */
+.nav-list__link--split {
+  justify-content: space-between;
+}
+
+.nav-list__item--unread {
+  font-weight: 600;
+}
+
+/* --- Requests: view tabs with counts (C§29) ----------------------------------------------- */
+.view-tabs {
+  display: flex;
+  gap: var(--ham-space-2);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ham-border-default);
+  margin-bottom: var(--ham-space-4);
+}
+
+.view-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-4);
+  color: var(--ham-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 3px solid transparent;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.view-tabs__item[aria-current="page"] {
+  color: var(--ham-text-brand, var(--ham-action-primary-bg));
+  border-bottom-color: var(--ham-border-selected, var(--ham-action-primary-bg));
+}
+
+.view-tabs__count {
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  border-radius: var(--ham-radius-pill);
+  padding: 0 var(--ham-space-2);
+  font-size: var(--ham-type-chip-size, 0.75rem);
+}
+
+/* --- Request rows (L1/L8, C§28) ------------------------------------------------------------ */
+.request-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  overflow: hidden;
+  background: var(--ham-bg-surface);
+}
+
+.request-row {
+  display: block;
+  min-height: var(--ham-size-list-row-min, 64px);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  text-decoration: none;
+  color: var(--ham-text-primary);
+  border-bottom: 1px solid var(--ham-border-subtle);
+}
+
+.request-rows > li:last-child .request-row {
+  border-bottom: none;
+}
+
+.request-row:hover {
+  background: var(--ham-bg-hover);
+}
+
+/* The "selected" row style only means something once the split-view detail pane exists
+   alongside it (>=1280, P§2 v1.3); below that, every row simply links to its own full page. */
+@media (min-width: 1280px) {
+  .request-row[aria-current="true"] {
+    background: var(--ham-bg-selected);
+    /* Minor 16: an inset shadow reads as the same 4px accent bar without shifting the row's
+       text 4px to the right the way a real left border does. */
+    box-shadow: inset var(--ham-size-accent-bar, 4px) 0 0 var(--ham-border-selected);
+  }
+}
+
+.request-row__line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.request-row__number {
+  white-space: nowrap;
+}
+
+.request-row__line2 {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+  margin-top: var(--ham-space-1);
+}
+
+.request-row__markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-3);
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+  margin-top: var(--ham-space-1);
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+}
+
+.marker--attention {
+  color: var(--ham-tone-attention-fg);
+}
+
+/* --- Hazard list (L2 "Safety at the home", M1) ---------------------------------------------- */
+.hazard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.hazard-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-2);
+}
+
+.hazard-list__icon {
+  flex: none;
+  color: var(--ham-tone-attention-icon);
+  margin-top: 2px;
+}
+
+/* --- Duplicate panel (L5) ------------------------------------------------------------------ */
+.duplicate-panel {
+  list-style: none;
+  margin: var(--ham-space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.duplicate-panel__item {
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  background: var(--ham-bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.duplicate-panel__item-title {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+/* --- Masked contact block (L2, C§25) -------------------------------------------------------- */
+.masked-block {
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  background: var(--ham-bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+}
+
+.masked-block--revealed {
+  background: var(--ham-bg-surface);
+  border: 1.5px solid var(--ham-border-default);
+}
+
+.masked-block__note {
+  color: var(--ham-text-secondary);
+  font-size: var(--ham-type-small-size, 0.8125rem);
+}
+
+/* --- History timeline (L2, C§16) ------------------------------------------------------------ */
+.status-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 2px solid var(--ham-border-default);
+}
+
+.status-timeline li {
+  position: relative;
+  padding: 0 0 var(--ham-space-4) var(--ham-space-4);
+}
+
+.status-timeline li::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ham-action-primary-bg);
+}
+
+/* --- Sheet full-screen variant (<768, C§32) ------------------------------------------------- */
+@media (max-width: 767px) {
+  .sheet--fullscreen {
+    max-width: none;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+  }
+}
+
+/* === S2.7 public requester screens (C§19–§32) === */
+
+/* ==========================================================================================
+   Step 2 (Intake), S2.7: public requester screens R1-R12
+   (design-system/screens/intake.md; design-system/components.md C19-C32). Tokens only.
+   Simplified from the hi-fi spec where noted below (container queries -> media queries, the
+   desktop step-rail/aside are omitted) -- see the S2.7 handback for the full list; behavior
+   and accessibility are unaffected.
+   ========================================================================================== */
+
+/* --- Step header (C21) -------------------------------------------------------------------- */
+.step-header {
+  margin-bottom: var(--ham-space-2);
+}
+
+.step-header__eyebrow {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-2);
+}
+
+.step-header__progress {
+  height: var(--ham-size-progress-height);
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-pill);
+  overflow: hidden;
+}
+
+.step-header__progress-fill {
+  height: 100%;
+  background: var(--ham-action-primary-bg);
+  border-radius: var(--ham-radius-pill);
+}
+
+.step-header__caption {
+  color: var(--ham-text-tertiary);
+  font-size: var(--ham-type-body-size);
+  margin: var(--ham-space-1) 0 var(--ham-space-6);
+}
+
+/* --- Choice card / choice chip (C19) ------------------------------------------------------ */
+.choice-grid {
+  display: grid;
+  /* Visual QA NM1: lets narrow grids (200% text, 195px) drop the decorative icon below. */
+  container-type: inline-size;
+  /* B3: 11em (176px) needed 360px for 2 columns (2 * 176 + gap), but the content box at 390
+     is 358px -- one pixel short, so it fell back to 1 column. 10.5em (168px) fits. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5em), 1fr));
+  gap: var(--ham-space-2);
+  margin-bottom: var(--ham-space-4);
+}
+
+/* N7: icon cards (R3/R4/R5) need more room than plain-text cards (R2 categories) -- the icon
+   + radio + gaps + padding left as little as ~70px of text width at 10.5em, which is why
+   "Townhouse"/"Apartment"/"manufactured" split mid-word. Icon-less grids keep the tighter
+   10.5em (they already read fine at 2 columns / 390). */
+.choice-grid:has(.choice-card__icon) {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr));
+}
+
+.choice-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.choice-card {
+  display: flex;
+  /* M3: text top-aligned with the control (C§19 anatomy), not the control sitting ~12px
+     below the first text line. */
+  align-items: center;
+  gap: var(--ham-space-3);
+  min-height: var(--ham-size-choice-card-min);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  background: var(--ham-bg-surface);
+  border: 1.5px solid var(--ham-border-strong);
+  border-radius: var(--ham-radius-md);
+  cursor: pointer;
+  font: var(--ham-type-body-lg-size) / var(--ham-type-body-lg-line-height) var(--ham-font-ui);
+  font-weight: 600;
+  /* M3: the grid's own `gap` already sets vertical rhythm; a per-card margin-bottom on top
+     of it doubled the spacing there. Cards used standalone (L9/L10, outside `.choice-grid`)
+     still want space between them, added back below. */
+  margin-bottom: 0;
+  /* N7: `overflow-wrap: anywhere` (kept for B2's long-unbroken-value protection at 195px)
+     applies to ordinary words too, so a plain label like "Townhouse" could break mid-word in
+     the narrower icon-card columns even with room to spare. `break-word` only breaks a word
+     that would otherwise overflow (same overflow protection as `anywhere` in practice, since
+     the grid column has a hard minimum width), and `hyphens: auto` (with `lang="en"` on
+     `<html>`, base_public.html/base.html) lets the browser hyphenate instead of breaking raw
+     when it does need to. */
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+label.choice-card + label.choice-card {
+  margin-top: var(--ham-space-3);
+}
+
+.choice-grid .choice-card + .choice-card {
+  margin-top: 0;
+}
+
+.choice-card__icon {
+  flex: none;
+  width: max(1.25em, var(--ham-size-icon-lg, 24px));
+  height: max(1.25em, var(--ham-size-icon-lg, 24px));
+  color: var(--ham-text-secondary);
+}
+
+.choice-card:has(:checked) .choice-card__icon {
+  color: var(--ham-text-brand);
+}
+
+/* Visual QA NM1: at 200% text / 195px the icon + radio + gaps left too little room and labels
+   broke mid-word ("Plumbin/g"). The icon is decorative (aria-hidden), so drop it and tighten
+   the card when the grid itself is narrow. */
+@container (max-width: 22em) {
+  .choice-card__icon {
+    display: none;
+  }
+
+  .choice-card {
+    gap: var(--ham-space-2);
+    padding-inline: var(--ham-space-3);
+  }
+}
+
+.choice-card input {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+/* N7: a flex item's default `min-width` is `auto` (its content's min-content size), which for
+   `overflow-wrap: break-word` (unlike `anywhere`) stays the full unbroken word width -- the
+   label span never actually got to shrink to the space left by the icon/radio, so it just
+   overflowed past the card instead of wrapping/hyphenating. `min-width: 0` lets it shrink and
+   wrap normally. */
+.choice-card > span:last-child {
+  min-width: 0;
+}
+
+.choice-card:has(:checked) {
+  background: var(--ham-bg-selected);
+  border-color: var(--ham-border-selected);
+  color: var(--ham-text-brand);
+}
+
+.choice-card:has(:focus-visible) {
+  outline: var(--ham-size-focus-ring-width) solid var(--ham-focus-ring);
+  outline-offset: var(--ham-size-focus-ring-offset);
+}
+
+.choice-card--exclusive {
+  margin-top: var(--ham-space-2);
+}
+
+/* M3/N7: "Something else or not sure" (R2) always sits last, full width, inside the same
+   grid as the other category cards. */
+.choice-card--full {
+  grid-column: 1 / -1;
+}
+
+/* Certification tick (C§19): a sentence, not a title -- 400 weight, top-aligned since it
+   wraps to more than one line. */
+.choice-card--statement {
+  font-weight: 400;
+  align-items: flex-start;
+}
+
+.choice-card--statement input {
+  margin-top: 2px;
+}
+
+.choice-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-2);
+}
+
+.choice-chip-group--stacked {
+  flex-direction: column;
+}
+
+.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-4);
+  border-radius: var(--ham-radius-pill);
+  border: 1.5px solid var(--ham-border-strong);
+  background: var(--ham-bg-surface);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  cursor: pointer;
+}
+
+.choice-chip:has(:checked) {
+  background: var(--ham-bg-selected);
+  border-color: var(--ham-border-selected);
+}
+
+.choice-chip input {
+  /* M4: the browser default (~13px) is the hardest control to hit on the screens a Director
+     uses in the field; the chip itself is already >= size.target-min, this just makes the
+     visible control inside it big enough to see what's selected. */
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ham-action-primary-bg);
+}
+
+/* --- Code input (C20) ---------------------------------------------------------------------- */
+.code-input input {
+  max-width: var(--ham-size-code-input-max);
+  width: 100%;
+  min-height: var(--ham-size-control-lg);
+  text-align: center;
+  letter-spacing: var(--ham-type-code-entry-tracking, 0.25em);
+  font: var(--ham-type-code-entry-weight) var(--ham-type-code-entry-size) / var(--ham-type-code-entry-line-height)
+    var(--ham-type-code-entry-family, var(--ham-font-ui));
+}
+
+.type-code-entry {
+  font: var(--ham-type-code-entry-weight) var(--ham-type-code-entry-size) / var(--ham-type-code-entry-line-height)
+    var(--ham-type-code-entry-family, var(--ham-font-ui));
+}
+
+/* --- Sticky action bar (C22) ---------------------------------------------------------------- */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--ham-bg-surface);
+  border-top: 1px solid var(--ham-border-default);
+  padding: var(--ham-space-3) var(--ham-space-4) calc(var(--ham-space-3) + env(safe-area-inset-bottom, 0px));
+  margin: var(--ham-space-6) calc(var(--ham-space-4) * -1) 0;
+  z-index: var(--ham-z-sticky, 10);
+  /* FIX-F1 B1: let the @container query below react to the bar's own width, not the
+     viewport's, so it also stacks correctly inside the 1280px wizard-aside 2-column layout. */
+  container-type: inline-size;
+}
+
+.action-bar__inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-3);
+  max-width: var(--ham-size-form-max);
+  margin: 0 auto;
+}
+
+.action-bar__inner .btn--primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.action-bar__inner .btn--secondary,
+.action-bar__inner .btn--ghost {
+  flex: 0 0 auto;
+}
+
+/* FIX-F1 B1: at very large text or very narrow widths the buttons no longer fit in one row
+   (§S0.2 200% text, 195px == 390 CSS px at 200% page zoom) -- stack them full width instead
+   of letting the primary button's right edge run off-screen. `flex-wrap` above is the
+   fallback for browsers without container queries; this rule is the real fix. */
+@container (max-width: 22em) {
+  .action-bar__inner {
+    flex-direction: column;
+  }
+
+  .action-bar__inner .btn--primary,
+  .action-bar__inner .btn--secondary,
+  .action-bar__inner .btn--ghost {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* FIX-H N6: stacking BOTH buttons (Back above Primary) took up to a third of a short
+     viewport at 200% text/zoom and still covered fields while typing. Per the B1 spec, under
+     this width the bar holds the primary only -- `.action-bar__back` (Back / Start over, see
+     `.wizard-back-link` below) drops out of the bar entirely; its in-flow twin above the bar
+     takes over. */
+  .action-bar__inner .action-bar__back {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .action-bar {
+    position: static;
+    border-top: none;
+    margin: var(--ham-space-8) 0 0;
+    padding: 0;
+  }
+
+  .action-bar__inner {
+    justify-content: space-between;
+    max-width: none;
+  }
+
+  .action-bar__inner .btn--primary {
+    flex: none;
+  }
+}
+
+/* FIX-H N6: Back/Start over's in-flow twin, shown only under the 22em bar-width threshold
+   above (a plain text link in the page, above the sticky bar -- not inside `.action-bar`
+   itself, so it never adds to the sticky band's own height). `form:has(> .action-bar)` gets
+   its own size container: it isn't a descendant of `.action-bar`, so it needs one to react to
+   the same threshold (its width tracks the form's content column, same as the bar's own
+   content -- only the bar's full-bleed background differs, which doesn't move this
+   threshold at the tested widths). */
+form:has(> .action-bar) {
+  container-type: inline-size;
+}
+
+.wizard-back-link {
+  display: none;
+  margin: 0 0 var(--ham-space-3);
+}
+
+@container (max-width: 22em) {
+  .wizard-back-link {
+    display: block;
+  }
+}
+
+/* FIX-H M2: on short public pages (R8, R11b, R12...) the sticky action bar used to sit
+   mid-screen with empty canvas below it, because `.public-shell__content` only ever sizes the
+   card to its own content (`align-items: flex-start`). Below 1024 (where the bar is sticky
+   anyway; >=1024 is already static, non-floating), stretch the card -- and whichever box
+   directly wraps the action bar, the card itself or its <form> -- to the full available
+   height, and let the bar's own top margin become the flexible space: it settles at the
+   bottom on a short page, and is a no-op (bar simply follows the content, as before) once
+   real content already fills or exceeds that height. */
+@media (max-width: 1023.98px) {
+  .public-shell__content:has(.action-bar) {
+    align-items: stretch;
+  }
+
+  .public-card:has(.action-bar) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .public-card > form:has(.action-bar) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .public-card:has(.action-bar) .action-bar {
+    margin-top: auto;
+  }
+}
+
+/* --- Review summary card (C23) --------------------------------------------------------------- */
+.summary-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-4);
+  margin-bottom: var(--ham-space-3);
+}
+
+.summary-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--ham-space-2);
+}
+
+.summary-card__header h2 {
+  margin: 0;
+}
+
+/* M11: Edit is a real 48px target, not a 29x24 inline link. */
+.summary-card__header a {
+  min-height: var(--ham-size-target-min, 48px);
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--ham-space-2);
+}
+
+.summary-card__highlight {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  overflow-wrap: anywhere;
+}
+
+/* --- Upload tile / grid / summary (C24) ------------------------------------------------------ */
+/* M10: "Take a photo"/"Choose from my phone" were auto-width and crowded together at 390 --
+   full width, stacked, with a gap between them; side by side once there's room (>=768). */
+.upload-picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+  margin: var(--ham-space-3) 0;
+}
+
+.upload-picker-row .btn {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .upload-picker-row {
+    flex-direction: row;
+  }
+
+  .upload-picker-row .btn {
+    width: auto;
+    flex: 1;
+  }
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr));
+  gap: var(--ham-space-2);
+  list-style: none;
+  padding: 0;
+  margin: var(--ham-space-3) 0;
+}
+
+.upload-tile {
+  position: relative;
+  background: var(--ham-bg-surface);
+  border-radius: var(--ham-radius-md);
+  overflow: hidden;
+}
+
+.upload-tile__thumb {
+  aspect-ratio: 1 / 1;
+  background: var(--ham-bg-sunken);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-tile__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upload-tile__status {
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  color: var(--ham-text-secondary);
+  padding: var(--ham-space-1) var(--ham-space-1);
+}
+
+/* M10: a real 48x48 tap target (size.target-min) -- FIX-H polish: on the small (~6.5rem)
+   tile, a visually-48px solid circle still covered a good chunk of the photo's centre-top.
+   The visible circle now sits at 32px (still with its own solid backing so it stays legible
+   over any photo); a `::before` pseudo-element restores the full 48px tap target without
+   enlarging what you actually see. */
+.upload-tile__remove {
+  position: absolute;
+  top: var(--ham-space-1);
+  right: var(--ham-space-1);
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ham-bg-surface);
+  box-shadow: var(--ham-shadow-sm);
+  border: none;
+  cursor: pointer;
+}
+
+.upload-tile__remove::before {
+  content: "";
+  position: absolute;
+  inset: calc((32px - var(--ham-size-target-min, 48px)) / 2);
+}
+
+.upload-tile__remove svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* M10: the rejected tile ("bad.txt" + "That file type isn't supported.") used to be one run
+   of text with no icon. Reuses `.upload-tile__thumb`'s layout for a centered `file-x` icon
+   (design-system C§24: "no thumbnail" means no image preview, not no icon), with the filename
+   and reason as their own lines instead of a single run-together sentence. */
+.upload-tile--rejected .upload-tile__thumb {
+  color: var(--ham-tone-danger-icon, var(--ham-text-secondary));
+}
+
+.upload-tile--rejected .upload-tile__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+}
+
+.upload-tile__filename {
+  color: var(--ham-text-primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.upload-tile__reason {
+  color: var(--ham-text-secondary);
+}
+
+.upload-summary {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 768px) {
+  .upload-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  }
+}
+
+/* --- Masked contact block (C25) --------------------------------------------------------------- */
+/* Requester's own masked block (R10); base .masked-block is defined with the L2 styles above. */
+.masked-block--self {
+  margin-bottom: var(--ham-space-6);
+}
+
+.masked-block--self p {
+  margin: 0;
+}
+
+/* --- Requester status card / action card (C26, C27) --------------------------------------------- */
+.status-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-5);
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-info-icon);
+  margin-bottom: var(--ham-space-6);
+}
+
+.status-card p {
+  font-size: var(--ham-type-body-lg-size);
+}
+
+.action-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-4);
+  border-left: var(--ham-size-accent-bar) solid var(--ham-tone-attention-icon);
+  margin-bottom: var(--ham-space-6);
+}
+
+.action-card h3 {
+  margin-top: 0;
+}
+
+.action-card .btn {
+  width: 100%;
+  margin-top: var(--ham-space-3);
+}
+
+/* --- Success hero, quiet block --------------------------------------------------------------- */
+/* M7: a real `circle-check-big` sprite at size.icon-xl, not a text "✓" glyph (which
+   rendered at body-text optical size regardless of the font-size token applied to it). */
+.success-hero {
+  display: block;
+  width: var(--ham-size-icon-xl);
+  height: var(--ham-size-icon-xl);
+  color: var(--ham-tone-success-icon);
+  margin: 0 0 var(--ham-space-2);
+}
+
+.quiet-block {
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  margin: var(--ham-space-4) 0;
+}
+
+/* FIX-H polish (R7N): a paragraph's own default top margin stacked on top of the block's own
+   padding, reading as extra top padding. */
+.quiet-block p {
+  margin: 0;
+}
+
+/* --- Error summary (C30) ---------------------------------------------------------------------- */
+.error-summary ul {
+  padding-left: var(--ham-space-5);
+}
+
+.error-summary a {
+  color: var(--ham-tone-danger-fg);
+}
+
+/* --- Disclosure (C31) ------------------------------------------------------------------------- */
+.disclosure summary {
+  min-height: var(--ham-size-target-min);
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+  color: var(--ham-text-link);
+  cursor: pointer;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  list-style: none;
+}
+
+.disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Cheap minor: `list-style: none` above doesn't suppress the standard `::marker` pseudo
+   element in every engine (a stray triangle/glyph could still render next to our own
+   CSS-drawn chevron below). Belt and suspenders with `-webkit-details-marker` above. */
+.disclosure summary::marker {
+  content: "";
+  display: none;
+}
+
+/* M14/minor 10: a rotating chevron instead of the browser's default disclosure triangle.
+   Drawn with borders (not the icon sprite) so this rule doesn't have to know the static
+   file's hashed URL. */
+.disclosure summary::after {
+  content: "";
+  /* Visual QA: at 7px the chevron read as a stray tick; size it with the text. */
+  width: 0.5em;
+  height: 0.5em;
+  flex: none;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--ham-duration-fast, 120ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure summary::after {
+    transition: none;
+  }
+}
+
+.disclosure[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.disclosure[open] summary {
+  margin-bottom: var(--ham-space-2);
+}
+
+/* M10: Retry (and any other inline text-button) gets a real target height, not a
+   35x20 zero-padding link. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: var(--ham-size-target-min, 48px);
+  display: inline-flex;
+  align-items: center;
+  color: var(--ham-text-link);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* ================================================================================================
+   Fix round FIX-B: leadership media gallery (PRD M3 / UX B1). Tokens only, appended so this
+   slice's CSS never interleaves with FIX-C's template/CSS work on the same file. See
+   `ham/web/templates/web/_request_media_gallery.html`.
+   ================================================================================================ */
+/* Gallery item 4: a section gap before Photos, so it doesn't sit flush under the hazard row
+   at 390. */
+.media-gallery {
+  margin-top: var(--ham-space-8);
+}
+
+/* FIX-H polish (L2): "The home" section used to sit right under the gallery with only the
+   browser's default heading margin (~space-2) between them; give it the same space-8 section
+   rhythm as the gap above the gallery. Scoped to the gallery's very next sibling so it doesn't
+   change spacing anywhere the gallery isn't rendered. */
+.media-gallery + section {
+  margin-top: var(--ham-space-8);
+}
+
+.media-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  gap: var(--ham-space-2);
+  list-style: none;
+  padding: 0;
+  margin: var(--ham-space-3) 0;
+}
+
+.media-gallery__item {
+  min-width: 0;
+}
+
+.media-gallery__link {
+  display: block;
+  border-radius: var(--ham-radius-md);
+  overflow: hidden;
+  background: var(--ham-bg-sunken);
+}
+
+.media-gallery__thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.media-gallery__link--video {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ham-space-1);
+  text-decoration: none;
+}
+
+.media-gallery__video-icon {
+  color: var(--ham-text-secondary);
+}
+
+@media (min-width: 768px) {
+  .media-gallery__grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 8rem), 1fr));
+  }
+}
+
+/* ================================================================================================
+   Fix round FIX-D: step-2 visual QA/usability leftovers (step2-ui-visual-qa.md M2/M9, step2-ux-
+   usability.md M9). Appended so this round's CSS never interleaves with FIX-C's edits above.
+   ================================================================================================ */
+
+/* M2 remainder: secondary links (R1 "Already asked"/"Prefer to talk", R2/R1 "Start over", R8
+   "Resend"/"Change it"/"Didn't get it") now render above `.action-bar`/`.form-actions` in the
+   templates themselves (DOM order) -- this just gives that block breathing room from the bar
+   above it, and un-does any leftover `.link-button`/`<p>` margin so the row reads as one group. */
+.public-card__links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  margin-top: var(--ham-space-6);
+}
+
+.public-card__links p {
+  margin: 0;
+}
+
+/* R5 "I don't use email" (usability M9 remainder / M5): the contact-preference group is not
+   removed when locked -- it's replaced by a read-only, non-interactive card so the answer
+   ("we already know how we'll reach you") stays visible instead of disappearing. */
+.choice-card--locked {
+  cursor: default;
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  border-style: dashed;
+}
+
+.choice-card--locked .choice-card__icon {
+  color: var(--ham-text-secondary);
+}
+
+/* R3 "Owner's full name" (usability M9 remainder): reveals only for "It's a family member's
+   home", and works with JS disabled -- the onchange handler is only a same-render-frame nicety
+   for browsers that support it; `:has()` is what actually does the showing/hiding, keyed off
+   the fieldset that owns the radio, so a no-JS submit before this fires still lands on a
+   server that reveals/requires the field from the *submitted* answer, not the client's guess. */
+#owner-name-field {
+  display: none;
+}
+
+fieldset:has(
+    input[name="relationship_to_property"][value="authorized_family_member"]:checked
+  )
+  + #owner-name-field {
+  display: block;
+}
+
+/* FIX-H M2: R3's aside repeats its own intro line ("Filling this in for someone else? Answer
+   for them.") -- rather than show the same sentence twice in one reading column below 1280,
+   hide it there; the >=1280 side column (below) is a separate reading context, so it keeps
+   showing there. */
+@media (max-width: 1279.98px) {
+  .wizard-aside--repeats-intro {
+    display: none;
+  }
+}
+
+/* M9 (visual QA): the wizard's "Good to know" aside (R1-R6, R9) at >=1280 -- the step rail is
+   intentionally not built (accepted simplification); `.public-card` becomes a 2-column grid
+   only when it actually has an aside child, so every other public page (R7N, R8, verify, ...)
+   is unaffected. */
+@media (min-width: 1280px) {
+  .public-card:has(> .wizard-aside) {
+    max-width: var(--ham-size-wizard-max);
+    display: grid;
+    grid-template-columns: var(--ham-size-form-max) var(--ham-size-aside);
+    /* N2: `gap` used to also apply as a *row* gap between every column-1 child (eyebrow, h1,
+       captions, form...), and the aside's old `grid-row: 1 / -1` only actually spanned row 1
+       (there's no explicit row template, so `-1` didn't reach the real last row) -- together
+       that stretched row 1 to the aside's full height, leaving ~130px of dead space between
+       the progress bar and the h1. Zero out the row gap and let each column-1 child provide
+       its own spacing (they already have margins); only the column gap stays. */
+    row-gap: 0;
+    column-gap: var(--ham-space-8);
+    align-items: start;
+  }
+
+  .public-card:has(> .wizard-aside) > :not(.wizard-aside) {
+    grid-column: 1;
+  }
+
+  .wizard-aside {
+    grid-column: 2;
+    /* N2: span comfortably past any realistic number of column-1 rows instead of relying on
+       `-1`, so the aside always covers the full column-1 height regardless of how many
+       children a given step has. */
+    grid-row: 1 / span 99;
+    position: sticky;
+    top: var(--ham-space-8);
+    border-left: 1px solid var(--ham-border-default);
+    padding-left: var(--ham-space-6);
+  }
+
+  .wizard-aside h2 {
+    margin-top: 0;
+  }
+
+  .wizard-aside p {
+    color: var(--ham-text-secondary);
+  }
+}
+
+/* M9 (visual QA): R7 (welcome mode)/R10 at >=1280 -- `size.requester-wide-max`, two columns
+   (3fr 2fr): left = hero/number/urgent line/what happens next/Add photos, right = Your
+   request/How to reach us. Below that this is just the existing single column. */
+@media (min-width: 1280px) {
+  .public-card--request-status {
+    max-width: var(--ham-size-requester-wide-max);
+  }
+
+  .request-status-grid {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: var(--ham-space-8);
+    align-items: start;
+  }
+}
+
+/* M9 (visual QA): R6 has no aside -- the form card itself spans the wizard-max width instead,
+   which is what actually lets the 4 summary cards sit 2x2 instead of one narrow stretched
+   column. */
+@media (min-width: 1280px) {
+  .public-card--review {
+    max-width: var(--ham-size-wizard-max);
+  }
+
+  .public-card--review .summary-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--ham-space-3);
+    align-items: start;
+  }
+}
+
+/* --- Leadership media viewer (FIX-G page; visual QA NM2) ---------------------------------- */
+.media-viewer__media {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 14rem);
+  object-fit: contain;
+  margin-inline: auto;
+  border-radius: var(--ham-radius-md);
 }

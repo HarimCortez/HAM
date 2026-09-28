@@ -24,6 +24,18 @@
       <label for="id_ham_email">Ministry email <span class="form-field__optional">(optional)</span></label>
       <input id="id_ham_email" name="ham_email" type="email" value="{{ values.ham_email }}">
     </div>
+    <div class="form-field{% if errors.state %} form-field--error{% endif %}">
+      <label for="id_state">State <span class="form-field__optional">(optional)</span></label>
+      <select id="id_state" name="state" aria-describedby="id_state_help">
+        <option value="">Not set</option>
+        {% for code in state_choices %}
+          <option value="{{ code }}" {% if values.state == code %}selected{% endif %}>{{ code }}</option>
+        {% endfor %}
+      </select>
+      <p class="form-field__help" id="id_state_help">Prefills the state on the public "Ask for
+        help" form's address step (Q-147).</p>
+      {% if errors.state %}<p class="form-field__error">{{ errors.state }}</p>{% endif %}
+    </div>
     <div class="form-field{% if errors.time_zone %} form-field--error{% endif %}">
       <label for="id_time_zone">Time zone</label>
       <input id="id_time_zone" name="time_zone" type="text" value="{{ values.time_zone }}"
@@ -35,6 +47,23 @@
       <label for="id_website_url">Website <span class="form-field__optional">(optional)</span></label>
       <input id="id_website_url" name="website_url" type="url" value="{{ values.website_url }}">
     </div>
+    <fieldset class="form-field{% if errors.serves_days %} form-field--error{% endif %}">
+      <legend>Days HAM serves requesters</legend>
+      <p class="form-field__help" id="id_serves_days_help">Shown as visiting-time choices on
+        the public "Ask for help" form (Q-112). Choose at least one day.</p>
+      <div class="choice-chip-group" role="group" aria-describedby="id_serves_days_help">
+        {% for value, label in weekday_choices %}
+          <label class="choice-chip">
+            <input type="checkbox" name="serves_days" value="{{ value }}"
+                   {% if value in values.serves_days %}checked{% endif %}>
+            {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+      {% if errors.serves_days %}
+        <p class="form-field__error">{{ errors.serves_days }}</p>
+      {% endif %}
+    </fieldset>
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Save</button>
     </div>

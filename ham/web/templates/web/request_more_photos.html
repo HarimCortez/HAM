@@ -1,0 +1,38 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Ask for more photos · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Ask for more photos{% endblock %}
+
+{% block content %}
+  <div class="sheet">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Ask for more photos</h1>
+
+    {% if not has_email %}
+      <p class="locked-note">This request has no email on file. We'll take photos at the visit.</p>
+    {% elif is_impersonating %}
+      <p class="locked-note">Asking for more photos isn't allowed while acting as someone else.</p>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+          <label for="id_reason">What would help us?</label>
+          <textarea id="id_reason" name="reason" rows="3" required></textarea>
+          <p class="form-field__help">
+            For example: "A photo of the ceiling from the hallway." Don't include other
+            people's details.
+          </p>
+        </div>
+        <p class="text-secondary">
+          The requester gets an email and a card on their request page to add up to
+          {{ max_photos }} more photos.
+        </p>
+        <div class="form-actions">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">Ask for photos</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

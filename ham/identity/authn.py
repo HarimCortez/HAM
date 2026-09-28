@@ -23,8 +23,6 @@ A6), never the HTTP response from the view.
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
-import hmac
 import secrets
 from dataclasses import dataclass
 
@@ -34,6 +32,7 @@ from django.db import transaction
 
 from ham.audit.services import record as audit_record
 from ham.integrations.email.service import send_transactional_email
+from ham.platform import otp
 from ham.platform.church import church_profile
 from ham.platform.clock import now as clock_now
 from ham.rules import RULES
@@ -50,16 +49,19 @@ _FAILED_ATTEMPT_WINDOW = dt.timedelta(days=1)
 
 
 def _hash(value: str) -> str:
-    """HMAC-SHA256 with a server-side secret (security review L1): a plain unsalted SHA-256
-    of a 6-digit code or a random-but-fixed-format link token is fast enough to brute-force
-    offline from a leaked `identity_sign_in_challenge` row alone; HMAC with `SECRET_KEY` means
-    the secret itself would also have to leak."""
-    return hmac.new(settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256).hexdigest()
+    """S2.0: delegates to `ham.platform.otp.hash_value` (moved there so
+    `ham.requester_portal`'s own email-code verification can reuse the same construction — see
+    that module's docstring). Kept as a thin wrapper, not deleted, since this module's own
+    call sites below read more clearly with the short local name."""
+    return otp.hash_value(value)
+
+
+def _hash_matches(value: str, expected_hash: str) -> bool:
+    return otp.hash_matches(value, expected_hash)
 
 
 def _generate_code() -> str:
-    digits = RULES.auth.SIGN_IN_CODE_LENGTH
-    return "".join(str(secrets.randbelow(10)) for _ in range(digits))
+    return otp.generate_code(RULES.auth.SIGN_IN_CODE_LENGTH)
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,7 +225,7 @@ def verify_code(*, email: str, code: str) -> VerifyResult:
             return VerifyResult(ok=False, reason="locked")
 
         normalized = code.strip().replace(" ", "").replace("-", "")
-        if not secrets.compare_digest(_hash(normalized), challenge.code_hash):
+        if not _hash_matches(normalized, challenge.code_hash):
             challenge.attempts += 1
             challenge.save(update_fields=["attempts"])
             if challenge.attempts >= max_attempts:

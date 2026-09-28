@@ -26,3 +26,6 @@ uv.lock.bak
 
 # Agent worktrees (temporary, per session)
 /.claude/worktrees/
+
+# Local object storage (LocalObjectStore dev adapter)
+/var/

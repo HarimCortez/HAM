@@ -27,6 +27,9 @@ class NavItem:
 # S5 screens pass flips each one as its route lands.
 _ITEMS: tuple[NavItem, ...] = (
     NavItem("home", "Home", "web:home", "home", True, "shell.use"),
+    # S2.8: the leadership screens (L1-L11) land; flipped to `built=True` now that
+    # `web:requests` exists.
+    NavItem("requests", "Requests", "web:requests", "clipboard-list", True, "request.list"),
     NavItem("inbox", "Inbox", "web:inbox", "mail", True, "shell.use"),
     NavItem("admin_users", "Users & roles", "web:admin_users", "users", True, "user.list"),
     NavItem(
@@ -94,6 +97,11 @@ def bottom_nav_for(ctx) -> list[NavItem]:
     tabs: list[NavItem] = []
     if "home" in by_key:
         tabs.append(by_key["home"])
+    # S2.8: a direct "Requests" tab for anyone who may see the list (Director, Assistant
+    # Director, pastors, Board rep, and the view-only Administrator, Q-124) — the busiest
+    # screen for these roles in step 2, so it doesn't hide behind More (navigation.md §3.1).
+    if "requests" in by_key:
+        tabs.append(by_key["requests"])
     is_administrator = "ADMINISTRATOR" in ctx.effective_roles
     if is_administrator and any(item.key in ADMIN_GROUP_KEYS for item in full):
         tabs.append(ADMIN_INDEX_ITEM)

@@ -1,0 +1,109 @@
+{% extends "web/base_public.html" %}
+{% load static web_extras %}
+
+{% block title %}Your need &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="Your need" %}
+{% endblock %}
+
+{% block public_content %}
+  <h1>What's going on?</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  {% comment %}
+  FIX-H M2: below 1280 the "Good to know" aside used to render after the sticky bar; moved
+  above the form so it's always before the bar. The >=1280 grid still places it in its own
+  side column regardless of this position.
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    <fieldset class="form-field{% if errors.need_category %} form-field--error{% endif %}"
+              id="id_need_category"
+              {% if errors.need_category %}aria-invalid="true" aria-describedby="id_need_category-error"{% endif %}>
+      <legend>What kind of help?</legend>
+      {% if errors.need_category %}<p class="form-field__error" id="id_need_category-error">{{ errors.need_category }}</p>{% endif %}
+      <div class="choice-grid">
+        {% for value in need_category_choices %}
+          <label class="choice-card{% if value == 'something_else' %} choice-card--full{% endif %}">
+            <input type="radio" name="need_category" value="{{ value }}"
+                   {% if payload.need_category == value %}checked{% endif %}>
+            {% comment %}M3/design-system/screens/intake.md R2: house, droplet, plug-zap, door-closed, layers, accessibility, paint-roller, trees, circle-help (always last).{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'roof_or_ceiling' %}home{% elif value == 'plumbing_or_water' %}droplet{% elif value == 'electrical' %}plug-zap{% elif value == 'doors_windows_locks' %}door-closed{% elif value == 'floors_or_stairs' %}layers{% elif value == 'ramps_rails_grab_bars' %}accessibility{% elif value == 'painting_or_walls' %}paint-roller{% elif value == 'yard_or_outside' %}trees{% else %}circle-help{% endif %}"></use></svg>
+            <span>{{ need_category_labels|get_item:value }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="form-field{% if errors.description %} form-field--error{% endif %}">
+      <label for="id_description">Tell us what's happening</label>
+      <p class="form-field__help" id="id_description-help">What's wrong, where in the home, and how long it's been like
+        this. If it's hard for you or your family to take care of it, you can tell us why.</p>
+      <textarea id="id_description" name="description" rows="5" maxlength="2000"
+                aria-describedby="id_description-help{% if errors.description %} id_description-error{% endif %}"
+                {% if errors.description %}aria-invalid="true"{% endif %}>{{ payload.description|default:"" }}</textarea>
+      {% if errors.description %}<p class="form-field__error" id="id_description-error">{{ errors.description }}</p>{% endif %}
+    </div>
+
+    <label class="choice-card" id="id_urgent_requested">
+      <input type="checkbox" name="urgent_requested" value="1" id="urgent-toggle"
+             {% if payload.urgent_requested %}checked{% endif %}
+             onchange="document.getElementById('urgent-reveal').hidden = !this.checked;">
+      <span>This is urgent<br><span class="text-secondary">It's unsafe or getting worse quickly.</span></span>
+    </label>
+
+    <div id="urgent-reveal" {% if not payload.urgent_requested %}hidden{% endif %}>
+      <div class="inline-alert inline-alert--attention" role="status">
+        <p>If anyone is in danger right now, call <a href="tel:911">911</a> first.</p>
+      </div>
+      <fieldset class="form-field{% if errors.urgency_reason %} form-field--error{% endif %}"
+                id="id_urgency_reason"
+                {% if errors.urgency_reason %}aria-invalid="true" aria-describedby="id_urgency_reason-error"{% endif %}>
+        <legend>Why is it urgent?</legend>
+        {% if errors.urgency_reason %}<p class="form-field__error" id="id_urgency_reason-error">{{ errors.urgency_reason }}</p>{% endif %}
+        <div class="choice-chip-group choice-chip-group--stacked">
+          {% for value in urgency_reason_choices %}
+            <label class="choice-chip">
+              <input type="radio" name="urgency_reason" value="{{ value }}"
+                     {% if payload.urgency_reason == value %}checked{% endif %}
+                     onchange="var isElse = this.value === 'something_else'; document.getElementById('urgency-justification-label-text').textContent = isElse ? 'Tell us a little about why it\'s urgent' : 'Anything else about why it\'s urgent?'; document.getElementById('urgency-justification-optional').hidden = isElse;">
+              {{ urgency_reason_labels|get_item:value }}
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div class="form-field{% if errors.urgency_justification %} form-field--error{% endif %}">
+        <label for="id_urgency_justification">
+          <span id="urgency-justification-label-text">{% if payload.urgency_reason == "something_else" %}Tell us a little about why it's urgent{% else %}Anything else about why it's urgent?{% endif %}</span>
+          <span class="form-field__optional" id="urgency-justification-optional" {% if payload.urgency_reason == "something_else" %}hidden{% endif %}>(optional)</span>
+        </label>
+        <textarea id="id_urgency_justification" name="urgency_justification" rows="2"
+                  {% if errors.urgency_justification %}aria-invalid="true" aria-describedby="id_urgency_justification-error"{% endif %}>{{ payload.urgency_justification|default:"" }}</textarea>
+        {% if errors.urgency_justification %}<p class="form-field__error" id="id_urgency_justification-error">{{ errors.urgency_justification }}</p>{% endif %}
+      </div>
+    </div>
+
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Start over.
+    {% endcomment %}
+    <p class="wizard-back-link"><button class="link-button" type="submit" form="start-over-form">Start over</button></p>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <button class="btn btn--ghost action-bar__back" type="submit" form="start-over-form">Start over</button>
+        <button class="btn btn--primary" type="submit">Continue</button>
+      </div>
+    </div>
+  </form>
+  <form method="post" id="start-over-form" action="{% url 'web:request_help_start_over' %}"
+        onsubmit="return confirm('Start over? Your saved answers will be erased.');">
+    {% csrf_token %}
+  </form>
+{% endblock %}

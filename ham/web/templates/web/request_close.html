@@ -1,0 +1,47 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Close {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Close request{% endblock %}
+
+{% block content %}
+  <div class="sheet">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Close {{ request_row.display_number }}</h1>
+
+    {% if is_impersonating %}
+      <p class="locked-note">Closing a request isn't allowed while acting as someone else.</p>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <fieldset class="form-field">
+          <legend>Why are you closing {{ request_row.display_number }}?</legend>
+          <p class="form-field__help">Questions about need or eligibility go to the pastors and Board, not here.</p>
+          <div class="choice-grid choice-grid--single">
+            {% for code, label in reasons %}
+              <label class="choice-card">
+                <input type="radio" name="reason_code" value="{{ code }}" {% if code == preselected_reason %}checked{% endif %} required>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <div class="form-field">
+          <label for="id_note">Note <span class="form-field__optional">(optional)</span></label>
+          <p class="form-field__help">Don't include names, addresses or personal details.</p>
+          <textarea id="id_note" name="note" rows="3">{{ prefilled_note }}</textarea>
+        </div>
+        <div class="quiet-block">
+          <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg>
+            {{ request_row.display_number }} will be closed. The requester will get a short,
+            kind email, unless this is spam or a test.</p>
+          <p class="type-label">This can't be undone.</p>
+        </div>
+        <div class="form-actions">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--danger" type="submit">Close request</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% load static web_extras %}
+{% comment %}
+App-wide urgent banner (PRD §10, §35, Q-123; docs/ux/intake.md §12.3 G1). Not dismissible
+until acknowledged — "Open" goes to the request; acknowledging clears it for this person only.
+{% endcomment %}
+{% if urgent_banner %}
+  <div class="urgent-banner" role="alert">
+    <span class="urgent-banner__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-triangle-alert"></use></svg></span>
+    <span class="urgent-banner__text">{{ urgent_banner.title }}</span>
+    <span class="urgent-banner__actions">
+      <a class="btn btn--secondary" href="{% maybe_url 'web:request_detail' urgent_banner.subject_id %}">Open</a>
+      <form method="post" action="{% url 'web:notification_acknowledge' notification_id=urgent_banner.id %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn--ghost" type="submit">I&#39;ve seen this</button>
+      </form>
+    </span>
+  </div>
+{% endif %}

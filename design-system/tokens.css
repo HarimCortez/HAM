@@ -1,5 +1,5 @@
 /* HAM design tokens — GENERATED from tokens.json + brands/miami-temple/brand.json by tools/build_tokens.py. Do not edit by hand. */
-/* Version 1.2.0 · Brand: Miami Temple Seventh-day Adventist Church */
+/* Version 1.3.0 · Brand: Miami Temple Seventh-day Adventist Church */
 
 :root {
   color-scheme: light;
@@ -146,6 +146,11 @@
   --ham-type-nav-compact-size: 0.75rem;
   --ham-type-nav-compact-line-height: 1rem;
   --ham-type-nav-compact-tracking: 0.01em;
+  --ham-type-code-entry-family: var(--ham-font-ui);
+  --ham-type-code-entry-weight: 600;
+  --ham-type-code-entry-size: 1.75rem;
+  --ham-type-code-entry-line-height: 2.25rem;
+  --ham-type-code-entry-tracking: 0.25em;
   --ham-space-0: 0;
   --ham-space-0-5: 0.125rem;
   --ham-space-1: 0.25rem;
@@ -183,6 +188,26 @@
   --ham-size-logo-mark-min-height: 24px;
   --ham-size-focus-ring-width: 3px;
   --ham-size-focus-ring-offset: 2px;
+  --ham-size-chip: 28px;
+  --ham-size-chip-lg: 32px;
+  --ham-size-choice-card-min: 56px;
+  --ham-size-code-input-max: 20rem;
+  --ham-size-dropzone-height: 160px;
+  --ham-size-progress-height: 8px;
+  --ham-size-accent-bar: 4px;
+  --ham-size-empty-max: 360px;
+  --ham-size-modal-sm: 480px;
+  --ham-size-modal-md: 640px;
+  --ham-size-split-list: 400px;
+  --ham-size-split-list-min: 360px;
+  --ham-size-split-list-max: 520px;
+  --ham-size-step-rail: 240px;
+  --ham-size-aside: 320px;
+  --ham-size-wizard-max: 1264px;
+  --ham-size-icon-xl: 48px;
+  --ham-size-list-row-min: 72px;
+  --ham-size-requester-wide-max: 960px;
+  --ham-breakpoint-short: 480px;
   --ham-breakpoint-sm: 390px;
   --ham-breakpoint-md: 768px;
   --ham-breakpoint-lg: 1024px;
@@ -281,6 +306,7 @@
   --ham-shadow-sm: 0 1px 2px rgba(17,24,20,0.06), 0 1px 3px rgba(17,24,20,0.08);
   --ham-shadow-md: 0 4px 12px rgba(17,24,20,0.08), 0 1px 3px rgba(17,24,20,0.06);
   --ham-shadow-lg: 0 12px 32px rgba(17,24,20,0.14), 0 2px 6px rgba(17,24,20,0.08);
+  --ham-shadow-bar-top: 0 -2px 8px rgba(17,24,20,0.08);
   --ham-status-project-submitted-bg: var(--ham-tone-info-bg);
   --ham-status-project-submitted-fg: var(--ham-tone-info-fg);
   --ham-status-project-submitted-border: var(--ham-tone-info-border);
@@ -544,6 +570,7 @@
   --ham-shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --ham-shadow-md: 0 4px 12px rgba(0,0,0,0.5);
   --ham-shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
+  --ham-shadow-bar-top: 0 -2px 8px rgba(0,0,0,0.5);
 }
 
 /* Automatic OS dark mode is OFF (ham.autoDark=false): V1 is light only (Q-016). Dark values are kept for later and apply only via data-theme="dark". */

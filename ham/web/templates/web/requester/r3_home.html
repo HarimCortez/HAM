@@ -1,0 +1,131 @@
+{% extends "web/base_public.html" %}
+{% load static web_extras %}
+
+{% block title %}The home &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="The home" %}
+{% endblock %}
+
+{% block public_content %}
+  <h1>Where is the home?</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+  <p>Filling this in for someone else? Answer for them.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    <fieldset class="form-field{% if errors.relationship_to_property %} form-field--error{% endif %}"
+              id="id_relationship_to_property"
+              {% if errors.relationship_to_property %}aria-invalid="true" aria-describedby="id_relationship_to_property-error"{% endif %}>
+      <legend>Whose home is it?</legend>
+      {% if errors.relationship_to_property %}<p class="form-field__error" id="id_relationship_to_property-error">{{ errors.relationship_to_property }}</p>{% endif %}
+      <div class="choice-grid choice-grid--single">
+        {% for value in relationship_choices %}
+          <label class="choice-card">
+            <input type="radio" name="relationship_to_property" value="{{ value }}"
+                   {% if payload.relationship_to_property == value %}checked{% endif %}
+                   onchange="document.getElementById('owner-name-field').hidden = (this.value !== 'authorized_family_member');">
+            {% comment %}M3/design-system/screens/intake.md R3: key-round (own), house (rent), users (family).{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'owner' %}key-round{% elif value == 'tenant' %}home{% else %}users{% endif %}"></use></svg>
+            <span>
+              {% if value == "owner" %}I own it
+              {% elif value == "tenant" %}I rent it
+              {% else %}It's a family member's home{% endif %}
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    {% comment %}
+    FIX-D (usability M9 remainder): shown/required only for "It's a family member's home".
+    `#owner-name-field { display: none }` + the `:has()` rule in shell.css do the actual
+    showing/hiding, so this works with JS disabled too -- the `hidden` attribute here is only
+    a same-request fallback for the very first render of a fresh draft (no answer yet), and
+    the onchange above is a same-frame nicety once JS is available. Never authoritative: the
+    server still requires/accepts `owner_name` purely from the submitted relationship
+    (ham.requester_portal.forms.validate_intake_payload).
+    {% endcomment %}
+    <div class="form-field{% if errors.owner_name %} form-field--error{% endif %}" id="owner-name-field"
+         {% if payload.relationship_to_property != "authorized_family_member" %}hidden{% endif %}>
+      <label for="id_owner_name">Owner's full name</label>
+      <p class="form-field__help" id="id_owner_name-help">The person who owns the home.</p>
+      <input type="text" id="id_owner_name" name="owner_name" value="{{ payload.owner_name|default:'' }}"
+             aria-describedby="id_owner_name-help{% if errors.owner_name %} id_owner_name-error{% endif %}"
+             {% if errors.owner_name %}aria-invalid="true"{% endif %}>
+      {% if errors.owner_name %}<p class="form-field__error" id="id_owner_name-error">{{ errors.owner_name }}</p>{% endif %}
+    </div>
+
+    <div class="form-field{% if errors.line1 %} form-field--error{% endif %}">
+      <label for="id_line1">Street address</label>
+      <input type="text" id="id_line1" name="line1" autocomplete="address-line1" value="{{ payload.line1|default:'' }}"
+             {% if errors.line1 %}aria-invalid="true" aria-describedby="id_line1-error"{% endif %}>
+      {% if errors.line1 %}<p class="form-field__error" id="id_line1-error">{{ errors.line1 }}</p>{% endif %}
+    </div>
+    <div class="form-field">
+      <label for="id_line2">Apartment or unit <span class="form-field__optional">(optional)</span></label>
+      <input type="text" id="id_line2" name="line2" autocomplete="address-line2" value="{{ payload.line2|default:'' }}">
+    </div>
+    <div class="form-field{% if errors.city %} form-field--error{% endif %}">
+      <label for="id_city">City</label>
+      <input type="text" id="id_city" name="city" autocomplete="address-level2" value="{{ payload.city|default:'' }}"
+             {% if errors.city %}aria-invalid="true" aria-describedby="id_city-error"{% endif %}>
+      {% if errors.city %}<p class="form-field__error" id="id_city-error">{{ errors.city }}</p>{% endif %}
+    </div>
+    {% comment %}Cheap minor: postal order is City, State, ZIP.{% endcomment %}
+    <div class="form-field{% if errors.state %} form-field--error{% endif %}">
+      <label for="id_state">State</label>
+      <input type="text" id="id_state" name="state" maxlength="2" autocomplete="address-level1" value="{{ payload.state|default:'' }}"
+             {% if errors.state %}aria-invalid="true" aria-describedby="id_state-error"{% endif %}>
+      {% if errors.state %}<p class="form-field__error" id="id_state-error">{{ errors.state }}</p>{% endif %}
+    </div>
+    <div class="form-field{% if errors.postal_code %} form-field--error{% endif %}">
+      <label for="id_postal_code">ZIP code</label>
+      <input type="text" id="id_postal_code" name="postal_code" inputmode="numeric" autocomplete="postal-code"
+             value="{{ payload.postal_code|default:'' }}"
+             {% if errors.postal_code %}aria-invalid="true" aria-describedby="id_postal_code-error"{% endif %}>
+      {% if errors.postal_code %}<p class="form-field__error" id="id_postal_code-error">{{ errors.postal_code }}</p>{% endif %}
+    </div>
+
+    <fieldset class="form-field{% if errors.property_type %} form-field--error{% endif %}"
+              id="id_property_type"
+              {% if errors.property_type %}aria-invalid="true" aria-describedby="id_property_type-error"{% endif %}>
+      <legend>Type of home</legend>
+      {% if errors.property_type %}<p class="form-field__error" id="id_property_type-error">{{ errors.property_type }}</p>{% endif %}
+      <div class="choice-grid">
+        {% for value in property_type_choices %}
+          <label class="choice-card">
+            <input type="radio" name="property_type" value="{{ value }}"
+                   {% if payload.property_type == value %}checked{% endif %}>
+            {% comment %}M3/design-system/screens/intake.md R3: house, building, building-2, caravan, circle-help.{% endcomment %}
+            <svg class="choice-card__icon" width="24" height="24" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{% if value == 'house' %}home{% elif value == 'townhouse' %}building{% elif value == 'apartment_or_condo' %}building-2{% elif value == 'mobile_or_manufactured_home' %}caravan{% else %}circle-help{% endif %}"></use></svg>
+            <span>{{ property_type_labels|get_item:value }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    {% comment %}
+    FIX-H N6: under the bar's own @container(max-width:22em) (200% text/zoom), the sticky bar
+    holds the primary only -- this in-flow twin (hidden otherwise) takes over Back.
+    {% endcomment %}
+    <p class="wizard-back-link"><a href="{% url 'web:request_help_step' step=prev_step %}">&larr; Back</a></p>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <button class="btn btn--primary" type="submit">Continue</button>
+      </div>
+    </div>
+  </form>
+
+  {% comment %}
+  FIX-H M2: this step's aside repeats the intro line above ("Filling this in for someone
+  else? Answer for them.") -- hide it below 1280, where it would sit right under that same
+  sentence; it still earns its keep in the >=1280 side column (a separate reading context).
+  {% endcomment %}
+  {% include "web/requester/_wizard_aside.html" with aside_repeats_intro=True %}
+{% endblock %}

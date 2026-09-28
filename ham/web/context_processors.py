@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from ham.web.nav import bottom_nav_items_for, nav_items_for
 
 
@@ -28,6 +30,21 @@ def shell(request):
         detail = get_user_detail(actor.user_id)
         if detail is not None:
             impersonation_target_full_name = detail.display_name
+    # S2.8 (PRD §10/§35, Q-123): the app-wide urgent banner — an unacknowledged, ack-required
+    # notification for this person — needs to show on every signed-in page, not only Home/
+    # Inbox, so it lives here rather than being threaded through every view's context.
+    urgent_banner = None
+    if (
+        actor is not None
+        and actor.is_authenticated
+        # A handful of unit tests build a bare `ActorContext` with a placeholder string
+        # `user_id` (e.g. "u1") to exercise the route guard in isolation, never through a real
+        # request/render cycle; guard against that shape here too, not only a real UUID.
+        and isinstance(getattr(actor, "user_id", None), uuid.UUID)
+    ):
+        from ham.notifications.services import urgent_banner_for
+
+        urgent_banner = urgent_banner_for(actor)
     items = nav_items_for(request)
     bottom_items = bottom_nav_items_for(request)
     current = getattr(request, "resolver_match", None)
@@ -56,4 +73,5 @@ def shell(request):
         "bottom_nav_items": bottom_items,
         "bottom_nav_active_key": bottom_active_key,
         "impersonation_target_full_name": impersonation_target_full_name,
+        "urgent_banner": urgent_banner,
     }

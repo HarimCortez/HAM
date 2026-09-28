@@ -17,6 +17,17 @@ urlpatterns = [
     path("", include("ham.web.urls")),
 ]
 
+# S2.4a: local-filesystem ObjectStore adapter's stand-in for presigned PUT/GET (dev/test only
+# — production always configures the R2 adapter instead, `config/settings/prod.py` now
+# refuses to boot with the local adapter configured at all). Security review M5: mount this
+# route only outside production, not unconditionally — every request needs a tamper-proof,
+# time-limited, single-purpose signed token, but there is no reason to expose the route at
+# all on a deployment that can never use it. `HAM_ENV`, not `DEBUG`: pytest runs with
+# `DEBUG=False` but `HAM_ENV="test"` and needs this route mounted for the real PUT/GET
+# round-trip tests.
+if settings.HAM_ENV != "production":
+    urlpatterns += [path("dev/storage/", include("ham.integrations.storage.urls"))]
+
 if settings.DEBUG:
     from django.contrib import admin
 

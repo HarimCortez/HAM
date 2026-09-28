@@ -109,6 +109,13 @@ _AUDITED_ON_DENIAL: frozenset[str] = frozenset(
         "user.invite",
         "church_profile.update",
         "outbox.retry",
+        # S2.0 (intake.md §5, §10): denied attempts at these are consequential enough to be
+        # noise-worthy, not routine — every reveal attempt (allowed or denied) matters for
+        # §68 privacy accountability, and cancel/assisted-entry/phone-verification are all
+        # explicitly called out in the plan as "audited on denial".
+        "requester_pii.reveal",
+        "request.cancel",
+        "request.contact_verify_phone",
     }
 )
 
