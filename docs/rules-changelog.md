@@ -155,3 +155,23 @@ requester resend cooldown in (0, 1 h); minimum fill time positive and < draft li
 intake limits ≥ 1; daily wrong-code cap ≥ per-code tries; challenge retention > 24 h; upload
 sizes positive, photo ≤ video; media type lists non-empty, unique, lower-case, right family;
 spam retention positive; request retention ≥ 1 year.
+
+## 2026.09.28-5 — step 2 (S2.4a/b: object storage, media)
+
+Content hash: `sha256:66abce06bc3b003b2ec564dc7a763c7a3d062afb4a7a0a017349b60c31f20ce3`
+
+Three new engineering values in `media`, all named in intake.md §9's rules table but not
+previously in the rules module:
+- `media.MEDIA_UPLOAD_INTENT_LIFETIME` = 1 hour: an unconfirmed upload reservation (a slot
+  held but never completed) is released after this long, freeing the slot.
+- `media.PRESIGNED_UPLOAD_URL_LIFETIME` = 15 minutes: how long a presigned PUT URL handed to
+  a requester's browser stays valid.
+- `media.PRESIGNED_VIEW_URL_LIFETIME` = 60 seconds: how long a presigned GET URL for a
+  thumbnail/photo/video stays valid.
+
+These are engineering values (intake.md §9), not Q-numbered open product questions, so they
+carry no `provisional=` tag.
+
+New invariant: the presigned upload URL must not outlive the reservation it belongs to
+(`PRESIGNED_UPLOAD_URL_LIFETIME <= MEDIA_UPLOAD_INTENT_LIFETIME`); the view URL lifetime must
+be positive.

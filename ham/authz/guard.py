@@ -44,6 +44,11 @@ PUBLIC_ROUTES: frozenset[str] = frozenset(
         "manifest",
         "service_worker",
         "offline",
+        # S2.4a: the dev-only local-storage adapter's stand-in for a presigned S3/R2 URL.
+        # Authorization here is the signed, time-limited, single-purpose token itself (see
+        # ham.integrations.storage.dev_views), exactly like a real presigned URL never goes
+        # through this ActorContext-based guard either.
+        "local-storage-object",
     }
 )
 

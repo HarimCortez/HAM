@@ -72,6 +72,19 @@ class ObjectStore(Protocol):
         """Server-side copy (e.g. promoting a processed derivative out of ``quarantine/``)."""
         ...
 
+    def get_object(self, key: str) -> bytes:
+        """Read an object's bytes directly (S2.4b's processing job/retention sweep: the
+        worker is trusted infrastructure with its own storage credentials, unlike a browser,
+        so it reads/writes objects directly rather than round-tripping through a presigned
+        URL it would have to issue to itself). Raises ``FileNotFoundError`` if ``key`` is
+        missing."""
+        ...
+
+    def put_object(self, key: str, data: bytes, *, content_type: str) -> None:
+        """Write an object's bytes directly (see ``get_object``) — used to store a processed
+        derivative under its final key."""
+        ...
+
 
 def get_object_store() -> ObjectStore:
     """Loads the configured ``ObjectStore`` implementation. Not cached: tests/`override_settings`

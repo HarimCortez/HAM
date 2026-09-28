@@ -579,3 +579,19 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
         target_id=str(request_id),
         project_id=request_id,
     )
+
+
+def is_request_open(request_id: UUID) -> bool:
+    """Whether a request still accepts requester media (intake.md §2: media asks
+    requests.services, requests never imports media). Open means the request exists and is
+    not in a terminal status; batch-level rules (initial batch closes at decision, §46
+    reopened batches) are ham.media's."""
+    from .models import AssistanceRequest
+    from .states import RequestStatus, is_terminal
+
+    status = (
+        AssistanceRequest.objects.filter(id=request_id).values_list("status", flat=True).first()
+    )
+    if status is None:
+        return False
+    return not is_terminal(RequestStatus(status))

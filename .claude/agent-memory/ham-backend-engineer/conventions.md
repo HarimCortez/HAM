@@ -820,3 +820,125 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   `draft_id`/`verification_id` (kept for traceability only, not dereferenced by this module —
   see the layering note above for why). Check this dataclass's field list before S2.3 builds
   its draft-to-payload mapping; it's additive, not a replacement contract.
+## S2.4a/S2.4b additions: object storage adapters + media domain
+- **`ObjectStore` protocol grew two methods beyond S2.0's original four** (`get_object`/
+  `put_object`, plain byte-level read/write): browsers use presigned PUT/GET (no storage
+  credentials client-side), but a **worker** re-encoding a file (Q-120) is trusted
+  infrastructure with its own real credentials and has no reason to round-trip through a URL
+  it would have to presign to itself. Safe to extend the protocol this way only because
+  nothing else consumed it yet (`grep` first before adding to a "frozen" seam another slice
+  defined — if callers already exist, coordinate instead of silently widening the interface).
+- **Local dev "presigned URL" = a signed, time-limited, single-purpose Django URL, not a real
+  presign.** `ham.integrations.storage.local.LocalObjectStore` builds a `django.core.signing.
+  Signer.sign_object({"op": "put"/"get", "key", "exp", ...})` token (no `TimestampSigner`
+  needed — the payload carries its own explicit `exp` ISO string so verification doesn't
+  depend on wall-clock sync between issue and check being exactly right); `ham.integrations.
+  storage.dev_views.local_storage_object` is the one view that verifies+serves it. It's listed
+  in `ham.authz.guard.PUBLIC_ROUTES` (url name `local-storage-object`) — the token itself *is*
+  the capability, same reasoning as the sign-in family, not an `ActorContext` check. Mounted
+  unconditionally in `config/urls.py` (not gated by `DEBUG`) so `pytest` (which runs with
+  `DEBUG=False`) can still exercise the real PUT/GET round trip end-to-end via Django's test
+  `Client`, not just call adapter methods directly.
+- **`R2ObjectStore` (boto3, S3-compatible) has no `moto` in this sandbox** — tests mock
+  `boto3.client` directly (`unittest.mock.patch("ham.integrations.storage.s3.boto3.client")`)
+  and assert on call args (bucket/key/ExpiresIn/etc.) plus the 404-vs-other-error branch in
+  `head()`. Good enough to pin the contract; add `moto` later if a fuller integration test is
+  wanted. R2 needs `signature_version="s3v4"` + `addressing_style="path"` in `botocore.client.
+  Config` — AWS's default virtual-hosted-style addressing doesn't work against R2's endpoint.
+- **`HAM_OBJECT_STORE_BACKEND` now defaults to the local adapter** (`config/settings/base.py`),
+  not empty — S2.0 shipped no default on purpose ("no concrete backend exists yet"); S2.4a
+  landing the local adapter is what makes a real default safe. Don't remove the default
+  without checking nothing depends on the old "must configure explicitly" `RuntimeError` path
+  in a test.
+- **Batch reservation's real concurrency hazard is "no batch exists yet", not "the batch is
+  full".** `select_for_update()` on `RequestMediaBatch` has nothing to lock when the row
+  doesn't exist — two concurrent "open the initial batch" calls for the same request both see
+  "no open batch" and race to `INSERT` batch #1, tripping the `(request, number)` unique
+  constraint instead of serializing cleanly. Fix: lock the **parent** `AssistanceRequest` row
+  (`select_for_update().get(id=request_id)`) first, inside the same transaction, before the
+  get-or-create — every concurrent reservation/reopen for that request then serializes on that
+  lock. Proved this with a real `threading` + `pytest.mark.django_db(transaction=True)` test
+  (`connections.close_all()` in each thread's `finally`, since Django connections are
+  thread-local) — a test that only calls the service sequentially from one thread would never
+  have caught it; select_for_update-on-a-nonexistent-row races only show up under genuine
+  concurrent transactions.
+- **"Consequential enough to audit" is narrower than "every DB write."** `reserve_uploads`
+  (reserving upload slots + presigning PUT URLs) is a plain service function, not
+  `@command`-wrapped, even though it creates rows — it isn't in intake.md §6's declared
+  audit-action list (only `request_media.uploaded`/`.rejected`/`.removed`/`.batch_opened`
+  are), and an abandoned reservation just times out (`MEDIA_UPLOAD_INTENT_LIFETIME`) with no
+  lasting effect. Its authorization is the calling view's own `@requires_action(
+  "requester.media.upload")` route guard (foundation.md §7), same pattern as
+  `ham.identity.services.list_users`. `complete_upload`/`remove_item`/`reopen_batch` (state
+  changes another party can observe) are all `@command`-wrapped. Don't assume "creates a row"
+  implies "needs `@command`" — check the plan's declared audit-action list first.
+- **Administrator-sees-counts-only (Q-138) is service-layer masking, not a second matrix
+  action** — same pattern as `requester_pii.reveal`'s Q-024 exemption. `ham.media.services.
+  media_gallery_for(ctx, request_id)` always computes `MediaCounts`; it returns `items=None`
+  unless `ctx.effective_roles` intersects `{DIR, AD, PAS, BRD}` (i.e. unless something *other*
+  than Administrator alone grants `request_media.view`). The view still gates entry with
+  `@requires_action("request_media.view")`, which both roles hold — the masking decision
+  happens only once you're already inside.
+- **Media re-encoding strips EXIF/GPS "for free"**: Pillow's `Image.save(..., format="JPEG")`
+  does not copy source EXIF into the output unless the caller explicitly passes `exif=...`.
+  Never pass that kwarg in `ham.media.processing.process_photo` — the re-encode itself is the
+  metadata-stripping step, not a separate "scrub" pass that could be forgotten or miss a field.
+  Proved this in a test with `piexif` (new dev-only dependency) building a real JPEG with GPS
+  IFD tags, not just asserting "doesn't crash".
+- **Video processing needs a real "ffmpeg isn't installed" degrade path, tested for real.**
+  `ham.media.processing.ffmpeg_available()` (`shutil.which`) gates every video call;
+  `ProcessingUnavailable` (distinct from `ProcessingError`, which is "processed but failed a
+  check" — too_long/too_large/unsupported/corrupt) is caught by `ham.media.jobs.process_item`
+  and marks the item `failure_code="processing_unavailable"`, **and still deletes the
+  original** — never leave an unprocessed original sitting in `quarantine/` "for later," Q-120
+  is "never serve/keep the original" unconditionally. `apt-get install ffmpeg` failed in this
+  sandbox (upstream mirror 404s on several `noble-updates` packages) — don't assume it'll
+  succeed; write the video-path tests to `pytest.mark.skipif(not ffmpeg_available())` for the
+  real-encode assertions and a separate `unittest.mock.patch("...ffmpeg_available", ...)` test
+  for the degrade path itself, so the suite is still meaningful with or without the binary.
+- **Image/video derivative technical settings (long edge, thumbnail size, JPEG quality, H.264/
+  720p) live as plain module constants in `ham/media/processing.py`, explicitly NOT in
+  `ham.rules`** — intake.md §9 calls these out as "technical settings ... not business rules".
+  Only the 2-minute video-length cap is a real rule
+  (`RULES.media.REQUESTER_MEDIA_MAX_VIDEO_DURATION`), passed into `process_video` by the
+  caller rather than imported inside `processing.py`, so that module stays pure/no-Django.
+- **Retention sweep is written against the general `ham.rules.media_retention_period(kind,
+  closing_status)` helper, not hard-coded to the statuses step 2 can actually reach.**
+  `ham.media.jobs.retention_sweep` (a `ham.jobs.periodic_job`, daily 03:00 UTC) filters
+  `AssistanceRequest.status__in=(CANCELLED, REJECTED)` today (step 2 has no COMPLETED yet) —
+  when step 3 adds COMPLETED, add it to that tuple; the rule lookup itself needs no change.
+- **Added three new rules mid-slice** (`media.MEDIA_UPLOAD_INTENT_LIFETIME`/
+  `PRESIGNED_UPLOAD_URL_LIFETIME`/`PRESIGNED_VIEW_URL_LIFETIME`) that intake.md §9's plan-body
+  rules table already named as engineering values but S2.1 hadn't added to `ham/rules/v1.py`
+  yet — followed the full protocol (bump `RULES_VERSION` to `2026.09.28-5`, `docs/
+  rules-changelog.md` entry, new `PINNED_HASHES` line, `tests/rules/test_rules_values.py`'s
+  independent `EXPECTED` oracle, a new invariant). Gotcha: `ham/rules/v1.py`'s own source-format
+  test (`SOURCE_RE`) only accepts `PRD §N` / `Q-NNN` / `foundation.md §N` in a rule's
+  `sources=` tuple — `"intake.md §9"` fails that regex; put the architecture-plan citation in
+  `note=` prose instead, `sources=` gets the PRD section(s) only.
+- **`ham/requests/models.py` and `ham/requests/migrations/0001_initial.py` are a deliberate,
+  clearly-flagged PLACEHOLDER** (S2.2 owns the real `AssistanceRequest`, running in a parallel
+  worktree not yet merged into this one) — minimal `id`/`status`/`closed_at` only, enough for
+  the `"requests.AssistanceRequest"` FK string and the retention sweep. Also added a
+  placeholder `ham.requests.services.is_request_open(request_id)` (media needs to refuse
+  uploads on a closed/decided request; layering forbids `ham.requests` importing `ham.media`,
+  so this had to go the other way — `ham.media` importing `ham.requests.services`, which the
+  `ham.media` -> `ham.requests` layers direction already allows). Both files' docstrings spell
+  out exactly what the orchestrator should do at merge time (drop the placeholder model/
+  migration, keep S2.2's; re-point `ham/media/migrations/0001_initial.py`'s dependency at
+  whichever migration in S2.2's history actually creates the real table; reconcile
+  `is_request_open` with S2.2's equivalent, which will likely be status-based rather than
+  bare-`closed_at`-based once step 3's states exist).
+- **Cross-module reaction without a forbidden import**: `ham.media` reacts to `ham.requests`'
+  `RequestCancelled` outbox event (closes any still-open media batch) via its own outbox
+  subscriber (`ham.media.subscribers.handle_media_event`, registered `"media"` from
+  `MediaConfig.ready()`) — exactly the established `IntegrationsConfig.ready()` pattern, just
+  used for a same-repo domain-to-domain reaction instead of a third-party integration. This is
+  how a *lower* layer's event reaches a module that layering says may import it (`media` is
+  above `requests`) without the *requests* side ever importing `ham.media` back.
+- **A background job (`ham.jobs.job`/`periodic_job`) that's only ever imported by the module
+  defining it never actually registers with Procrastinate** — `jobs.defer("name", ...)` then
+  raises `KeyError` at call time, not at import time, which makes the failure show up in an
+  unrelated-looking test. Fix: import the module (even just `from . import jobs  # noqa: F401`)
+  from the owning app's `AppConfig.ready()`, mirroring how `MediaConfig` now imports both
+  `.jobs` (task registration) and `.subscribers` (outbox registration) there.

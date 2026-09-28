@@ -15,6 +15,11 @@ from django.urls import include, path
 
 urlpatterns = [
     path("", include("ham.web.urls")),
+    # S2.4a: local-filesystem ObjectStore adapter's stand-in for presigned PUT/GET (dev/test
+    # only in practice — production always configures the R2 adapter instead, which talks
+    # straight to R2 and never touches this app; the route is harmless to leave mounted since
+    # every request needs a tamper-proof, time-limited, single-purpose signed token).
+    path("dev/storage/", include("ham.integrations.storage.urls")),
 ]
 
 if settings.DEBUG:

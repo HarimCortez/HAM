@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-4"
+RULES_VERSION = "2026.09.28-5"
 
 
 def rule(
@@ -569,6 +569,28 @@ class MediaRules:
         note=proposed("Q-119", "MP4 and MOV (QuickTime)."),
         provisional=("Q-119",),
     )
+    MEDIA_UPLOAD_INTENT_LIFETIME: timedelta = rule(
+        timedelta(hours=1),
+        label="An unconfirmed upload reservation (a slot taken but never completed) is "
+        "released after",
+        sources=("PRD §45",),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
+    PRESIGNED_UPLOAD_URL_LIFETIME: timedelta = rule(
+        timedelta(minutes=15),
+        label="A presigned upload (PUT) URL handed to a requester's browser stays valid for",
+        sources=("PRD §45", "PRD §69"),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
+    PRESIGNED_VIEW_URL_LIFETIME: timedelta = rule(
+        timedelta(seconds=60),
+        label="A presigned view (GET) URL for a thumbnail/photo/video stays valid for",
+        sources=("PRD §69",),
+        note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
+        "question.",
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -1060,6 +1082,10 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
     m = rules.media
     if not 0 < m.REQUESTER_PHOTO_MAX_BYTES <= m.REQUESTER_VIDEO_MAX_BYTES:
         p.append("upload size limits must be positive, photos no larger than videos")
+    if not timedelta(0) < m.PRESIGNED_UPLOAD_URL_LIFETIME <= m.MEDIA_UPLOAD_INTENT_LIFETIME:
+        p.append("presigned upload URL must not outlive the reservation it belongs to")
+    if not timedelta(0) < m.PRESIGNED_VIEW_URL_LIFETIME:
+        p.append("presigned view URL lifetime must be positive")
     for name, prefix in (("REQUESTER_PHOTO_TYPES", "image/"), ("REQUESTER_VIDEO_TYPES", "video/")):
         types = getattr(m, name)
         if not types or len(set(types)) != len(types):
