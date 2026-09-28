@@ -134,10 +134,7 @@ EXPECTED_PERIODIC_JOBS: list[tuple[str, str, Path, str, Path]] = [
 # *other* job going missing without needing to be updated again once these app-code bugs are
 # fixed -- at that point these sets become empty and the corresponding xfail bug-pin
 # tests/comments should be deleted along with the entries here.
-KNOWN_NOT_WIRED_DUE_TO_BUG = {
-    "requests.retention_sweep",  # tests/jobs/test_requests_retention_sweep_not_registered_bug.py
-    "identity.purge_sign_in_challenges",  # step-1 scope; same root cause, not fixed here
-}
+KNOWN_NOT_WIRED_DUE_TO_BUG: set[str] = set()
 
 
 class TestPeriodicJobRegistry:

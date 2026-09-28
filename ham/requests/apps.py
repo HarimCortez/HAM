@@ -22,7 +22,11 @@ class RequestsConfig(AppConfig):
         # ham.notifications sits below ham.requests in the layer order (web -> requester_
         # portal -> media -> requests -> notifications -> ...), so this is an ordinary
         # downward import (S2.5 has landed, intake-contracts.md §8.3).
-        from . import attention, notifications
+        from . import (
+            attention,
+            jobs,  # noqa: F401 - registers the procrastinate periodic tasks (Q-127)
+            notifications,
+        )
 
         attention.register()
         # S2.6: leadership email + in-app builders (intake.md §6, docs/ux/intake.md §7).
