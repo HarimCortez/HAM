@@ -20,6 +20,12 @@ from ham.outbox.services import recent_failures, subscriber_status_counts
 from ham.platform.church import church_profile
 from ham.rules.view import rules_view
 
+# Scope trim (step-1 usability review, prd.md): calendar/drive/fitness are documented no-op
+# seams (PRD §50/§51/§36 deferred) so the outbox dispatcher always has somewhere to deliver
+# to; showing them as rows on this page would imply those integrations exist. Only the ones
+# that actually do something in step 1 are visible here.
+_VISIBLE_SUBSCRIBERS = frozenset({"email"})
+
 
 @require_http_methods(["GET", "POST"])
 @requires_action("church_profile.update")
@@ -49,6 +55,9 @@ def admin_church_settings(request):
                     request,
                     "Church settings can't be changed while acting as someone else.",
                 )
+            except ValueError as exc:
+                # Q-030/§70.5: an unrecognized IANA time zone name.
+                errors["time_zone"] = str(exc)
             else:
                 messages.success(request, "Church settings updated.")
                 return redirect("web:admin_church_settings")
@@ -62,8 +71,10 @@ def admin_integrations(request):
         request,
         "web/admin_integrations.html",
         {
-            "counts": subscriber_status_counts(),
-            "failures": recent_failures(),
+            "counts": [
+                row for row in subscriber_status_counts() if row.subscriber in _VISIBLE_SUBSCRIBERS
+            ],
+            "failures": [d for d in recent_failures() if d.subscriber in _VISIBLE_SUBSCRIBERS],
         },
     )
 

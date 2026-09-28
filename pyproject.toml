@@ -116,4 +116,8 @@ forbidden_modules = [
 ignore_imports = [
   "ham.identity.authn -> ham.integrations.email.service",
   "ham.identity.mfa -> ham.integrations.email.service",
+  # ham.identity.notifications resolves its own outbox-triggered email content (invitation,
+  # role-change, impersonation-ended notices, Q-055/Q-049/Q-084) the same way authn/mfa do for
+  # sign-in codes; it is the one place identity registers builders with the email subscriber.
+  "ham.identity.notifications -> ham.integrations.email.notifications",
 ]

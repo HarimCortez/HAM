@@ -25,6 +25,12 @@ FORBIDDEN_CHURCH_STRINGS = (
 
 TEMPLATE_DIRS = (BASE_DIR / "ham" / "web" / "templates",)
 
+# §9.6 "no literal church name in templates/Python outside design-system/": Python source is
+# scanned too (e.g. a hard-coded fallback string in a view/service would defeat the whole
+# point of the church-profile/brand-loader seam, Q-026).
+PYTHON_SCAN_DIRS = (BASE_DIR / "ham", BASE_DIR / "config")
+PYTHON_EXCLUDED_DIRS = {"migrations", "__pycache__"}
+
 HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{8}\b")
 
 # Files/dirs allowed to contain real hex colors: the design-system itself (tokens/build tool),
@@ -59,6 +65,19 @@ def test_no_literal_church_name_in_templates(template_dir):
             if needle in text:
                 offenders.append(f"{path.relative_to(BASE_DIR)}: contains {needle!r}")
     assert not offenders, "Literal church name in templates:\n" + "\n".join(offenders)
+
+
+def test_no_literal_church_name_in_python_source():
+    offenders = []
+    for base in PYTHON_SCAN_DIRS:
+        for path in base.rglob("*.py"):
+            if PYTHON_EXCLUDED_DIRS & set(path.parts) or "tests" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for needle in FORBIDDEN_CHURCH_STRINGS:
+                if needle in text:
+                    offenders.append(f"{path.relative_to(BASE_DIR)}: contains {needle!r}")
+    assert not offenders, "Literal church name in Python source:\n" + "\n".join(offenders)
 
 
 def test_no_hex_colors_outside_design_system():

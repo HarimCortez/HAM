@@ -79,6 +79,9 @@ MIDDLEWARE = [
     # request.actor (just built above) and must run before the route guard so an expired
     # session is signed out before any view executes.
     "ham.identity.middleware.SessionLifetimeMiddleware",
+    # Q-030/§70.5: activate the one church time zone for every request (screens, emails and
+    # day-based rules use it, never the server's or the browser's own time zone).
+    "ham.platform.timezone_middleware.ChurchTimeZoneMiddleware",
     # Route guard (foundation.md §7): every URL must declare an action or be public.
     "ham.authz.guard.RouteGuardMiddleware",
 ]
@@ -173,6 +176,11 @@ ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
 # HAM_ENV=production). Never a fixed business *rule* (CLAUDE.md "no magic numbers") — it's a
 # secret, so it belongs here, not in `ham.rules`.
 HAM_FIELD_ENCRYPTION_KEY = env("HAM_FIELD_ENCRYPTION_KEY", default="")
+
+# The externally-reachable origin for this deployment (Q-037/Q-071/Q-084, PRD §60.2): used to
+# build absolute links in emails (invitations, sign-in links) since a background job has no
+# request to build one from. Never hard-code a scheme+host anywhere else.
+HAM_BASE_URL = env("HAM_BASE_URL", default="http://localhost:8000")
 
 # Session cookie ceiling: the *longest* possible HAM session (Q-032's standard/passwordless
 # lifetime). `ham.identity.middleware.SessionLifetimeMiddleware` enforces the shorter

@@ -1,0 +1,33 @@
+{% extends "web/base.html" %}
+
+{% block title %}Edit {{ detail.display_name }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Edit name / phone{% endblock %}
+
+{% block content %}
+  <h1>Edit {{ detail.display_name }}'s name and phone</h1>
+
+  {% if errors %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <p>Please fix the following:</p>
+      <ul>
+        {% for field, message in errors.items %}<li>{{ message }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="form form--single-column" novalidate>
+    {% csrf_token %}
+    <div class="form-field{% if errors.full_name %} form-field--error{% endif %}">
+      <label for="id_full_name">Full name</label>
+      <input id="id_full_name" name="full_name" type="text" value="{{ values.full_name }}">
+    </div>
+    <div class="form-field">
+      <label for="id_mobile_phone">Mobile phone <span class="form-field__optional">(optional)</span></label>
+      <input id="id_mobile_phone" name="mobile_phone" type="tel" value="{{ values.mobile_phone }}">
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Save</button>
+      <a class="btn btn--secondary" href="{% url 'web:admin_user_detail' user_id=detail.user.id %}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

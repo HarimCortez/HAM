@@ -71,6 +71,10 @@ class User(AbstractBaseUser):
     # browser that is still open elsewhere loses its two-step-satisfied state (or is signed
     # out outright) without waiting for that session's own idle timeout.
     session_epoch = models.PositiveIntegerField(default=0)
+    # Q-037/Q-071/Q-084: baseline for the invitation's 7-day validity window. Null until an
+    # invited person's leader clicks "Resend invitation"; until then the window is measured
+    # from `created_at` (`ham.identity.services.invitation_is_valid`).
+    invitation_resent_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 

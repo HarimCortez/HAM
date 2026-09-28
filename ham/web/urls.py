@@ -15,6 +15,7 @@ app_name = "web"
 # below carry `@requires_action(...)` where a guard attaches; sign-in family (S3b) is public.
 urlpatterns = [
     path("healthz", views.healthz, name="healthz"),
+    path("api/v1/me", views.api_me, name="api_me"),
     path("", views.home, name="home"),
     path("inbox", views.inbox, name="inbox"),
     path("offline", views.offline, name="offline"),
@@ -55,9 +56,29 @@ urlpatterns = [
     path("admin/users", views_admin_users.admin_users_list, name="admin_users"),
     path("admin/users/new", views_admin_users.admin_users_invite, name="admin_users_invite"),
     path(
+        "admin/users/new/sent",
+        views_admin_users.admin_users_invite_sent,
+        name="admin_users_invite_sent",
+    ),
+    path(
         "admin/users/<uuid:user_id>",
         views_admin_users.admin_user_detail,
         name="admin_user_detail",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/identity",
+        views_admin_users.admin_user_identity_update,
+        name="admin_user_identity_update",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/invitation/resend",
+        views_admin_users.admin_user_invitation_resend,
+        name="admin_user_invitation_resend",
+    ),
+    path(
+        "admin/users/<uuid:user_id>/invitation/cancel",
+        views_admin_users.admin_user_invitation_cancel,
+        name="admin_user_invitation_cancel",
     ),
     path(
         "admin/users/<uuid:user_id>/roles/confirm",

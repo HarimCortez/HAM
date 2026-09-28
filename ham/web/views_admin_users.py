@@ -9,8 +9,10 @@ here with `authorize()` directly, matching navigation.md §1 "Nav shows only wha
 from __future__ import annotations
 
 import uuid
+from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -19,17 +21,21 @@ from ham.authz import roles
 from ham.authz.commands import ImpersonationBlocked, PermissionDenied, StepUpRequired
 from ham.authz.guard import requires_action
 from ham.authz.matrix import authorize
+from ham.identity import services
 from ham.identity.models import RoleAssignment, User
 from ham.identity.services import (
     DEFAULT_INVITE_ROLES,
     ROLE_CHECKBOX_ORDER,
     ROLE_DESCRIPTIONS,
     UserListFilters,
+    cancel_invitation,
     get_user_detail,
     grant_global_role,
     invite_user,
     list_users,
+    resend_invitation,
     revoke_global_role,
+    update_identity,
 )
 from ham.rules import RULES
 
@@ -91,14 +97,34 @@ def admin_users_invite(request):
                     _ROLE_CHANGE_KIND,
                     cancel_url=reverse("web:admin_users"),
                 )
-            except (PermissionDenied, ImpersonationBlocked) as exc:
-                errors["email"] = str(exc)
+            except ImpersonationBlocked:
+                errors["email"] = "Inviting people isn't allowed while acting as someone else."
+            except PermissionDenied:
+                errors["email"] = "You don't have permission to invite with that role."
             except ValueError as exc:
+                # PRD-guardian B7: `invite_user` raises a friendly message here for a
+                # duplicate email; other ValueErrors (e.g. Q-055 missing reason) are already
+                # written as person-facing text too.
                 errors["email"] = str(exc)
             else:
                 messages.success(request, f"Invited {values['email']}.")
-                return redirect("web:admin_user_detail", user_id=user.id)
+                if authorize(request.actor, "user.view").allowed:
+                    return redirect("web:admin_user_detail", user_id=user.id)
+                # Q-082: an Assistant Director may invite but has no `user.view` — send them
+                # to a confirmation they can actually see instead of a 404.
+                query = urlencode({"email": values["email"]})
+                return redirect(f"{reverse('web:admin_users_invite_sent')}?{query}")
     return render(request, "web/admin_users_invite.html", {"errors": errors, "values": values})
+
+
+@require_http_methods(["GET"])
+@requires_action("user.invite")
+def admin_users_invite_sent(request):
+    """ "Invitation sent" confirmation reachable by anyone who may invite, even without
+    `user.view` (Q-082, item 7: give the Assistant Director a path in)."""
+    return render(
+        request, "web/admin_users_invite_sent.html", {"email": request.GET.get("email", "")}
+    )
 
 
 def _role_visibility(ctx, detail) -> dict[str, bool]:
@@ -176,8 +202,32 @@ def admin_user_detail(request, user_id: uuid.UUID):
             "role_descriptions": ROLE_DESCRIPTIONS,
             "pending": pending,
             "review_error": review_error,
-            "can_disable": authorize(ctx, "user.disable").allowed and ctx.user_id != detail.user.id,
-            "can_enable": authorize(ctx, "user.enable").allowed,
+            "can_disable": (
+                authorize(ctx, "user.disable").allowed
+                and ctx.user_id != detail.user.id
+                and detail.status != services.STATUS_INVITED
+                # Q-052/Q-079: a Director may not disable an Administrator's account.
+                and (
+                    roles.ADMINISTRATOR in ctx.effective_roles
+                    or roles.ADMINISTRATOR not in active_roles
+                )
+            ),
+            "can_enable": (
+                authorize(ctx, "user.enable").allowed
+                and (
+                    roles.ADMINISTRATOR in ctx.effective_roles
+                    or roles.ADMINISTRATOR not in active_roles
+                )
+            ),
+            "can_resend_invitation": (
+                authorize(ctx, "user.invitation_resend").allowed
+                and detail.status == services.STATUS_INVITED
+            ),
+            "can_cancel_invitation": (
+                authorize(ctx, "user.invitation_cancel").allowed
+                and detail.status == services.STATUS_INVITED
+            ),
+            "can_update_identity": authorize(ctx, "user.update_identity").allowed,
             "can_mfa_reset": authorize(ctx, "user.mfa_reset").allowed,
             "can_impersonate": (
                 authorize(ctx, "impersonation.start").allowed
@@ -274,14 +324,21 @@ def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
     ctx = request.actor
     user = get_object_or_404(User, pk=user_id)
     try:
-        for role in to_add:
-            grant_global_role(ctx, user_id=user.id, role=role, reason=reason)
-        for role in to_remove:
-            assignment = RoleAssignment.objects.filter(
-                user=user, role=role, revoked_at__isnull=True, scope_type__isnull=True
-            ).first()
-            if assignment is not None:
-                revoke_global_role(ctx, assignment_id=assignment.id, reason=reason)
+        # Item 4: multiple role changes in one confirm apply atomically (one transaction, all
+        # or nothing). Each `grant_global_role`/`revoke_global_role` call is itself a
+        # `@command` with its own `transaction.atomic()`; wrapping them in one more outer
+        # atomic block makes a savepoint around the whole batch, so a failure partway (a
+        # `StepUpRequired` on the third of three changes, say) rolls every change in this
+        # confirm back, not just the one that failed.
+        with transaction.atomic():
+            for role in to_add:
+                grant_global_role(ctx, user_id=user.id, role=role, reason=reason)
+            for role in to_remove:
+                assignment = RoleAssignment.objects.filter(
+                    user=user, role=role, revoked_at__isnull=True, scope_type__isnull=True
+                ).first()
+                if assignment is not None:
+                    revoke_global_role(ctx, assignment_id=assignment.id, reason=reason)
     except StepUpRequired:
         from ham.platform.clock import now as clock_now
 
@@ -312,13 +369,30 @@ def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
     return redirect("web:admin_user_detail", user_id=user_id), None
 
 
-@require_http_methods(["POST"])
+@require_http_methods(["GET", "POST"])
 @requires_action("user.disable")
 def admin_user_disable(request, user_id: uuid.UUID):
+    """UX C5: turning an account off is behind its own confirmation step with a required
+    reason (audited), not a one-tap button — GET shows the confirmation, POST does it."""
     from ham.identity.services import disable_user
 
+    detail = get_user_detail(user_id)
+    if detail is None:
+        return render(request, "web/not_found.html", status=404)
+
+    if request.method == "GET":
+        return render(request, "web/admin_user_disable_confirm.html", {"detail": detail})
+
+    reason = request.POST.get("reason", "").strip()
+    if not reason:
+        messages.error(request, "Enter a reason for turning off this account.")
+        return render(
+            request,
+            "web/admin_user_disable_confirm.html",
+            {"detail": detail, "reason_error": True},
+        )
     try:
-        disable_user(request.actor, user_id=user_id, reason=request.POST.get("reason", ""))
+        disable_user(request.actor, user_id=user_id, reason=reason)
     except ImpersonationBlocked:
         messages.error(
             request, "Turning off an account isn't allowed while acting as someone else."
@@ -328,6 +402,67 @@ def admin_user_disable(request, user_id: uuid.UUID):
     else:
         messages.success(request, "Account turned off.")
     return redirect("web:admin_user_detail", user_id=user_id)
+
+
+@require_http_methods(["POST"])
+@requires_action("user.invitation_resend")
+def admin_user_invitation_resend(request, user_id: uuid.UUID):
+    try:
+        resend_invitation(request.actor, user_id=user_id)
+    except ImpersonationBlocked:
+        messages.error(request, "This isn't allowed while acting as someone else.")
+    except (PermissionDenied, ValueError) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Invitation resent.")
+    return redirect("web:admin_user_detail", user_id=user_id)
+
+
+@require_http_methods(["POST"])
+@requires_action("user.invitation_cancel")
+def admin_user_invitation_cancel(request, user_id: uuid.UUID):
+    reason = request.POST.get("reason", "").strip()
+    try:
+        cancel_invitation(request.actor, user_id=user_id, reason=reason)
+    except ImpersonationBlocked:
+        messages.error(request, "This isn't allowed while acting as someone else.")
+    except (PermissionDenied, ValueError) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Invitation cancelled.")
+    return redirect("web:admin_user_detail", user_id=user_id)
+
+
+@require_http_methods(["GET", "POST"])
+@requires_action("user.update_identity")
+def admin_user_identity_update(request, user_id: uuid.UUID):
+    """`POST /admin/users/<id>/identity` (item 7): a small form on the user detail page for
+    an Administrator to correct a person's name/phone (e.g. someone who can't sign in to fix
+    it themselves, Q-051)."""
+    detail = get_user_detail(user_id)
+    if detail is None:
+        return render(request, "web/not_found.html", status=404)
+    values = {
+        "full_name": detail.profile.full_name if detail.profile else "",
+        "mobile_phone": detail.profile.mobile_phone if detail.profile else "",
+    }
+    errors: dict[str, str] = {}
+    if request.method == "POST":
+        values = {
+            "full_name": request.POST.get("full_name", "").strip(),
+            "mobile_phone": request.POST.get("mobile_phone", "").strip(),
+        }
+        if not values["full_name"]:
+            errors["full_name"] = "Enter a name."
+        if not errors:
+            update_identity(request.actor, user_id=user_id, **values)
+            messages.success(request, "Updated.")
+            return redirect("web:admin_user_detail", user_id=user_id)
+    return render(
+        request,
+        "web/admin_user_identity_update.html",
+        {"detail": detail, "values": values, "errors": errors},
+    )
 
 
 @require_http_methods(["POST"])

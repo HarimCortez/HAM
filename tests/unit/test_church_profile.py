@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 
 from ham.platform.brand import BrandConfigError, load_brand
-from ham.platform.church import church_profile
+from ham.platform.church import church_profile, format_church_time, is_valid_time_zone
 from ham.platform.models import ChurchProfile
 
 
@@ -38,3 +40,25 @@ def test_load_brand_raises_clear_error_for_unknown_brand():
     load_brand.cache_clear()
     with pytest.raises(BrandConfigError):
         load_brand("does-not-exist")
+
+
+class TestTimeZoneHelpers:
+    """Q-030/§70.5: one church time zone, validated and labeled with its abbreviation."""
+
+    def test_valid_iana_zone(self):
+        assert is_valid_time_zone("America/New_York") is True
+
+    def test_invalid_zone_rejected(self):
+        assert is_valid_time_zone("Not/AZone") is False
+        assert is_valid_time_zone("") is False
+
+    def test_format_church_time_uses_zone_abbreviation(self, settings, db):
+        settings.HAM_BRAND = "miami-temple"
+        load_brand.cache_clear()
+        row = ChurchProfile.get_solo()
+        row.time_zone = "America/New_York"
+        row.save()
+        moment = dt.datetime(2026, 1, 15, 17, 0, tzinfo=dt.UTC)  # winter -> EST
+        rendered = format_church_time(moment)
+        assert "EST" in rendered
+        assert "12:00" in rendered  # UTC-5

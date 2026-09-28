@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 import pytest
@@ -151,6 +152,121 @@ class TestInviteUser:
         )
         assert OutboxEvent.objects.filter(event_type="UserCreated").exists()
 
+    def test_sets_created_by_id(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        ctx = _ctx(admin)
+        user = services.invite_user(
+            ctx, email="dwayne@example.org", first_name="Dwayne", last_name="Carter"
+        )
+        assert user.created_by_id == admin.id
+
+    def test_inviting_existing_email_raises_friendly_value_error_not_500(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        ctx = _ctx(admin)
+        with pytest.raises(ValueError, match="already has a HAM account"):
+            services.invite_user(
+                ctx, email="nadia@example.org", first_name="Nadia", last_name="Duplicate"
+            )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_invitation_email_sent_with_absolute_sign_in_link(self, make_user, mailoutbox):
+        # transaction=True: `ham.outbox.emit`'s dispatch is deferred to `transaction.on_commit`
+        # (foundation.md §3), which never fires inside pytest-django's default rolled-back
+        # wrapping transaction — the same reason `tests/integrations/test_notifications_
+        # subscriber.py` drives the subscriber directly instead. This test wants the real
+        # end-to-end path (invite -> outbox -> dispatch job -> email subscriber -> mailbox),
+        # so it needs real commits.
+        from ham import jobs
+        from ham.identity.models import SharedIdentityProfile
+
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        SharedIdentityProfile.objects.create(user=admin, full_name="Nadia Ruiz")
+        ctx = _ctx(admin)
+        services.invite_user(
+            ctx, email="dwayne@example.org", first_name="Dwayne", last_name="Carter"
+        )
+        jobs.run_due_jobs_now()
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == ["dwayne@example.org"]
+        assert "Nadia" in mailoutbox[0].subject
+        assert "http://localhost:8000/sign-in" in mailoutbox[0].body
+
+    @pytest.mark.django_db(transaction=True)
+    def test_bootstrap_created_user_gets_no_invitation_email(self, mailoutbox):
+        from ham import jobs
+
+        services.bootstrap_administrator("owner@example.org")
+        jobs.run_due_jobs_now()
+        assert mailoutbox == []
+
+
+class TestInvitationValidity:
+    def test_active_user_is_always_valid(self, make_user):
+        user = make_user("kevin@example.org")
+        user.first_sign_in_at = clock_now()
+        user.save()
+        assert services.invitation_is_valid(user) is True
+
+    def test_fresh_invitation_is_valid(self, make_user):
+        user = make_user("kevin@example.org")
+        assert services.invitation_is_valid(user) is True
+
+    def test_expired_invitation_is_invalid(self, make_user):
+        from ham.rules import RULES
+
+        user = make_user("kevin@example.org")
+        user.created_at = (
+            clock_now() - RULES.auth.ACCOUNT_INVITATION_LIFETIME - dt.timedelta(days=1)
+        )
+        user.save(update_fields=["created_at"])
+        assert services.invitation_is_valid(user) is False
+
+    def test_cancelled_invitation_is_invalid(self, make_user):
+        user = make_user("kevin@example.org")
+        user.is_active = False
+        user.disabled_at = clock_now()
+        user.save()
+        assert services.invitation_is_valid(user) is False
+
+
+class TestResendCancelInvitation:
+    def test_resend_restarts_the_window(self, make_user):
+        from ham.rules import RULES
+
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        invited = make_user("kevin@example.org")
+        invited.created_at = (
+            clock_now() - RULES.auth.ACCOUNT_INVITATION_LIFETIME - dt.timedelta(days=1)
+        )
+        invited.save(update_fields=["created_at"])
+        assert services.invitation_is_valid(invited) is False
+
+        services.resend_invitation(_ctx(admin), user_id=invited.id)
+        invited.refresh_from_db()
+        assert services.invitation_is_valid(invited) is True
+
+    def test_cannot_resend_after_first_sign_in(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        user = make_user("kevin@example.org")
+        user.first_sign_in_at = clock_now()
+        user.save()
+        with pytest.raises(ValueError):
+            services.resend_invitation(_ctx(admin), user_id=user.id)
+
+    def test_cancel_disables_the_invited_account(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        invited = make_user("kevin@example.org")
+        services.cancel_invitation(_ctx(admin), user_id=invited.id, reason="wrong address")
+        invited.refresh_from_db()
+        assert invited.is_disabled is True
+        assert services.invitation_is_valid(invited) is False
+
 
 class TestDisableEnableUser:
     def test_admin_disables_user(self, make_user):
@@ -180,7 +296,7 @@ class TestDisableEnableUser:
         _grant(admin, roles.ADMINISTRATOR)
         other_admin = make_user("other-admin@example.org")
         _grant(other_admin, roles.ADMINISTRATOR)
-        services.disable_user(_ctx(admin), user_id=other_admin.id)
+        services.disable_user(_ctx(admin), user_id=other_admin.id, reason="stepping down")
         other_admin.refresh_from_db()
         assert other_admin.is_disabled is True
 
@@ -197,6 +313,72 @@ class TestDisableEnableUser:
         _grant(luis, roles.VOLUNTEER)
         with pytest.raises(PermissionDenied):
             services.disable_user(_ctx(kevin), user_id=luis.id)
+
+    def test_director_can_disable_a_volunteer(self, make_user):
+        """Q-052/Q-079: the Director may disable accounts that don't hold Administrator."""
+        marcus = make_user("marcus@example.org")
+        _grant(marcus, roles.HAM_DIRECTOR)
+        kevin = make_user("kevin@example.org")
+        _grant(kevin, roles.VOLUNTEER)
+        services.disable_user(_ctx(marcus), user_id=kevin.id, reason="left the ministry")
+        kevin.refresh_from_db()
+        assert kevin.is_disabled is True
+
+    def test_director_cannot_disable_an_administrator(self, make_user):
+        marcus = make_user("marcus@example.org")
+        _grant(marcus, roles.HAM_DIRECTOR)
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        with pytest.raises(PermissionDenied):
+            services.disable_user(_ctx(marcus), user_id=admin.id, reason="test")
+
+    def test_disable_requires_a_reason(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        kevin = make_user("kevin@example.org")
+        _grant(kevin, roles.VOLUNTEER)
+        with pytest.raises(ValueError, match="reason"):
+            services.disable_user(_ctx(admin), user_id=kevin.id, reason="   ")
+
+    def test_cannot_disable_last_active_director(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        marcus = make_user("marcus@example.org")
+        _grant(marcus, roles.HAM_DIRECTOR)
+        with pytest.raises(ValueError, match="Director"):
+            services.disable_user(_ctx(admin), user_id=marcus.id, reason="leaving")
+
+    def test_disabling_down_to_one_director_is_allowed(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        marcus = make_user("marcus@example.org")
+        _grant(marcus, roles.HAM_DIRECTOR)
+        other_director = make_user("other-director@example.org")
+        _grant(other_director, roles.HAM_DIRECTOR)
+        services.disable_user(_ctx(admin), user_id=other_director.id, reason="leaving")
+        other_director.refresh_from_db()
+        assert other_director.is_disabled is True
+
+    def test_disable_ends_impersonation_of_the_target(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        kevin = make_user("kevin@example.org")
+        _grant(kevin, roles.VOLUNTEER)
+        impersonate_ctx = _ctx(
+            admin, step_up_at={"impersonation_start": clock_now(), "role_change": clock_now()}
+        )
+        session = services.start_impersonation(impersonate_ctx, target_user_id=kevin.id, reason="x")
+
+        other_admin = make_user("other-admin@example.org")
+        _grant(other_admin, roles.ADMINISTRATOR)
+        services.disable_user(_ctx(other_admin), user_id=kevin.id, reason="left the ministry")
+
+        session.refresh_from_db()
+        assert session.ended_at is not None
+        from ham.identity.models import ImpersonationSession
+
+        assert session.end_reason == ImpersonationSession.END_REASON_TARGET_DISABLED
+        assert OutboxEvent.objects.filter(event_type="ImpersonationEnded").exists()
 
     def test_disable_blocked_while_impersonating(self, make_user):
         admin = make_user("nadia@example.org")
@@ -252,6 +434,16 @@ class TestGlobalRoles:
         with pytest.raises(StepUpRequired):
             services.grant_global_role(ctx, user_id=kevin.id, role=roles.VOLUNTEER)
 
+    def test_cannot_revoke_last_active_director(self, make_user):
+        admin = make_user("nadia@example.org")
+        _grant(admin, roles.ADMINISTRATOR)
+        marcus = make_user("marcus@example.org")
+        assignment = _grant(marcus, roles.HAM_DIRECTOR)
+        with pytest.raises(ValueError, match="Director"):
+            services.revoke_global_role(
+                _ctx(admin), assignment_id=assignment.id, reason="stepping down"
+            )
+
     def test_revoking_down_to_one_administrator_is_allowed(self, make_user):
         admin = make_user("nadia@example.org")
         _grant(admin, roles.ADMINISTRATOR)
@@ -295,6 +487,22 @@ class TestLeaderAssignment:
         first.refresh_from_db()
         assert first.revoked_at is not None
         assert second.is_active is True
+
+    def test_reassignment_records_the_replaced_user_in_before(self, make_user):
+        from ham.audit.models import AuditEvent
+
+        marcus = make_user("marcus@example.org")
+        _grant(marcus, roles.HAM_DIRECTOR)
+        luis = make_user("luis@example.org")
+        tom = make_user("tom@example.org")
+        project_id = uuid.uuid4()
+        ctx = _ctx(marcus)
+        services.assign_project_leader(ctx, project_id=project_id, user_id=luis.id)
+        services.assign_project_leader(ctx, project_id=project_id, user_id=tom.id)
+        event = AuditEvent.objects.filter(
+            action="leader.project_assigned", target_id=str(project_id)
+        ).latest("seq")
+        assert event.before == {"previous_user_id": str(luis.id)}
 
     def test_leader_assign_blocked_while_impersonating_no_step_up_needed_otherwise(self, make_user):
         marcus = make_user("marcus@example.org")

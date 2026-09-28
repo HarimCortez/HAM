@@ -15,6 +15,9 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
+from ham.audit.services import record as audit_record
+
+from .commands import _AUDITED_ON_DENIAL
 from .context import ActorContext
 from .matrix import authorize
 
@@ -99,6 +102,27 @@ class RouteGuardMiddleware:
             query = urlencode({"next": request.get_full_path()})
             return redirect(f"{reverse('web:sign_in')}?{query}")
         decision = authorize(ctx, action)
-        if not decision.allowed or decision.blocked_by_impersonation:
+        if not decision.allowed:
+            # foundation.md §4 "Denied privileged actions ... write authz.denied. Ordinary
+            # denials are not logged, to avoid noise" — same audited-action set commands.py
+            # uses for a denial at the service layer, so a route hit and a command call are
+            # audited consistently for the same action.
+            if action in _AUDITED_ON_DENIAL:
+                audit_record(
+                    ctx=ctx,
+                    action="authz.denied",
+                    target_type="action",
+                    target_id=action,
+                    reason=decision.reason,
+                )
+            return _not_available(request)
+        if decision.blocked_by_impersonation:
+            audit_record(
+                ctx=ctx,
+                action="impersonation.action_blocked",
+                target_type="action",
+                target_id=action,
+                reason="blocked while impersonating (§59)",
+            )
             return _not_available(request)
         return None

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+import zoneinfo
 
 from django.contrib import messages
 from django.http import HttpResponse
@@ -18,6 +19,7 @@ from ham.authz.audit_access import export_csv, get_event, list_events
 from ham.authz.commands import ImpersonationBlocked, PermissionDenied, StepUpRequired
 from ham.authz.guard import requires_action
 from ham.identity.services import display_names_for
+from ham.platform.church import church_profile
 from ham.rules import RULES
 
 from .stepup import redirect_to_step_up
@@ -25,13 +27,35 @@ from .stepup import redirect_to_step_up
 _EXPORT_KIND = dict(RULES.auth.STEP_UP_ACTIONS)["audit.export"]
 
 
+def _church_zone() -> zoneinfo.ZoneInfo:
+    try:
+        return zoneinfo.ZoneInfo(church_profile().time_zone)
+    except zoneinfo.ZoneInfoNotFoundError:  # pragma: no cover - defensive; validated on save
+        return zoneinfo.ZoneInfo("UTC")
+
+
+def _parse_church_date(value: str, *, end_of_day: bool) -> dt.datetime:
+    """Q-030/§70.5: the H1 filter bar's date fields are interpreted in church-local time, not
+    UTC or the server's own time zone — a plain "YYYY-MM-DD" is that whole calendar day in the
+    church time zone. A value that already carries its own time/offset is trusted as-is."""
+    if "T" in value:
+        parsed = dt.datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.UTC)
+        return parsed
+    local_date = dt.date.fromisoformat(value)
+    local_time = dt.time(23, 59, 59, 999999) if end_of_day else dt.time(0, 0)
+    local_dt = dt.datetime.combine(local_date, local_time, tzinfo=_church_zone())
+    return local_dt.astimezone(dt.UTC)
+
+
 def _parse_filters(get) -> AuditFilter:
     date_from = None
     date_to = None
     if get.get("from"):
-        date_from = dt.datetime.fromisoformat(get["from"]).replace(tzinfo=dt.UTC)
+        date_from = _parse_church_date(get["from"], end_of_day=False)
     if get.get("to"):
-        date_to = dt.datetime.fromisoformat(get["to"]).replace(tzinfo=dt.UTC)
+        date_to = _parse_church_date(get["to"], end_of_day=True)
     user_id = None
     if get.get("user"):
         try:
