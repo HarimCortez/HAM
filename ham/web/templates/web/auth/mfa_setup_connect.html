@@ -53,6 +53,6 @@
 
   <form method="post" action="{% url 'web:sign_in_cancel' %}">
     {% csrf_token %}
-    <button class="btn btn--secondary" type="submit">Sign out</button>
+    <button class="btn btn--ghost" type="submit">Sign out</button>
   </form>
 {% endblock %}

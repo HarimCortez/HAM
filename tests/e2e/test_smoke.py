@@ -178,7 +178,13 @@ def test_smoke_suite(live_server, viewport_name):
             page.click("button[type=submit]")
             assert page.url == f"{live_server.url}/", page.url
             nav_labels = _visible_nav_labels(page, container=nav_container)
-            assert "Audit log" in nav_labels, nav_labels
+            if viewport_name == "mobile":
+                # navigation.md §3.1/Q-091: the Director's bottom nav is capped at 5 items and
+                # ends in **More** (not a direct Audit log tab) — Audit log lives on the More
+                # page (tests/web/test_admin_index_and_more.py covers that page's contents).
+                assert nav_labels == {"Home", "Inbox", "More"}, nav_labels
+            else:
+                assert "Audit log" in nav_labels, nav_labels
 
             # --- 3. Audit export requires step-up -------------------------------------------
             page.goto(f"{live_server.url}/audit")

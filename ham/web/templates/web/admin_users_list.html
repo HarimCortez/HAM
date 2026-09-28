@@ -1,5 +1,5 @@
 {% extends "web/base.html" %}
-{% load web_extras %}
+{% load static web_extras %}
 
 {% block title %}Users &amp; roles · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Users &amp; roles{% endblock %}
@@ -47,19 +47,19 @@
         {% for row in rows %}
           <tr>
             <td><a href="{% url 'web:admin_user_detail' user_id=row.user.id %}">{{ row.display_name }}</a></td>
-            <td>{{ row.user.email }}</td>
-            <td>
+            <td data-label="Email">{{ row.user.email }}</td>
+            <td data-label="Roles">
               {% for code in row.role_codes %}
-                <span class="chip chip--neutral">{{ role_labels|get_item:code }}</span>
+                <span class="chip chip--tag">{{ role_labels|get_item:code }}</span>
               {% empty %}
                 <span class="text-tertiary">No roles</span>
               {% endfor %}
             </td>
-            <td>{{ row.two_step }}</td>
-            <td>
-              {% if row.status == "active" %}<span class="chip chip--success">Active</span>{% endif %}
-              {% if row.status == "invited" %}<span class="chip chip--attention">Invited</span>{% endif %}
-              {% if row.status == "disabled" %}<span class="chip chip--neutral">Turned off</span>{% endif %}
+            <td data-label="Two-step">{{ row.two_step }}</td>
+            <td data-label="Status">
+              {% if row.status == "active" %}<span class="chip chip--success"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check-big"></use></svg>Active</span>{% endif %}
+              {% if row.status == "invited" %}<span class="chip chip--attention"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg>Invited</span>{% endif %}
+              {% if row.status == "disabled" %}<span class="chip chip--neutral"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-ban"></use></svg>Turned off</span>{% endif %}
             </td>
           </tr>
         {% endfor %}

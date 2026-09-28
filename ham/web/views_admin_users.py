@@ -175,11 +175,19 @@ def admin_user_detail(request, user_id: uuid.UUID):
         elif roles.ADMINISTRATOR in to_remove and _last_admin_after_removal(detail.user.id):
             review_error = "HAM needs at least one Administrator. Add another Administrator first."
         else:
+            after_roles = (active_roles - set(to_remove)) | set(to_add)
             pending = {
                 "add": to_add,
                 "remove": to_remove,
                 "reason_required": bool(set(to_add) & {roles.PASTOR, roles.BOARD_REPRESENTATIVE})
                 and roles.ADMINISTRATOR not in ctx.effective_roles,
+                # M9: name what changes, not just repeat the role description — an MFA role
+                # doesn't activate until the person sets up two-step sign-in (Q-045), and the
+                # "what they can do" summary should reflect the change, not just today.
+                "needs_mfa_setup": bool(set(to_add) & roles.MFA_REQUIRED_ROLES),
+                "after_descriptions": [
+                    ROLE_DESCRIPTIONS[r] for r in ROLE_CHECKBOX_ORDER if r in after_roles
+                ],
             }
 
     recent_events = []
@@ -365,7 +373,13 @@ def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
         messages.error(request, str(exc))
         return redirect("web:admin_user_detail", user_id=user_id), None
 
-    messages.success(request, "Roles updated.")
+    from ham.identity.services import display_names_for
+    from ham.platform.church import format_church_time
+    from ham.platform.clock import now as clock_now
+
+    display_name = display_names_for([user_id]).get(user_id, "")
+    when = format_church_time(clock_now())
+    messages.success(request, f"Roles updated for {display_name} · {when}.")
     return redirect("web:admin_user_detail", user_id=user_id), None
 
 
