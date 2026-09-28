@@ -1,0 +1,502 @@
+action,role,scope_case,expected_allowed,expected_step_up_required,expected_blocked_while_impersonating,prd_ref,case
+shell.use,ADMINISTRATOR,n/a,True,False,False,§67,baseline
+shell.use,HAM_DIRECTOR,n/a,True,False,False,§67,baseline
+shell.use,ASSISTANT_DIRECTOR,n/a,True,False,False,§67,baseline
+shell.use,PASTOR,n/a,True,False,False,§67,baseline
+shell.use,BOARD_REPRESENTATIVE,n/a,True,False,False,§67,baseline
+shell.use,SOCIAL_MEDIA_SPECIALIST,n/a,True,False,False,§67,baseline
+shell.use,VOLUNTEER,n/a,True,False,False,§67,baseline
+shell.use,CONTRACTOR,n/a,True,False,False,§67,baseline
+shell.use,PROJECT_LEADER,n/a,True,False,False,§67,baseline
+shell.use,TASK_LEADER,n/a,True,False,False,§67,baseline
+shell.use,,n/a,False,False,False,§67,zero_role
+shell.use,,n/a,False,False,False,§67,unauthenticated
+shell.use,ADMINISTRATOR,n/a,False,False,False,§67,disabled_user
+shell.use,HAM_DIRECTOR,n/a,False,False,False,§67,mfa_role_unverified_alone
+shell.use,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,§67,mfa_role_unverified_union_with_volunteer
+shell.use,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,§67,role_union
+me.view,ADMINISTRATOR,own,True,False,False,§67,baseline
+me.view,ADMINISTRATOR,other,False,False,False,§67,scope_out_of_bounds
+me.view,HAM_DIRECTOR,own,True,False,False,§67,baseline
+me.view,HAM_DIRECTOR,other,False,False,False,§67,scope_out_of_bounds
+me.view,ASSISTANT_DIRECTOR,own,True,False,False,§67,baseline
+me.view,ASSISTANT_DIRECTOR,other,False,False,False,§67,scope_out_of_bounds
+me.view,PASTOR,own,True,False,False,§67,baseline
+me.view,PASTOR,other,False,False,False,§67,scope_out_of_bounds
+me.view,BOARD_REPRESENTATIVE,own,True,False,False,§67,baseline
+me.view,BOARD_REPRESENTATIVE,other,False,False,False,§67,scope_out_of_bounds
+me.view,SOCIAL_MEDIA_SPECIALIST,own,True,False,False,§67,baseline
+me.view,SOCIAL_MEDIA_SPECIALIST,other,False,False,False,§67,scope_out_of_bounds
+me.view,VOLUNTEER,own,True,False,False,§67,baseline
+me.view,VOLUNTEER,other,False,False,False,§67,scope_out_of_bounds
+me.view,CONTRACTOR,own,True,False,False,§67,baseline
+me.view,CONTRACTOR,other,False,False,False,§67,scope_out_of_bounds
+me.view,PROJECT_LEADER,own,True,False,False,§67,baseline
+me.view,PROJECT_LEADER,other,False,False,False,§67,scope_out_of_bounds
+me.view,TASK_LEADER,own,True,False,False,§67,baseline
+me.view,TASK_LEADER,other,False,False,False,§67,scope_out_of_bounds
+me.view,,n/a,False,False,False,§67,zero_role
+me.view,,n/a,False,False,False,§67,unauthenticated
+me.view,ADMINISTRATOR,n/a,False,False,False,§67,disabled_user
+me.view,HAM_DIRECTOR,n/a,False,False,False,§67,mfa_role_unverified_alone
+me.view,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,§67,mfa_role_unverified_union_with_volunteer
+me.view,VOLUNTEER+ADMINISTRATOR,own,True,False,False,§67,role_union
+me.update,ADMINISTRATOR,own,True,False,False,§67,baseline
+me.update,ADMINISTRATOR,other,False,False,False,§67,scope_out_of_bounds
+me.update,HAM_DIRECTOR,own,True,False,False,§67,baseline
+me.update,HAM_DIRECTOR,other,False,False,False,§67,scope_out_of_bounds
+me.update,ASSISTANT_DIRECTOR,own,True,False,False,§67,baseline
+me.update,ASSISTANT_DIRECTOR,other,False,False,False,§67,scope_out_of_bounds
+me.update,PASTOR,own,True,False,False,§67,baseline
+me.update,PASTOR,other,False,False,False,§67,scope_out_of_bounds
+me.update,BOARD_REPRESENTATIVE,own,True,False,False,§67,baseline
+me.update,BOARD_REPRESENTATIVE,other,False,False,False,§67,scope_out_of_bounds
+me.update,SOCIAL_MEDIA_SPECIALIST,own,True,False,False,§67,baseline
+me.update,SOCIAL_MEDIA_SPECIALIST,other,False,False,False,§67,scope_out_of_bounds
+me.update,VOLUNTEER,own,True,False,False,§67,baseline
+me.update,VOLUNTEER,other,False,False,False,§67,scope_out_of_bounds
+me.update,CONTRACTOR,own,True,False,False,§67,baseline
+me.update,CONTRACTOR,other,False,False,False,§67,scope_out_of_bounds
+me.update,PROJECT_LEADER,own,True,False,False,§67,baseline
+me.update,PROJECT_LEADER,other,False,False,False,§67,scope_out_of_bounds
+me.update,TASK_LEADER,own,True,False,False,§67,baseline
+me.update,TASK_LEADER,other,False,False,False,§67,scope_out_of_bounds
+me.update,,n/a,False,False,False,§67,zero_role
+me.update,,n/a,False,False,False,§67,unauthenticated
+me.update,ADMINISTRATOR,n/a,False,False,False,§67,disabled_user
+me.update,HAM_DIRECTOR,n/a,False,False,False,§67,mfa_role_unverified_alone
+me.update,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,§67,mfa_role_unverified_union_with_volunteer
+me.update,VOLUNTEER+ADMINISTRATOR,own,True,False,False,§67,role_union
+me.security.manage,ADMINISTRATOR,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,ADMINISTRATOR,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,HAM_DIRECTOR,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,HAM_DIRECTOR,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,ASSISTANT_DIRECTOR,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,ASSISTANT_DIRECTOR,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,PASTOR,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,PASTOR,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,BOARD_REPRESENTATIVE,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,BOARD_REPRESENTATIVE,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,SOCIAL_MEDIA_SPECIALIST,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,SOCIAL_MEDIA_SPECIALIST,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,VOLUNTEER,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,VOLUNTEER,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,CONTRACTOR,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,CONTRACTOR,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,PROJECT_LEADER,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,PROJECT_LEADER,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,TASK_LEADER,own,True,False,True,"§60, Q-048",baseline
+me.security.manage,TASK_LEADER,other,False,False,False,"§60, Q-048",scope_out_of_bounds
+me.security.manage,,n/a,False,False,False,"§60, Q-048",zero_role
+me.security.manage,,n/a,False,False,False,"§60, Q-048",unauthenticated
+me.security.manage,ADMINISTRATOR,n/a,False,False,False,"§60, Q-048",disabled_user
+me.security.manage,HAM_DIRECTOR,n/a,False,False,False,"§60, Q-048",mfa_role_unverified_alone
+me.security.manage,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,"§60, Q-048",mfa_role_unverified_union_with_volunteer
+me.security.manage,VOLUNTEER+ADMINISTRATOR,own,True,False,True,"§60, Q-048",role_union
+me.recovery_codes.regenerate,ADMINISTRATOR,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,ADMINISTRATOR,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,HAM_DIRECTOR,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,HAM_DIRECTOR,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,ASSISTANT_DIRECTOR,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,ASSISTANT_DIRECTOR,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,PASTOR,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,PASTOR,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,BOARD_REPRESENTATIVE,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,BOARD_REPRESENTATIVE,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,SOCIAL_MEDIA_SPECIALIST,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,SOCIAL_MEDIA_SPECIALIST,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,VOLUNTEER,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,VOLUNTEER,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,CONTRACTOR,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,CONTRACTOR,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,PROJECT_LEADER,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,PROJECT_LEADER,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,TASK_LEADER,own,True,True,True,"§60.1, Q-046",baseline
+me.recovery_codes.regenerate,TASK_LEADER,other,False,False,False,"§60.1, Q-046",scope_out_of_bounds
+me.recovery_codes.regenerate,,n/a,False,False,False,"§60.1, Q-046",zero_role
+me.recovery_codes.regenerate,,n/a,False,False,False,"§60.1, Q-046",unauthenticated
+me.recovery_codes.regenerate,ADMINISTRATOR,n/a,False,False,False,"§60.1, Q-046",disabled_user
+me.recovery_codes.regenerate,HAM_DIRECTOR,n/a,False,False,False,"§60.1, Q-046",mfa_role_unverified_alone
+me.recovery_codes.regenerate,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,"§60.1, Q-046",mfa_role_unverified_union_with_volunteer
+me.recovery_codes.regenerate,VOLUNTEER+ADMINISTRATOR,own,True,True,True,"§60.1, Q-046",role_union
+me.sign_in_email.change,ADMINISTRATOR,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,ADMINISTRATOR,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,HAM_DIRECTOR,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,HAM_DIRECTOR,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,ASSISTANT_DIRECTOR,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,ASSISTANT_DIRECTOR,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,PASTOR,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,PASTOR,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,BOARD_REPRESENTATIVE,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,BOARD_REPRESENTATIVE,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,SOCIAL_MEDIA_SPECIALIST,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,SOCIAL_MEDIA_SPECIALIST,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,VOLUNTEER,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,VOLUNTEER,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,CONTRACTOR,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,CONTRACTOR,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,PROJECT_LEADER,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,PROJECT_LEADER,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,TASK_LEADER,own,True,True,True,"§60.2, Q-051, Q-046",baseline
+me.sign_in_email.change,TASK_LEADER,other,False,False,False,"§60.2, Q-051, Q-046",scope_out_of_bounds
+me.sign_in_email.change,,n/a,False,False,False,"§60.2, Q-051, Q-046",zero_role
+me.sign_in_email.change,,n/a,False,False,False,"§60.2, Q-051, Q-046",unauthenticated
+me.sign_in_email.change,ADMINISTRATOR,n/a,False,False,False,"§60.2, Q-051, Q-046",disabled_user
+me.sign_in_email.change,HAM_DIRECTOR,n/a,False,False,False,"§60.2, Q-051, Q-046",mfa_role_unverified_alone
+me.sign_in_email.change,HAM_DIRECTOR+VOLUNTEER,n/a,True,False,False,"§60.2, Q-051, Q-046",mfa_role_unverified_union_with_volunteer
+me.sign_in_email.change,VOLUNTEER+ADMINISTRATOR,own,True,True,True,"§60.2, Q-051, Q-046",role_union
+church_profile.update,ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-007",baseline
+church_profile.update,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,PASTOR,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,VOLUNTEER,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,CONTRACTOR,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,TASK_LEADER,n/a,False,False,False,"§4.11, Q-007",baseline
+church_profile.update,,n/a,False,False,False,"§4.11, Q-007",zero_role
+church_profile.update,,n/a,False,False,False,"§4.11, Q-007",unauthenticated
+church_profile.update,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-007",disabled_user
+church_profile.update,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-007",mfa_role_unverified_alone
+church_profile.update,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-007",mfa_role_unverified_union_with_volunteer
+church_profile.update,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-007",role_union
+user.list,ADMINISTRATOR,n/a,True,False,False,"§4.11, Q-041",baseline
+user.list,HAM_DIRECTOR,n/a,True,False,False,"§4.11, Q-041",baseline
+user.list,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,PASTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,VOLUNTEER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,CONTRACTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,TASK_LEADER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.list,,n/a,False,False,False,"§4.11, Q-041",zero_role
+user.list,,n/a,False,False,False,"§4.11, Q-041",unauthenticated
+user.list,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-041",disabled_user
+user.list,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-041",mfa_role_unverified_alone
+user.list,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-041",mfa_role_unverified_union_with_volunteer
+user.list,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,"§4.11, Q-041",role_union
+user.view,ADMINISTRATOR,n/a,True,False,False,"§4.11, Q-041",baseline
+user.view,HAM_DIRECTOR,n/a,True,False,False,"§4.11, Q-041",baseline
+user.view,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,PASTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,VOLUNTEER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,CONTRACTOR,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,TASK_LEADER,n/a,False,False,False,"§4.11, Q-041",baseline
+user.view,,n/a,False,False,False,"§4.11, Q-041",zero_role
+user.view,,n/a,False,False,False,"§4.11, Q-041",unauthenticated
+user.view,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-041",disabled_user
+user.view,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-041",mfa_role_unverified_alone
+user.view,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-041",mfa_role_unverified_union_with_volunteer
+user.view,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,"§4.11, Q-041",role_union
+user.invite,ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-037, Q-080",baseline
+user.invite,HAM_DIRECTOR,n/a,True,False,True,"§4.11, Q-037, Q-080",baseline
+user.invite,ASSISTANT_DIRECTOR,n/a,True,False,True,"§4.11, Q-037, Q-080",baseline
+user.invite,PASTOR,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,VOLUNTEER,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,CONTRACTOR,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,TASK_LEADER,n/a,False,False,False,"§4.11, Q-037, Q-080",baseline
+user.invite,,n/a,False,False,False,"§4.11, Q-037, Q-080",zero_role
+user.invite,,n/a,False,False,False,"§4.11, Q-037, Q-080",unauthenticated
+user.invite,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-037, Q-080",disabled_user
+user.invite,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-037, Q-080",mfa_role_unverified_alone
+user.invite,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-037, Q-080",mfa_role_unverified_union_with_volunteer
+user.invite,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-037, Q-080",role_union
+user.update_identity,ADMINISTRATOR,n/a,True,False,False,§4.11,baseline
+user.update_identity,HAM_DIRECTOR,n/a,False,False,False,§4.11,baseline
+user.update_identity,ASSISTANT_DIRECTOR,n/a,False,False,False,§4.11,baseline
+user.update_identity,PASTOR,n/a,False,False,False,§4.11,baseline
+user.update_identity,BOARD_REPRESENTATIVE,n/a,False,False,False,§4.11,baseline
+user.update_identity,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,§4.11,baseline
+user.update_identity,VOLUNTEER,n/a,False,False,False,§4.11,baseline
+user.update_identity,CONTRACTOR,n/a,False,False,False,§4.11,baseline
+user.update_identity,PROJECT_LEADER,n/a,False,False,False,§4.11,baseline
+user.update_identity,TASK_LEADER,n/a,False,False,False,§4.11,baseline
+user.update_identity,,n/a,False,False,False,§4.11,zero_role
+user.update_identity,,n/a,False,False,False,§4.11,unauthenticated
+user.update_identity,ADMINISTRATOR,n/a,False,False,False,§4.11,disabled_user
+user.update_identity,HAM_DIRECTOR,n/a,False,False,False,§4.11,mfa_role_unverified_alone
+user.update_identity,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,§4.11,mfa_role_unverified_union_with_volunteer
+user.update_identity,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,§4.11,role_union
+user.disable,ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,PASTOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,VOLUNTEER,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,CONTRACTOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,TASK_LEADER,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",baseline
+user.disable,,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",zero_role
+user.disable,,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",unauthenticated
+user.disable,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",disabled_user
+user.disable,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",mfa_role_unverified_alone
+user.disable,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-035, Q-079, Q-080",mfa_role_unverified_union_with_volunteer
+user.disable,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-035, Q-079, Q-080",role_union
+user.enable,ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-080",baseline
+user.enable,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,PASTOR,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,VOLUNTEER,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,CONTRACTOR,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,PROJECT_LEADER,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,TASK_LEADER,n/a,False,False,False,"§4.11, Q-080",baseline
+user.enable,,n/a,False,False,False,"§4.11, Q-080",zero_role
+user.enable,,n/a,False,False,False,"§4.11, Q-080",unauthenticated
+user.enable,ADMINISTRATOR,n/a,False,False,False,"§4.11, Q-080",disabled_user
+user.enable,HAM_DIRECTOR,n/a,False,False,False,"§4.11, Q-080",mfa_role_unverified_alone
+user.enable,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, Q-080",mfa_role_unverified_union_with_volunteer
+user.enable,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§4.11, Q-080",role_union
+user.mfa_reset,ADMINISTRATOR,n/a,True,True,True,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,HAM_DIRECTOR,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,ASSISTANT_DIRECTOR,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,PASTOR,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,BOARD_REPRESENTATIVE,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,VOLUNTEER,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,CONTRACTOR,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,PROJECT_LEADER,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,TASK_LEADER,n/a,False,False,False,"§60.1, Q-035, Q-044",baseline
+user.mfa_reset,,n/a,False,False,False,"§60.1, Q-035, Q-044",zero_role
+user.mfa_reset,,n/a,False,False,False,"§60.1, Q-035, Q-044",unauthenticated
+user.mfa_reset,ADMINISTRATOR,n/a,False,False,False,"§60.1, Q-035, Q-044",disabled_user
+user.mfa_reset,HAM_DIRECTOR,n/a,False,False,False,"§60.1, Q-035, Q-044",mfa_role_unverified_alone
+user.mfa_reset,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§60.1, Q-035, Q-044",mfa_role_unverified_union_with_volunteer
+user.mfa_reset,VOLUNTEER+ADMINISTRATOR,n/a,True,True,True,"§60.1, Q-035, Q-044",role_union
+role.grant_global,ADMINISTRATOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,HAM_DIRECTOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,PASTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,VOLUNTEER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,CONTRACTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,PROJECT_LEADER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,TASK_LEADER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.grant_global,,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",zero_role
+role.grant_global,,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",unauthenticated
+role.grant_global,ADMINISTRATOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",disabled_user
+role.grant_global,HAM_DIRECTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",mfa_role_unverified_alone
+role.grant_global,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",mfa_role_unverified_union_with_volunteer
+role.grant_global,VOLUNTEER+ADMINISTRATOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",role_union
+role.revoke_global,ADMINISTRATOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,HAM_DIRECTOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,ASSISTANT_DIRECTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,PASTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,BOARD_REPRESENTATIVE,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,VOLUNTEER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,CONTRACTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,PROJECT_LEADER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,TASK_LEADER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",baseline
+role.revoke_global,,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",zero_role
+role.revoke_global,,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",unauthenticated
+role.revoke_global,ADMINISTRATOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",disabled_user
+role.revoke_global,HAM_DIRECTOR,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",mfa_role_unverified_alone
+role.revoke_global,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§4.11, §58, Q-041, Q-046",mfa_role_unverified_union_with_volunteer
+role.revoke_global,VOLUNTEER+ADMINISTRATOR,n/a,True,True,True,"§4.11, §58, Q-041, Q-046",role_union
+leader.project.assign,ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,HAM_DIRECTOR,n/a,True,False,True,"§16, Q-031, Q-054",baseline
+leader.project.assign,ASSISTANT_DIRECTOR,n/a,True,False,True,"§16, Q-031, Q-054",baseline
+leader.project.assign,PASTOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,BOARD_REPRESENTATIVE,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,VOLUNTEER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,CONTRACTOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,PROJECT_LEADER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,TASK_LEADER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.assign,,n/a,False,False,False,"§16, Q-031, Q-054",zero_role
+leader.project.assign,,n/a,False,False,False,"§16, Q-031, Q-054",unauthenticated
+leader.project.assign,ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",disabled_user
+leader.project.assign,HAM_DIRECTOR,n/a,False,False,False,"§16, Q-031, Q-054",mfa_role_unverified_alone
+leader.project.assign,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§16, Q-031, Q-054",mfa_role_unverified_union_with_volunteer
+leader.project.assign,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",role_union
+leader.project.revoke,ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,HAM_DIRECTOR,n/a,True,False,True,"§16, Q-031, Q-054",baseline
+leader.project.revoke,ASSISTANT_DIRECTOR,n/a,True,False,True,"§16, Q-031, Q-054",baseline
+leader.project.revoke,PASTOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,BOARD_REPRESENTATIVE,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,VOLUNTEER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,CONTRACTOR,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,PROJECT_LEADER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,TASK_LEADER,n/a,False,False,False,"§16, Q-031, Q-054",baseline
+leader.project.revoke,,n/a,False,False,False,"§16, Q-031, Q-054",zero_role
+leader.project.revoke,,n/a,False,False,False,"§16, Q-031, Q-054",unauthenticated
+leader.project.revoke,ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",disabled_user
+leader.project.revoke,HAM_DIRECTOR,n/a,False,False,False,"§16, Q-031, Q-054",mfa_role_unverified_alone
+leader.project.revoke,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§16, Q-031, Q-054",mfa_role_unverified_union_with_volunteer
+leader.project.revoke,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§16, Q-031, Q-054",role_union
+leader.task.assign,ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,HAM_DIRECTOR,n/a,True,False,True,"§17, Q-031, Q-054",baseline
+leader.task.assign,ASSISTANT_DIRECTOR,n/a,True,False,True,"§17, Q-031, Q-054",baseline
+leader.task.assign,PASTOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,BOARD_REPRESENTATIVE,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,VOLUNTEER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,CONTRACTOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,PROJECT_LEADER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,TASK_LEADER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.assign,,n/a,False,False,False,"§17, Q-031, Q-054",zero_role
+leader.task.assign,,n/a,False,False,False,"§17, Q-031, Q-054",unauthenticated
+leader.task.assign,ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",disabled_user
+leader.task.assign,HAM_DIRECTOR,n/a,False,False,False,"§17, Q-031, Q-054",mfa_role_unverified_alone
+leader.task.assign,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§17, Q-031, Q-054",mfa_role_unverified_union_with_volunteer
+leader.task.assign,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",role_union
+leader.task.revoke,ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,HAM_DIRECTOR,n/a,True,False,True,"§17, Q-031, Q-054",baseline
+leader.task.revoke,ASSISTANT_DIRECTOR,n/a,True,False,True,"§17, Q-031, Q-054",baseline
+leader.task.revoke,PASTOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,BOARD_REPRESENTATIVE,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,VOLUNTEER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,CONTRACTOR,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,PROJECT_LEADER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,TASK_LEADER,n/a,False,False,False,"§17, Q-031, Q-054",baseline
+leader.task.revoke,,n/a,False,False,False,"§17, Q-031, Q-054",zero_role
+leader.task.revoke,,n/a,False,False,False,"§17, Q-031, Q-054",unauthenticated
+leader.task.revoke,ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",disabled_user
+leader.task.revoke,HAM_DIRECTOR,n/a,False,False,False,"§17, Q-031, Q-054",mfa_role_unverified_alone
+leader.task.revoke,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§17, Q-031, Q-054",mfa_role_unverified_union_with_volunteer
+leader.task.revoke,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§17, Q-031, Q-054",role_union
+audit.view,ADMINISTRATOR,n/a,True,False,False,"§58, §67, Q-021",baseline
+audit.view,HAM_DIRECTOR,n/a,True,False,False,"§58, §67, Q-021",baseline
+audit.view,ASSISTANT_DIRECTOR,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,PASTOR,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,BOARD_REPRESENTATIVE,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,VOLUNTEER,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,CONTRACTOR,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,PROJECT_LEADER,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,TASK_LEADER,n/a,False,False,False,"§58, §67, Q-021",baseline
+audit.view,,n/a,False,False,False,"§58, §67, Q-021",zero_role
+audit.view,,n/a,False,False,False,"§58, §67, Q-021",unauthenticated
+audit.view,ADMINISTRATOR,n/a,False,False,False,"§58, §67, Q-021",disabled_user
+audit.view,HAM_DIRECTOR,n/a,False,False,False,"§58, §67, Q-021",mfa_role_unverified_alone
+audit.view,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§58, §67, Q-021",mfa_role_unverified_union_with_volunteer
+audit.view,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,"§58, §67, Q-021",role_union
+audit.export,ADMINISTRATOR,n/a,True,True,True,"§58, Q-010, Q-046",baseline
+audit.export,HAM_DIRECTOR,n/a,True,True,True,"§58, Q-010, Q-046",baseline
+audit.export,ASSISTANT_DIRECTOR,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,PASTOR,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,BOARD_REPRESENTATIVE,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,VOLUNTEER,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,CONTRACTOR,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,PROJECT_LEADER,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,TASK_LEADER,n/a,False,False,False,"§58, Q-010, Q-046",baseline
+audit.export,,n/a,False,False,False,"§58, Q-010, Q-046",zero_role
+audit.export,,n/a,False,False,False,"§58, Q-010, Q-046",unauthenticated
+audit.export,ADMINISTRATOR,n/a,False,False,False,"§58, Q-010, Q-046",disabled_user
+audit.export,HAM_DIRECTOR,n/a,False,False,False,"§58, Q-010, Q-046",mfa_role_unverified_alone
+audit.export,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§58, Q-010, Q-046",mfa_role_unverified_union_with_volunteer
+audit.export,VOLUNTEER+ADMINISTRATOR,n/a,True,True,True,"§58, Q-010, Q-046",role_union
+audit.view_deleted_comment,ADMINISTRATOR,n/a,True,False,True,"§57, §67",baseline
+audit.view_deleted_comment,HAM_DIRECTOR,n/a,True,False,True,"§57, §67",baseline
+audit.view_deleted_comment,ASSISTANT_DIRECTOR,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,PASTOR,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,BOARD_REPRESENTATIVE,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,VOLUNTEER,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,CONTRACTOR,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,PROJECT_LEADER,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,TASK_LEADER,n/a,False,False,False,"§57, §67",baseline
+audit.view_deleted_comment,,n/a,False,False,False,"§57, §67",zero_role
+audit.view_deleted_comment,,n/a,False,False,False,"§57, §67",unauthenticated
+audit.view_deleted_comment,ADMINISTRATOR,n/a,False,False,False,"§57, §67",disabled_user
+audit.view_deleted_comment,HAM_DIRECTOR,n/a,False,False,False,"§57, §67",mfa_role_unverified_alone
+audit.view_deleted_comment,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§57, §67",mfa_role_unverified_union_with_volunteer
+audit.view_deleted_comment,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§57, §67",role_union
+impersonation.start,ADMINISTRATOR,n/a,True,True,True,"§59, Q-034, Q-046",baseline
+impersonation.start,HAM_DIRECTOR,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,ASSISTANT_DIRECTOR,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,PASTOR,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,BOARD_REPRESENTATIVE,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,VOLUNTEER,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,CONTRACTOR,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,PROJECT_LEADER,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,TASK_LEADER,n/a,False,False,False,"§59, Q-034, Q-046",baseline
+impersonation.start,,n/a,False,False,False,"§59, Q-034, Q-046",zero_role
+impersonation.start,,n/a,False,False,False,"§59, Q-034, Q-046",unauthenticated
+impersonation.start,ADMINISTRATOR,n/a,False,False,False,"§59, Q-034, Q-046",disabled_user
+impersonation.start,HAM_DIRECTOR,n/a,False,False,False,"§59, Q-034, Q-046",mfa_role_unverified_alone
+impersonation.start,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§59, Q-034, Q-046",mfa_role_unverified_union_with_volunteer
+impersonation.start,VOLUNTEER+ADMINISTRATOR,n/a,True,True,True,"§59, Q-034, Q-046",role_union
+impersonation.stop,ADMINISTRATOR,impersonating,True,False,False,§59,baseline
+impersonation.stop,VOLUNTEER,impersonating,True,False,False,§59,baseline
+impersonation.stop,ADMINISTRATOR,not_impersonating,False,False,False,§59,baseline
+integrations.view_status,ADMINISTRATOR,n/a,True,False,False,§4.11,baseline
+integrations.view_status,HAM_DIRECTOR,n/a,False,False,False,§4.11,baseline
+integrations.view_status,ASSISTANT_DIRECTOR,n/a,False,False,False,§4.11,baseline
+integrations.view_status,PASTOR,n/a,False,False,False,§4.11,baseline
+integrations.view_status,BOARD_REPRESENTATIVE,n/a,False,False,False,§4.11,baseline
+integrations.view_status,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,§4.11,baseline
+integrations.view_status,VOLUNTEER,n/a,False,False,False,§4.11,baseline
+integrations.view_status,CONTRACTOR,n/a,False,False,False,§4.11,baseline
+integrations.view_status,PROJECT_LEADER,n/a,False,False,False,§4.11,baseline
+integrations.view_status,TASK_LEADER,n/a,False,False,False,§4.11,baseline
+integrations.view_status,,n/a,False,False,False,§4.11,zero_role
+integrations.view_status,,n/a,False,False,False,§4.11,unauthenticated
+integrations.view_status,ADMINISTRATOR,n/a,False,False,False,§4.11,disabled_user
+integrations.view_status,HAM_DIRECTOR,n/a,False,False,False,§4.11,mfa_role_unverified_alone
+integrations.view_status,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,§4.11,mfa_role_unverified_union_with_volunteer
+integrations.view_status,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,§4.11,role_union
+rules.view,ADMINISTRATOR,n/a,True,False,False,§4.11,baseline
+rules.view,HAM_DIRECTOR,n/a,True,False,False,§4.11,baseline
+rules.view,ASSISTANT_DIRECTOR,n/a,False,False,False,§4.11,baseline
+rules.view,PASTOR,n/a,False,False,False,§4.11,baseline
+rules.view,BOARD_REPRESENTATIVE,n/a,False,False,False,§4.11,baseline
+rules.view,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,§4.11,baseline
+rules.view,VOLUNTEER,n/a,False,False,False,§4.11,baseline
+rules.view,CONTRACTOR,n/a,False,False,False,§4.11,baseline
+rules.view,PROJECT_LEADER,n/a,False,False,False,§4.11,baseline
+rules.view,TASK_LEADER,n/a,False,False,False,§4.11,baseline
+rules.view,,n/a,False,False,False,§4.11,zero_role
+rules.view,,n/a,False,False,False,§4.11,unauthenticated
+rules.view,ADMINISTRATOR,n/a,False,False,False,§4.11,disabled_user
+rules.view,HAM_DIRECTOR,n/a,False,False,False,§4.11,mfa_role_unverified_alone
+rules.view,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,§4.11,mfa_role_unverified_union_with_volunteer
+rules.view,VOLUNTEER+ADMINISTRATOR,n/a,True,False,False,§4.11,role_union
+outbox.retry,ADMINISTRATOR,n/a,True,False,True,"§70.3, §4.11",baseline
+outbox.retry,HAM_DIRECTOR,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,ASSISTANT_DIRECTOR,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,PASTOR,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,BOARD_REPRESENTATIVE,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,VOLUNTEER,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,CONTRACTOR,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,PROJECT_LEADER,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,TASK_LEADER,n/a,False,False,False,"§70.3, §4.11",baseline
+outbox.retry,,n/a,False,False,False,"§70.3, §4.11",zero_role
+outbox.retry,,n/a,False,False,False,"§70.3, §4.11",unauthenticated
+outbox.retry,ADMINISTRATOR,n/a,False,False,False,"§70.3, §4.11",disabled_user
+outbox.retry,HAM_DIRECTOR,n/a,False,False,False,"§70.3, §4.11",mfa_role_unverified_alone
+outbox.retry,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§70.3, §4.11",mfa_role_unverified_union_with_volunteer
+outbox.retry,VOLUNTEER+ADMINISTRATOR,n/a,True,False,True,"§70.3, §4.11",role_union
+requester_pii.reveal,ADMINISTRATOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,HAM_DIRECTOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,ASSISTANT_DIRECTOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,PASTOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,BOARD_REPRESENTATIVE,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,SOCIAL_MEDIA_SPECIALIST,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,VOLUNTEER,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,CONTRACTOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,PROJECT_LEADER,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,TASK_LEADER,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",baseline
+requester_pii.reveal,,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",zero_role
+requester_pii.reveal,,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",unauthenticated
+requester_pii.reveal,ADMINISTRATOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",disabled_user
+requester_pii.reveal,HAM_DIRECTOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",mfa_role_unverified_alone
+requester_pii.reveal,HAM_DIRECTOR+VOLUNTEER,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",mfa_role_unverified_union_with_volunteer
+requester_pii.reveal,VOLUNTEER+ADMINISTRATOR,n/a,False,False,False,"§67, §68, Q-009, Q-024, Q-081",role_union
