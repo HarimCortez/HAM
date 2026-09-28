@@ -382,3 +382,64 @@ Most fixes are small, shared CSS rules, not per-screen work.
 ## Artifacts
 - New screenshots: `docs/ux/screenshots/step2-qa/` (requester `r*-{390,768,1280,390-text200,195-zoom200}.png`, leadership `dir-*`, `pastor-*`, `admin-*`).
 - QA server: port 8040, DB `ham_qa`. The throwaway driver scripts live in the session scratchpad, not the repo.
+
+---
+
+## Re-check at 90f28d8
+ham-ui-designer · 2026-09-28 · report only. Server on port 8041, DB `ham_qa` (migrated and re-seeded). Captures were taken at 390, 768, 1280, 1440, at 390 + 200% root text, and at 195px (200% zoom). Screenshots are in the session scratchpad, not the repo. Checks: horizontal overflow, action-bar button rects, targets under 44px, and axe-core 4.10 at 390/1280 (69 pages).
+
+| ID | Status | Evidence |
+|---|---|---|
+| B1 | **Not fixed** | There is no `container-type` or `@container` anywhere in `shell.css`. `.action-bar__inner` (shell.css:1832) is still a no-wrap flex row. At 390 + 200% text, Continue's right edge is at x=433 (R3–R5) and Send request's at x=411 (R6), and the page scrolls sideways. At 195px they reach x=217 and x=205. The FIX-C commit message claims this fix, but the diff doesn't contain it. The "proof" test is also broken (see N3). |
+| B2 | Fixed (one gap) | scrollWidth equals the viewport on every requester and L2 page at 390, 390 + 200% text and 195px, including a long street name, a long unbroken description and a long email. Remaining gap: at 195px the R6 statement card's text ("condominium") spills past the card border. Add `overflow-wrap: anywhere` to `.choice-card`. |
+| B3 | Fixed (one gap) | No default borders remain, legends use h2/h3 type, and nothing overflows at 195px. But the category and "Type of home" grids are still **1 column at 390**. `minmax(min(100%, 11em), 1fr)` (shell.css:1687) needs 360px and the content box is 358px. Use `10.5em`. |
+| M1 | Fixed | R6, R10 and L2 show labels. Raw codes remain only on pre-FIX-A seed rows (`roof`, `yard_outdoor`, `single_family_home`). See N-minor 3. |
+| M2 | Partially fixed | R1 links, R2 Start over (now in the bar) and R8 Resend/Change/Didn't-get-it now sit above the bar. **New:** the wizard aside renders *after* the sticky bar at <1280 (R1–R6, R9), so content scrolls under and below the bar. On short pages (R8, R11b, R12) the bar still floats mid-screen. |
+| M3 | Partially fixed | Weight 600, alignment and grid spacing are fixed. Card icons (R2–R4) are still missing, and so is the 2-column grid at 390 (see B3). |
+| M4 | Fixed | Chip inputs are 20px. L9 and L10 use choice cards. |
+| M5 | Fixed | The chip row (Urgent + Received) and "What happens next" are inside the card on R7 and R10. |
+| M6 | Fixed | The h1 is "Your request · HAM #0NN" and the greeting uses the first name only ("Thank you, Doris."). |
+| M7 | Fixed | The success hero is the SVG icon. |
+| M8 | Fixed | kv labels and list items render at body size. |
+| M9 | Partially fixed | R7/R10 `3fr 2fr` and the R6 2×2 are good. **The wizard aside grid is broken at ≥1280 (N2).** The aside repeats the page's own intro copy, and has no phone when `church.phone` is unset. |
+| M10 | Partially fixed | Remove and Retry are ≥44px. The rejected tile still reads "bad.txtThat file type isn't supported." as one run of text with no icon (`frontend/src/upload.ts` `addRejectedTile`). Pickers are still auto-width with no gap at 390. The failed-tile text breaks awkwardly ("Couldn't / upload. Retry"). |
+| M11 | Fixed | Edit links are ≥44px. There are no heading-order violations. |
+| M12 | Fixed | At ≥1280 rows link to `?tab=…&id=…`. The pane is `role=region` with an aria-label, sticky, and scrolls on its own (`overflow:auto`). The pane has no `tabindex` (N4). |
+| M13 | Fixed | Row chips use tone, outline and icon with relative age ("5 min", "1 day"). Polish: "Awaiting Approval" is title case while "Needs a phone check" is sentence case. |
+| M14 | Fixed | L5 is a "View" disclosure inside the alert. |
+| M15 | Fixed | The Administrator's L2 shows no earlier-request panel. |
+| M16 | **Regressed** | 390: a "Filters" disclosure, good. **At ≥768 the filter bar is invisible** (N1). |
+| M17 | Mostly fixed | Director: the awareness row has no chip, correct plurals, and a context line ("oldest waiting 1 day"). The phone-call icon is still missing. Pastor: one card per urgent request, then "2 requests are waiting". Urgent cards lack the "waiting 2 h" context line. |
+
+### New Blocker
+- **N1. Leadership filter bar hidden at ≥768.**
+  - **Where:** `requests_list.html:20` wraps the filters in `<details class="filter-bar-sheet">`. `shell.css:1041–1047` tries to force them open with `.filter-bar-sheet:not([open]) .filter-bar { display:flex }`.
+  - **Why it fails:** Chromium 131+ (tested: 141) hides a closed `<details>` through its `::details-content` slot (`content-visibility: hidden`), so `display` can't reveal it. Measured: `.filter-bar` gets a 76px box, but `checkVisibility()` on the search input is false at 768, 1280 and 1440. Tablet and desktop users have no search or filters at all, and a blank 76px gap sits above the list (§64 leadership triage).
+  - **Fix:** render the bar outside `<details>` at ≥768. Or add `open` server-side and close it on mobile with `matchMedia('(max-width: 767px)')`. At minimum, add `@media (min-width:768px){ .filter-bar-sheet::details-content { content-visibility: visible; display: contents; } }`, but Safari <18.4 and Firefox <143 ignore that, so the markup fix is the real one.
+
+### New Major
+- **N2. Wizard aside grid at ≥1280 (R1–R6, R9).**
+  - **Where:** `shell.css:2204–2223`.
+  - **Why it breaks:** `grid-row: 1 / -1` on `.wizard-aside` spans only row 1, because there are no explicit rows. Row 1 (the step header) stretches to the aside's height, and `gap: space-8` also applies as a row gap between every child. The result is about 130px of dead space between the progress bar and the h1, and wide gaps between h1, "Your answers are saved." and the intro (`r3-home-tenant-1280.png`).
+  - **Fix:** wrap the non-aside children in `<div class="wizard-main">` and use a 2-column grid of main + aside. Alternatively, `row-gap: 0; column-gap: var(--ham-space-8)` plus `grid-row: 1 / span 99` on the aside.
+  - **Also:** at <1280, move the aside before `.action-bar` (or hide it where it duplicates the intro) so the bar stays the last thing (M2).
+- **N3. The 200%-text proof test doesn't enlarge text.**
+  - **Where:** `tests/e2e/test_step2_requester_screenshots.py:181` runs `add_init_script("document.documentElement.style.fontSize='200%'")`.
+  - **Why it fails:** the script runs before `<html>` exists and throws, so the committed `docs/ux/screenshots/step2/request-home-390-text200.png` and `request-review-390-text200.png` show 16px text. That is why B1 looked fixed.
+  - **Fix:** wrap it in `document.addEventListener('DOMContentLoaded', …)`. Assert that `getComputedStyle(document.documentElement).fontSize === '32px'` and that `scrollWidth <= innerWidth`.
+- **N4. axe `scrollable-region-focusable` (serious) on `.split-detail`.**
+  - **Where:** the Administrator's `/requests` at 1280, whose pane has no focusable content. `requests_list.html:102`.
+  - **Fix:** add `tabindex="0"` to the pane. It already has `role="region"` and a label.
+- **N5. Pastor urgent banner is cramped at 390.**
+  - **Where:** `.urgent-banner__text { flex:1; min-width: var(--ham-size-target-min) }` (shell.css:197–200).
+  - **What happens:** the text can shrink to about 80px, so "Urgent request needs a pastor · HAM #027 Roof or ceiling" wraps to 7 lines next to Open and "I've seen this". The banner is sticky and about 190px tall, roughly 22% of the viewport on every page.
+  - **Fix:** `flex: 1 1 16em; min-width: 0`. The actions then wrap to their own row; make them a `space-2` row of Secondary sm buttons.
+
+### New minors
+1. Pastor Home with many urgent requests shows a column of solid-primary "Open" buttons (12 in QA data), which breaks the "one primary" rule. Cap it at 3 urgent cards plus "N more urgent → Requests", or use Secondary buttons after the first.
+2. L2 at 390: "Photos (0) · Videos (0)" sits flush under the hazard row (missing `space-8` section gap). The count reads 0 while 2 items are still processing (Minor 13 is still open).
+3. The label maps return the raw code for unknown values (`roof`, `yard_outdoor`, `single_family_home` on older rows). Fall back to a humanized label, never the code.
+4. The L9 "What to say" summary shows a stray "⌟" glyph instead of the chevron.
+5. R6 error summary copy: "Please read and tick both statements. · Fix in Please confirm" reads awkwardly. Use "Tick both statements in Please confirm."
+
+axe: 0 violations on 37 requester pages and 31 of 32 leadership pages; the only violation is N4.
