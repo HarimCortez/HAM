@@ -2145,3 +2145,120 @@ label.choice-card + label.choice-card {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 8rem), 1fr));
   }
 }
+
+/* ================================================================================================
+   Fix round FIX-D: step-2 visual QA/usability leftovers (step2-ui-visual-qa.md M2/M9, step2-ux-
+   usability.md M9). Appended so this round's CSS never interleaves with FIX-C's edits above.
+   ================================================================================================ */
+
+/* M2 remainder: secondary links (R1 "Already asked"/"Prefer to talk", R2/R1 "Start over", R8
+   "Resend"/"Change it"/"Didn't get it") now render above `.action-bar`/`.form-actions` in the
+   templates themselves (DOM order) -- this just gives that block breathing room from the bar
+   above it, and un-does any leftover `.link-button`/`<p>` margin so the row reads as one group. */
+.public-card__links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  margin-top: var(--ham-space-6);
+}
+
+.public-card__links p {
+  margin: 0;
+}
+
+/* R5 "I don't use email" (usability M9 remainder / M5): the contact-preference group is not
+   removed when locked -- it's replaced by a read-only, non-interactive card so the answer
+   ("we already know how we'll reach you") stays visible instead of disappearing. */
+.choice-card--locked {
+  cursor: default;
+  background: var(--ham-bg-sunken);
+  color: var(--ham-text-secondary);
+  border-style: dashed;
+}
+
+.choice-card--locked .choice-card__icon {
+  color: var(--ham-text-secondary);
+}
+
+/* R3 "Owner's full name" (usability M9 remainder): reveals only for "It's a family member's
+   home", and works with JS disabled -- the onchange handler is only a same-render-frame nicety
+   for browsers that support it; `:has()` is what actually does the showing/hiding, keyed off
+   the fieldset that owns the radio, so a no-JS submit before this fires still lands on a
+   server that reveals/requires the field from the *submitted* answer, not the client's guess. */
+#owner-name-field {
+  display: none;
+}
+
+fieldset:has(
+    input[name="relationship_to_property"][value="authorized_family_member"]:checked
+  )
+  + #owner-name-field {
+  display: block;
+}
+
+/* M9 (visual QA): the wizard's "Good to know" aside (R1-R6, R9) at >=1280 -- the step rail is
+   intentionally not built (accepted simplification); `.public-card` becomes a 2-column grid
+   only when it actually has an aside child, so every other public page (R7N, R8, verify, ...)
+   is unaffected. */
+@media (min-width: 1280px) {
+  .public-card:has(> .wizard-aside) {
+    max-width: var(--ham-size-wizard-max);
+    display: grid;
+    grid-template-columns: var(--ham-size-form-max) var(--ham-size-aside);
+    gap: var(--ham-space-8);
+    align-items: start;
+  }
+
+  .public-card:has(> .wizard-aside) > :not(.wizard-aside) {
+    grid-column: 1;
+  }
+
+  .wizard-aside {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    position: sticky;
+    top: var(--ham-space-8);
+    border-left: 1px solid var(--ham-border-default);
+    padding-left: var(--ham-space-6);
+  }
+
+  .wizard-aside h2 {
+    margin-top: 0;
+  }
+
+  .wizard-aside p {
+    color: var(--ham-text-secondary);
+  }
+}
+
+/* M9 (visual QA): R7 (welcome mode)/R10 at >=1280 -- `size.requester-wide-max`, two columns
+   (3fr 2fr): left = hero/number/urgent line/what happens next/Add photos, right = Your
+   request/How to reach us. Below that this is just the existing single column. */
+@media (min-width: 1280px) {
+  .public-card--request-status {
+    max-width: var(--ham-size-requester-wide-max);
+  }
+
+  .request-status-grid {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: var(--ham-space-8);
+    align-items: start;
+  }
+}
+
+/* M9 (visual QA): R6 has no aside -- the form card itself spans the wizard-max width instead,
+   which is what actually lets the 4 summary cards sit 2x2 instead of one narrow stretched
+   column. */
+@media (min-width: 1280px) {
+  .public-card--review {
+    max-width: var(--ham-size-wizard-max);
+  }
+
+  .public-card--review .summary-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--ham-space-3);
+    align-items: start;
+  }
+}

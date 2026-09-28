@@ -18,9 +18,11 @@
     <button class="btn btn--secondary" type="button" onclick="document.getElementById('camera-input').click();">
       Take a photo
     </button>
-    {# axe "label" (critical): a visually-hidden file input triggered by a button is still in
-       the accessibility tree and focusable, so it needs its own name -- `aria-label` plus
-       `tabindex="-1"` so it's never a separate stop in the tab order (the button is). #}
+    {% comment %}
+    axe "label" (critical): a visually-hidden file input triggered by a button is still in the
+    accessibility tree and focusable, so it needs its own name -- `aria-label` plus
+    `tabindex="-1"` so it's never a separate stop in the tab order (the button is).
+    {% endcomment %}
     <input id="camera-input" type="file" accept="image/*" capture="environment" data-upload-input
            class="visually-hidden" tabindex="-1" aria-hidden="true" aria-label="Take a photo">
     <button class="btn btn--secondary" type="button" onclick="document.getElementById('file-input').click();">
@@ -41,6 +43,8 @@
       <a class="btn btn--primary" href="{{ secure_page_url }}">Done</a>
     </div>
   </div>
+
+  {% include "web/requester/_wizard_aside.html" %}
 
   <script src="{% static 'upload.js' %}"></script>
 {% endblock %}

@@ -7,12 +7,15 @@
   {% include "web/requester/_step_header.html" with step_title="Check and send" %}
 {% endblock %}
 
+{% block card_modifier %} public-card--review{% endblock %}
+
 {% block public_content %}
   <h1>Check and send</h1>
   <p class="step-header__caption">Your answers are saved.</p>
 
   {% include "web/requester/_error_summary.html" %}
 
+  <div class="summary-card-grid">
   <div class="summary-card">
     <div class="summary-card__header">
       <h2 class="type-h3">Your need</h2>
@@ -64,6 +67,7 @@
       <p class="summary-card__highlight u-wrap-anywhere">{{ payload.email|default:"" }}</p>
     {% endif %}
   </div>
+  </div>
 
   <form method="post" novalidate>
     {% csrf_token %}
@@ -73,14 +77,17 @@
       <input type="text" id="id_{{ honeypot_field }}" name="{{ honeypot_field }}" tabindex="-1" autocomplete="off">
     </div>
 
-    <fieldset id="id_attested_statements">
+    <fieldset id="id_attested_statements"
+              {% if errors.attested_statements %}aria-invalid="true" aria-describedby="id_attested_statements-error"{% endif %}>
     <legend class="type-h2">Please confirm</legend>
-    <p class="text-secondary">Filling this in for someone? Please read these to them. They're the one agreeing.</p>
-    {% if errors.attested_statements %}<p class="form-field__error"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-alert"></use></svg> {{ errors.attested_statements }}</p>{% endif %}
+    <p class="text-secondary" id="id_attested_statements-help">Filling this in for someone? Please read these to them. They're the one agreeing.</p>
+    {% if errors.attested_statements %}<p class="form-field__error" id="id_attested_statements-error"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-alert"></use></svg> {{ errors.attested_statements }}</p>{% endif %}
 
-    {# B1: wording comes from the one canonical module (ham.requests.certifications), never
-       hard-coded here — `statement_text` (set by _review_summary) maps each code this
-       relationship requires to its exact, versioned wording. #}
+    {% comment %}
+    B1: wording comes from the one canonical module (ham.requests.certifications), never
+    hard-coded here -- `statement_text` (set by _review_summary) maps each code this
+    relationship requires to its exact, versioned wording.
+    {% endcomment %}
     {% if review.relationship == "owner" %}
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="attested_statements" value="owner_authority"

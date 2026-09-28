@@ -303,7 +303,9 @@ def test_home_attention_card_for_awaiting_approval_is_pii_free(client, make_user
     response = client.get(reverse("web:home"))
     assert response.status_code == 200
     content = response.content.decode()
-    assert "Waiting for a decision" in content
+    # FIX-D (visual M17): the non-urgent aggregate card reads "N request(s) is/are waiting
+    # for a decision" -- see ham.requests.attention.awaiting_approval_cards.
+    assert "waiting for a decision" in content
     for value in _PII_STRINGS:
         assert value not in content
 

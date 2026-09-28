@@ -16,9 +16,11 @@
   <form method="post" novalidate>
     {% csrf_token %}
 
-    <fieldset class="form-field{% if errors.need_category %} form-field--error{% endif %}">
+    <fieldset class="form-field{% if errors.need_category %} form-field--error{% endif %}"
+              id="id_need_category"
+              {% if errors.need_category %}aria-invalid="true" aria-describedby="id_need_category-error"{% endif %}>
       <legend>What kind of help?</legend>
-      {% if errors.need_category %}<p class="form-field__error" id="id_need_category">{{ errors.need_category }}</p>{% endif %}
+      {% if errors.need_category %}<p class="form-field__error" id="id_need_category-error">{{ errors.need_category }}</p>{% endif %}
       <div class="choice-grid">
         {% for value in need_category_choices %}
           <label class="choice-card">
@@ -32,10 +34,12 @@
 
     <div class="form-field{% if errors.description %} form-field--error{% endif %}">
       <label for="id_description">Tell us what's happening</label>
-      <p class="form-field__help">What's wrong, where in the home, and how long it's been like
+      <p class="form-field__help" id="id_description-help">What's wrong, where in the home, and how long it's been like
         this. If it's hard for you or your family to take care of it, you can tell us why.</p>
-      <textarea id="id_description" name="description" rows="5" maxlength="2000">{{ payload.description|default:"" }}</textarea>
-      {% if errors.description %}<p class="form-field__error">{{ errors.description }}</p>{% endif %}
+      <textarea id="id_description" name="description" rows="5" maxlength="2000"
+                aria-describedby="id_description-help{% if errors.description %} id_description-error{% endif %}"
+                {% if errors.description %}aria-invalid="true"{% endif %}>{{ payload.description|default:"" }}</textarea>
+      {% if errors.description %}<p class="form-field__error" id="id_description-error">{{ errors.description }}</p>{% endif %}
     </div>
 
     <label class="choice-card" id="id_urgent_requested">
@@ -49,7 +53,7 @@
       <div class="inline-alert inline-alert--attention" role="status">
         <p>If anyone is in danger right now, call <a href="tel:911">911</a> first.</p>
       </div>
-      <fieldset class="form-field">
+      <fieldset class="form-field" id="id_urgency_reason">
         <legend>Why is it urgent?</legend>
         <div class="choice-chip-group choice-chip-group--stacked">
           {% for value in urgency_reason_choices %}
@@ -63,20 +67,23 @@
       </fieldset>
       <div class="form-field{% if errors.urgency_justification %} form-field--error{% endif %}">
         <label for="id_urgency_justification">Anything else about why it's urgent? <span class="form-field__optional">(optional)</span></label>
-        <textarea id="id_urgency_justification" name="urgency_justification" rows="2">{{ payload.urgency_justification|default:"" }}</textarea>
-        {% if errors.urgency_justification %}<p class="form-field__error">{{ errors.urgency_justification }}</p>{% endif %}
+        <textarea id="id_urgency_justification" name="urgency_justification" rows="2"
+                  {% if errors.urgency_justification %}aria-invalid="true" aria-describedby="id_urgency_justification-error"{% endif %}>{{ payload.urgency_justification|default:"" }}</textarea>
+        {% if errors.urgency_justification %}<p class="form-field__error" id="id_urgency_justification-error">{{ errors.urgency_justification }}</p>{% endif %}
       </div>
     </div>
 
     <div class="action-bar">
       <div class="action-bar__inner">
+        <button class="btn btn--ghost" type="submit" form="start-over-form">Start over</button>
         <button class="btn btn--primary" type="submit">Continue</button>
       </div>
     </div>
   </form>
-  <form method="post" action="{% url 'web:request_help_start_over' %}"
+  <form method="post" id="start-over-form" action="{% url 'web:request_help_start_over' %}"
         onsubmit="return confirm('Start over? Your saved answers will be erased.');">
     {% csrf_token %}
-    <button class="btn btn--ghost" type="submit">Start over</button>
   </form>
+
+  {% include "web/requester/_wizard_aside.html" %}
 {% endblock %}

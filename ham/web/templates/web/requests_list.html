@@ -105,11 +105,13 @@
     {% endif %}
   </div>
 
-  {# M12: at >=1280 a row click should update the split view, not leave it for the standalone
-     page. Progressive enhancement only -- every row's real href is the standalone page
-     (works with JS off, at any width, and is what "Back to Requests" returns to); this just
-     rewrites hrefs to the same list URL with `&id=` once we know we're at the split-view
-     width, so `aria-current`/scroll position/tabs/filters all stay intact. #}
+  {% comment %}
+  M12: at >=1280 a row click should update the split view, not leave it for the standalone
+  page. Progressive enhancement only -- every row's real href is the standalone page (works
+  with JS off, at any width, and is what "Back to Requests" returns to); this just rewrites
+  hrefs to the same list URL with `&id=` once we know we're at the split-view width, so
+  `aria-current`/scroll position/tabs/filters all stay intact.
+  {% endcomment %}
   <script>
     (function () {
       if (!window.matchMedia || !window.matchMedia("(min-width: 1280px)").matches) return;

@@ -56,8 +56,10 @@ its own page, h2 inside the list page).
   {% endif %}
 
   {% if can_view_matches and matches %}
-    {# L5 (M14): a collapsed disclosure, not an always-expanded stack of tall cards -- the
-       alert itself carries the "View" action that opens it in place. #}
+    {% comment %}
+    L5 (M14): a collapsed disclosure, not an always-expanded stack of tall cards -- the alert
+    itself carries the "View" action that opens it in place.
+    {% endcomment %}
     <section aria-labelledby="request-detail-dup-{{ detail.id }}">
       <div class="inline-alert inline-alert--info">
         <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-copy"></use></svg></span>

@@ -3,13 +3,19 @@
 
 {% block title %}{{ row.display_number }} &middot; {{ church.short_name }} HAM{% endblock %}
 
+{% block card_modifier %} public-card--request-status{% endblock %}
+
 {% block public_content %}
+  <div class="request-status-grid">
+  <div class="request-status-grid__main">
   {% if welcome %}
     <svg width="48" height="48" class="success-hero" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check-big"></use></svg>
     <p class="type-h3 text-secondary">{% if first_name %}Thank you, {{ first_name }}.{% else %}Thank you.{% endif %}</p>
   {% endif %}
-  {# M6: the request title is always the h1 -- the greeting is a separate line above it, never
-     the heading itself, and never the full name (M6/M14). #}
+  {% comment %}
+  M6: the request title is always the h1 -- the greeting is a separate line above it, never
+  the heading itself, and never the full name (M6/M14).
+  {% endcomment %}
   <h1>Your request &middot; {{ row.display_number }}</h1>
 
   <div class="status-card">
@@ -50,7 +56,9 @@
       </div>
     </div>
   {% endif %}
+  </div>
 
+  <div class="request-status-grid__side">
   <h2>Your request</h2>
   <dl class="kv-list">
     <dt>Category</dt><dd>{{ need_category_label }}</dd>
@@ -82,4 +90,6 @@
     No longer need help? Call us{% if church.phone %} at {{ church.phone|phone_national }}{% endif %} and we'll
     close your request.
   </p>
+  </div>
+  </div>
 {% endblock %}

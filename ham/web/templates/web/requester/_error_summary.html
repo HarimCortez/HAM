@@ -22,8 +22,10 @@ instead of an in-page id, since the field itself isn't on the review page -- usa
       {% endif %}
     </ul>
   </div>
-  {# M9: focus the summary on render so a screen-reader user lands on the fix list, not the
-     top of the page -- no JS bundle needed, this is the whole behavior. #}
+  {% comment %}
+  M9: focus the summary on render so a screen-reader user lands on the fix list, not the top
+  of the page -- no JS bundle needed, this is the whole behavior.
+  {% endcomment %}
   <script>
     document.getElementById("error-summary").focus();
   </script>

@@ -26,6 +26,7 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
+from .presentation import need_category_label
 from .queries import (
     RequestListRow,
     can_see_needs_phone_check,
@@ -59,22 +60,63 @@ def _oldest_waiting_hours(rows: list[RequestListRow]) -> float | None:
     return (clock_now() - oldest).total_seconds() / 3600
 
 
-def awaiting_approval_card(ctx: ActorContext) -> AttentionCard | None:
-    """ "Waiting for a decision (n)", urgent first -- actionable for Pastor/Board rep,
-    awareness-only ("owner: pastors/Board") for Director/AD (intake.md §6)."""
+def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
+    """ "Waiting for a decision" -- actionable for Pastor/Board rep, awareness-only ("owner:
+    pastors/Board") for Director/AD (intake.md §6).
+
+    Visual QA M17: an aggregate card that says "Urgent" on the whole group is wrong when only
+    some of the requests are urgent, so each urgent + actionable request gets its own card
+    ("Urgent · HAM #048 · Plumbing or water", `Open` to that request directly); the rest stay
+    one aggregate card ("N requests are waiting for a decision"). The muted Director/AD
+    awareness row is never split and never carries the urgent flag/chip -- it's not
+    actionable, so a danger chip on it would be a false alarm (visual QA M17 "mixed signal").
+    Cards never carry more than HAM # + category (intake.md §7, Q-132)."""
     if not (ctx.effective_roles & (_PAS_BRD | _DIR_AD)):
-        return None
-    rows = [r for r in list_requests(ctx, status=RequestStatus.AWAITING_APPROVAL.value)]
+        return []
+    rows = list_requests(ctx, status=RequestStatus.AWAITING_APPROVAL.value)
     if not rows:
-        return None
-    return AttentionCard(
-        key="requests.awaiting_approval",
-        title=f"Waiting for a decision ({len(rows)})",
-        count=len(rows),
-        urgent=any(r.urgent_requested for r in rows),
-        actionable=bool(ctx.effective_roles & _PAS_BRD),
-        href="/requests?status=AWAITING_APPROVAL",
-    )
+        return []
+
+    actionable = bool(ctx.effective_roles & _PAS_BRD)
+    if not actionable:
+        # Director/AD: one muted awareness row, never urgent-flagged (M17).
+        return [
+            AttentionCard(
+                key="requests.awaiting_approval",
+                title=f"Waiting for a decision ({len(rows)})",
+                count=len(rows),
+                urgent=False,
+                actionable=False,
+                href="/requests?status=AWAITING_APPROVAL",
+            )
+        ]
+
+    urgent_rows = [r for r in rows if r.urgent_requested]
+    other_rows = [r for r in rows if not r.urgent_requested]
+    cards = [
+        AttentionCard(
+            key=f"requests.awaiting_approval.{row.id}",
+            title=f"{row.display_number} · {need_category_label(row.need_category)}",
+            count=1,
+            urgent=True,
+            actionable=True,
+            href=f"/requests/{row.id}",
+        )
+        for row in urgent_rows
+    ]
+    if other_rows:
+        cards.append(
+            AttentionCard(
+                key="requests.awaiting_approval",
+                title=f"{len(other_rows)} request{'s' if len(other_rows) != 1 else ''} "
+                f"{'are' if len(other_rows) != 1 else 'is'} waiting for a decision",
+                count=len(other_rows),
+                urgent=False,
+                actionable=True,
+                href="/requests?status=AWAITING_APPROVAL",
+            )
+        )
+    return cards
 
 
 def _plural_verb_phrase(n: int) -> str:
@@ -120,8 +162,11 @@ def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
 def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     """Everything `ham.requests` contributes to Home/Inbox "Needs your attention" -- computed
     live (navigation.md: "resolving an item anywhere clears it everywhere"), never stored."""
-    cards = [awaiting_approval_card(ctx), needs_phone_check_card(ctx)]
-    return [c for c in cards if c is not None]
+    cards = [*awaiting_approval_cards(ctx)]
+    phone_check = needs_phone_check_card(ctx)
+    if phone_check is not None:
+        cards.append(phone_check)
+    return cards
 
 
 def provide_attention_items(ctx: ActorContext) -> list[AttentionItem]:
