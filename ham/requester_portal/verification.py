@@ -253,8 +253,18 @@ def verify_code(
     request_id: UUID | None = None,
     ip_address: str = "",
 ) -> VerifyResult:
+    """N3 fix: the challenge is selected by ``draft_id`` (intake) or ``request_id`` (link
+    regeneration), never by ``email`` alone. Selecting by email only let an attacker type a
+    victim's real email into their *own* draft/session, burn the victim's real challenge's
+    wrong-attempt budget (the most-recent challenge for that email was always the victim's --
+    a cooldown blocks a second one from being sent for the same address+purpose), and lock
+    the victim out of their own, correct code -- the PoC this closes
+    (``test_poc_cross_draft.py``, `docs/ux/reviews/step2-privacy-security.md`)."""
     email_key = _email_key(email)
     now = clock_now()
+
+    if draft_id is None and request_id is None:
+        return VerifyResult(ok=False, reason="no_challenge")
 
     daily_cap = RULES.intake.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY
     recent = _recent_failed_attempts(
@@ -269,12 +279,15 @@ def verify_code(
         return VerifyResult(ok=False, reason="locked")
 
     with transaction.atomic():
-        challenge = (
-            RequesterVerificationChallenge.objects.select_for_update()
-            .filter(email_key=email_key, purpose=purpose, consumed_at__isnull=True)
-            .order_by("-created_at")
-            .first()
+        qs = RequesterVerificationChallenge.objects.select_for_update().filter(
+            purpose=purpose, consumed_at__isnull=True, email_key=email_key
         )
+        qs = (
+            qs.filter(draft_id=draft_id)
+            if draft_id is not None
+            else qs.filter(request_id=request_id)
+        )
+        challenge = qs.order_by("-created_at").first()
         if challenge is None:
             return VerifyResult(ok=False, reason="no_challenge")
         if now > challenge.expires_at:

@@ -89,10 +89,12 @@ def _fill_wizard(client: Client, *, no_email: bool = False, urgent: bool = False
 
     reaching = dict(steps["reaching-you"])
     if no_email:
+        # M5/Q-099: availability is required even on the no-email path.
         reaching = {
             "full_name": reaching["full_name"],
             "phone": reaching["phone"],
             "no_email": "1",
+            "availability": reaching["availability"],
         }
     resp = client.post(
         reverse("web:request_help_step", kwargs={"step": "reaching-you"}), reaching, follow=True

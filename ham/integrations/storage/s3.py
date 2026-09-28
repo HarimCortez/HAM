@@ -14,6 +14,7 @@ confusing `boto3`/network error later.
 from __future__ import annotations
 
 import datetime as dt
+from typing import BinaryIO
 
 import boto3
 from botocore.client import Config as BotoConfig
@@ -124,3 +125,17 @@ class R2ObjectStore:
 
     def put_object(self, key: str, data: bytes, *, content_type: str) -> None:
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+
+    def open_object(self, key: str) -> BinaryIO:
+        # N1 fix: botocore's `StreamingBody` (the `"Body"` of a `get_object` response) is
+        # itself a readable binary stream backed by the underlying HTTP connection -- reading
+        # it in chunks (what `django.http.FileResponse` does) never buffers the whole object.
+        try:
+            resp = self._client.get_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchKey", "NotFound"):
+                raise FileNotFoundError(key) from exc
+            raise
+        body: BinaryIO = resp["Body"]
+        return body

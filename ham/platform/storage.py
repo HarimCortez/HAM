@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +87,13 @@ class ObjectStore(Protocol):
     def put_object(self, key: str, data: bytes, *, content_type: str) -> None:
         """Write an object's bytes directly (see ``get_object``) — used to store a processed
         derivative under its final key."""
+        ...
+
+    def open_object(self, key: str) -> BinaryIO:
+        """Open a readable binary stream for ``key`` without loading the whole object into
+        memory first (N1 fix: the leadership thumb/view routes stream a response through this
+        rather than buffering a full photo/video in a Python ``bytes`` object per request).
+        Raises ``FileNotFoundError`` if ``key`` is missing, same as ``get_object``."""
         ...
 
 

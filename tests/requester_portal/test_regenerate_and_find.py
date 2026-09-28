@@ -107,11 +107,25 @@ def test_regenerate_link_for_own_request_command_audits_and_emits_outbox(
     request_id = uuid.uuid4()
     ctx = RequesterContext(request_id=request_id, link_id=uuid.uuid4())
 
-    result = services.regenerate_link_for_own_request(ctx, verification_id=uuid.uuid4())
+    verification_id = uuid.uuid4()
+    result = services.regenerate_link_for_own_request(
+        ctx, verification_id=verification_id, verification_method="email_code"
+    )
     assert isinstance(result.link, RequesterAccessLink)
 
     event = AuditEvent.objects.get(action="requester_link.regenerated")
     assert event.actor_type == "requester"
     assert event.project_id == request_id
+    # L8/M4: verification method + challenge id recorded on the audit event itself
+    # (`link_id` is `ham.audit.services.record`'s own addition for a requester actor).
+    assert event.context == {
+        "verification_method": "email_code",
+        "challenge_id": str(verification_id),
+        "link_id": str(ctx.link_id),
+    }
+    assert event.after == {
+        "verification_method": "email_code",
+        "challenge_id": str(verification_id),
+    }
 
     assert OutboxEvent.objects.filter(event_type="RequesterAccessLinkIssued").exists()

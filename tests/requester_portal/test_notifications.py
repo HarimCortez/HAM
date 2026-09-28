@@ -156,7 +156,7 @@ class TestRequestReceivedEmail:
         challenge.code_hash = otp.hash_value("111222")
         challenge.save(update_fields=["code_hash"])
         verify_result = verification.verify_code(
-            purpose="intake", email=DISTINCTIVE_EMAIL, code="111222"
+            purpose="intake", email=DISTINCTIVE_EMAIL, code="111222", draft_id=draft.id
         )
         assert verify_result.ok
 

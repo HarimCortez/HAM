@@ -11,7 +11,7 @@ import uuid
 from typing import Literal
 
 from django.contrib import messages
-from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotFound
+from django.http import FileResponse, HttpResponseForbidden, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
@@ -21,7 +21,7 @@ from ham.authz.commands import ImpersonationBlocked, PermissionDenied
 from ham.authz.guard import requires_action
 from ham.authz.matrix import authorize
 from ham.identity.services import display_names_for
-from ham.media.services import get_ready_item, media_gallery_for, read_media_bytes
+from ham.media.services import get_ready_item, media_gallery_for, open_media_stream
 from ham.requests import presentation
 from ham.requests.queries import (
     can_see_needs_phone_check,
@@ -34,11 +34,18 @@ from ham.requests.queries import (
     outcome_summary,
     request_history,
 )
+from ham.requests.queries import can_view_history as queries_can_view_history
 from ham.requests.services import reveal_requester_pii
 from ham.requests.states import CancelReason, RequestStatus, VerificationMethod
 
 _DIR_AD = frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})
 _PAS_BRD = frozenset({roles.PASTOR, roles.BOARD_REPRESENTATIVE})
+
+# N7: the fixed set of `requests_list` tab keys (`_tabs_for` below) -- `request_detail`'s
+# "Back to Requests" link reflects whatever `?tab=` it was reached with straight back into
+# another link's query string, so it's whitelisted against this set rather than passed
+# through free-form, even though Django's auto-escaping already blocks attribute breakout.
+_KNOWN_LIST_TABS = frozenset({"phone_check", "awaiting", "all"})
 
 
 # --------------------------------------------------------------------------------------
@@ -199,7 +206,10 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
     from ham.requests.models import Requester as _Requester
 
     has_email = _Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
-    can_view_history = authorize(ctx, "request.history.view", request_row).allowed
+    # PRD guardian M2/N5: `ham.requests.queries.can_view_history` (not a bare `authorize()`
+    # call) -- never true for the Administrator, even while impersonating a role that would
+    # otherwise qualify (Q-151), which a plain `authorize()` call can't express on its own.
+    can_view_history = queries_can_view_history(ctx)
     # PRD guardian M2 / visual QA M15 / usability M12: the earlier-request panel is gated on
     # the same `request.history.view` action as the History section -- the Administrator
     # (view-only, §9) never holds it, so `matches` stays `[]` and L5 doesn't render for them.
@@ -288,7 +298,10 @@ def request_detail(request, request_id: uuid.UUID):
     context["heading_tag"] = "h2"
     # Usability M11: "Back to Requests" returns to the tab this row came from, instead of the
     # default tab, so a Director triaging "Needs a phone check" doesn't lose their place.
-    context["back_tab"] = request.GET.get("tab", "")
+    # N7: whitelisted against the known tab keys -- an unrecognized value is dropped, not
+    # reflected back into the link's query string.
+    requested_tab = request.GET.get("tab", "")
+    context["back_tab"] = requested_tab if requested_tab in _KNOWN_LIST_TABS else ""
     return render(request, "web/request_detail.html", context)
 
 
@@ -505,6 +518,12 @@ def request_more_photos(request, request_id: uuid.UUID):
 # signed-in leader's own session. The Administrator holds `request_media.view` (counts only,
 # Q-138) but is excluded here by `is_masked_view` -- the route guard alone isn't enough,
 # same reasoning as `_build_detail_context`'s gallery masking.
+#
+# N1 fix: `get_request_by_id(ctx, request_id)` (the same scoping `list_requests`/the detail
+# page use) runs *first* -- a request that isn't in ctx's visible-status scope (e.g. a Pastor
+# against a still-NEEDS_PHONE_CHECK request, Q-025 Director/AD-only) 404s here before we ever
+# touch storage, exactly like guessing the request id on the detail page would. The bytes are
+# then streamed via `FileResponse` (`open_media_stream`), never loaded whole into memory.
 # --------------------------------------------------------------------------------------
 def _serve_media(
     request, request_id: uuid.UUID, media_id: uuid.UUID, *, variant: Literal["thumb", "view"]
@@ -512,14 +531,16 @@ def _serve_media(
     ctx = request.actor
     if is_masked_view(ctx):
         return HttpResponseForbidden()
+    if get_request_by_id(ctx, request_id) is None:
+        return HttpResponseNotFound()
     item = get_ready_item(request_id=request_id, media_id=media_id)
     if item is None:
         return HttpResponseNotFound()
-    result = read_media_bytes(item, variant=variant)
+    result = open_media_stream(item, variant=variant)
     if result is None:
         return HttpResponseNotFound()
-    data, content_type = result
-    response = HttpResponse(data, content_type=content_type)
+    stream, content_type = result
+    response = FileResponse(stream, content_type=content_type)
     response["Cache-Control"] = "no-store"
     return response
 

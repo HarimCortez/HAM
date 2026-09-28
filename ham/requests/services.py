@@ -417,6 +417,32 @@ def verify_by_phone(ctx: ActorContext, *, request_id: UUID, reason: str = "") ->
 
 
 # ------------------------------------------------------------------------------------------
+# N3/L8/M4: link-regeneration verifications get their own append-only history row, the same
+# as intake's own `RequestContactVerification` write in `submit_request` above -- L2's
+# "History"/contact-verification panel (`ham.requests.queries.contact_verifications`) would
+# otherwise never show a requester re-verifying to get a fresh access link.
+# ------------------------------------------------------------------------------------------
+def record_link_regeneration_verification(
+    *, request_id: UUID, method: str, verified_value: str, challenge_id: UUID
+) -> None:
+    """Called by `ham.requester_portal.services.regenerate_link_for_own_request` (a legal
+    downward import -- `ham.requester_portal` sits above `ham.requests` in the layers
+    contract) right after issuing a fresh link. `method` is one of
+    `VerificationMethod.EMAIL_CODE`/`EMAIL_LINK`'s values (link regeneration is always email
+    today -- no phone-based regeneration path exists)."""
+    request = AssistanceRequest.objects.get(pk=request_id)
+    RequestContactVerification.objects.create(
+        request=request,
+        channel="email",
+        method=method,
+        value_key=otp.hash_value(verified_value),
+        purpose="link_regeneration",
+        verified_at=clock_now(),
+        challenge_id=challenge_id,
+    )
+
+
+# ------------------------------------------------------------------------------------------
 # request.cancel
 # ------------------------------------------------------------------------------------------
 @command("request.cancel", resource_from=_resource_request)
@@ -608,11 +634,17 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
 
     if request.cancel_reason_code == CancelReason.SPAM.value:
         reference_number = request.reference_number
-        # Security review M4: delete storage objects (originals/derivatives/thumbnails)
+        # Security review M4/N6: delete storage objects (originals/derivatives/thumbnails)
         # before the row cascade-deletes the RequestMedia rows that point at them, or they'd
-        # be orphaned in the object store forever.
-        if _media_purge_hook is not None:
-            _media_purge_hook(request_id)
+        # be orphaned in the object store forever. A missing hook is a startup wiring bug
+        # (`ham.media.apps.MediaConfig.ready()` always registers it), not something to
+        # silently skip -- skipping it would mean "spam purge" quietly never deletes storage.
+        if _media_purge_hook is None:
+            raise RuntimeError(
+                "purge_expired_request: no media purge hook registered -- "
+                "ham.media.apps.MediaConfig.ready() must run before this command"
+            )
+        _media_purge_hook(request_id)
         request.delete()
         return CommandResult(
             value=None,
@@ -672,13 +704,10 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
         ]
     )
 
-    # L8: `RequestContactVerification` is append-only at the Python level (its own `save()`
-    # refuses any update) -- a queryset `.update()` bypasses `Model.save()` entirely (Django
-    # never calls it for a bulk update), which is exactly what a system-level erasure sweep
-    # needs: it is not "editing" any individual row's history, it is retiring the hashed value
-    # every such row carries, the same way the requester's own contact fields are blanked
-    # above rather than deleted.
-    RequestContactVerification.objects.filter(request=request).update(value_key="")
+    # L8/N4: `RequestContactVerification` is append-only at the Python level (its own
+    # `save()` refuses any update) -- `erase_value_keys_for_retention` is the one named,
+    # centralized escape hatch for a genuine system-level erasure (see its own docstring).
+    RequestContactVerification.objects.erase_value_keys_for_retention(request)
 
     return CommandResult(
         value=request,

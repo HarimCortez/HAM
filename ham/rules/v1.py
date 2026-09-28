@@ -492,7 +492,8 @@ class IntakeRules:
         note=_Q121,
         provisional=("Q-121",),
     )
-    # Q-146 (decided): the per-email daily submission cap (INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY)
+    # Q-146 (proposed default in use): the per-email daily submission cap
+    # (INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY)
     # doesn't apply to Q-025's "I don't use email" path, since there is no email to key on --
     # a separate, phone-keyed cap fills that gap (the per-IP form-start cap above still applies
     # to this path too, same as every other draft).

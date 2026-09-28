@@ -122,7 +122,9 @@ def test_administrator_who_also_holds_a_leadership_role_sees_the_full_gallery(op
 
 
 # --- M4: spam purge deletes storage objects first ---------------------------------------
-def test_purge_all_for_request_deletes_storage_and_audits(open_request):
+def test_purge_all_for_request_deletes_storage_and_audits(
+    open_request, django_capture_on_commit_callbacks
+):
     _give_email(open_request)
     ctx = _requester_ctx(open_request.id)
     reserved = services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])[0]
@@ -131,7 +133,11 @@ def test_purge_all_for_request_deletes_storage_and_audits(open_request):
     store.put_object(item.quarantine_key, b"x" * 100, content_type="image/jpeg")
     assert store.head(item.quarantine_key) is not None
 
-    purged = services.purge_all_for_request(open_request.id)
+    # N6: the actual `store.delete()` call only runs once the surrounding transaction commits
+    # (`transaction.on_commit`) -- `django_capture_on_commit_callbacks(execute=True)` runs any
+    # callbacks registered inside the `with` block once it exits, same as a real commit would.
+    with django_capture_on_commit_callbacks(execute=True):
+        purged = services.purge_all_for_request(open_request.id)
 
     assert purged == 1
     assert store.head(item.quarantine_key) is None
@@ -139,7 +145,9 @@ def test_purge_all_for_request_deletes_storage_and_audits(open_request):
     assert event.project_id == open_request.id
 
 
-def test_spam_purge_calls_the_media_hook_before_deleting_the_request(open_request):
+def test_spam_purge_calls_the_media_hook_before_deleting_the_request(
+    open_request, django_capture_on_commit_callbacks
+):
     """End-to-end through `ham.requests.services.purge_expired_request`'s registered hook
     (`ham.media.apps.MediaConfig.ready()`), not the media function directly."""
     from ham.requests.models import AssistanceRequest
@@ -158,13 +166,32 @@ def test_spam_purge_calls_the_media_hook_before_deleting_the_request(open_reques
 
     from ham.authz.context import SystemContext
 
-    purge_expired_request(SystemContext(), request_id=open_request.id)
+    with django_capture_on_commit_callbacks(execute=True):
+        purge_expired_request(SystemContext(), request_id=open_request.id)
 
     assert store.head(item.quarantine_key) is None
     assert not AssistanceRequest.objects.filter(id=open_request.id).exists()
     assert AuditEvent.objects.filter(
         action="request_media.purged", context__request_id=str(open_request.id)
     ).exists()
+
+
+def test_purge_expired_request_raises_if_media_purge_hook_not_registered(open_request, monkeypatch):
+    """N6: an unregistered hook is a startup wiring bug, not something to silently skip --
+    skipping would mean the spam purge quietly never deletes storage objects."""
+    from ham.requests import services as requests_services
+    from ham.requests.services import purge_expired_request
+    from ham.requests.states import CancelReason
+
+    open_request.cancel_reason_code = CancelReason.SPAM.value
+    open_request.save(update_fields=["cancel_reason_code"])
+
+    monkeypatch.setattr(requests_services, "_media_purge_hook", None)
+
+    from ham.authz.context import SystemContext
+
+    with pytest.raises(RuntimeError, match="no media purge hook registered"):
+        purge_expired_request(SystemContext(), request_id=open_request.id)
 
 
 # --- N6: media audit events carry project_id = request id -------------------------------

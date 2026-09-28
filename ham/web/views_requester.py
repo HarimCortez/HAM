@@ -608,10 +608,16 @@ def _after_verified(
         return response
 
     request_id = _pending_link_regen_request_id(request)
-    if request_id is None:
+    # N3: the challenge's *own* request_id, never blindly trust the session's, must be the
+    # one this link gets regenerated for -- same H1 reasoning as the intake path above (a
+    # session value could point at a different request than the one the emailed code was
+    # actually sent for).
+    if request_id is None or challenge.request_id != request_id:
         return redirect("web:request_help_start")
-    ctx = RequesterContext(request_id=request_id)
-    issued = services.regenerate_link_for_own_request(ctx, verification_id=challenge.id)
+    ctx = RequesterContext(request_id=challenge.request_id)
+    issued = services.regenerate_link_for_own_request(
+        ctx, verification_id=challenge.id, verification_method="email_code"
+    )
     request.session.pop("ham_intake_link_regen_request_id", None)
     return redirect("web:request_help_secure_page", token=issued.token)
 
@@ -683,7 +689,9 @@ def request_help_new_link(request: HttpRequest, token: str) -> HttpResponse:
     challenge = result.challenge
     ctx = RequesterContext(request_id=challenge.request_id)
     try:
-        issued = services.regenerate_link_for_own_request(ctx, verification_id=challenge.id)
+        issued = services.regenerate_link_for_own_request(
+            ctx, verification_id=challenge.id, verification_method="email_link"
+        )
     except PermissionDenied:
         return render(request, "web/not_found.html", status=404)
     return redirect("web:request_help_secure_page", token=issued.token)

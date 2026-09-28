@@ -17,6 +17,7 @@ from ham.platform.church import ChurchProfileView, is_valid_us_state
 from ham.requests.certifications import (
     RelationshipToProperty,
     owner_name_required,
+    required_statements,
     statements_satisfied,
 )
 from ham.requests.matching import normalize_email, normalize_phone, zip5
@@ -180,6 +181,9 @@ def validate_intake_payload(
     cleaned["hazard_note"] = hazard_note[:_MAX_TEXT]
 
     # --- Availability (Q-112): days HAM serves + time-of-day chips -----------------------
+    # M5/Q-099 (decided): availability is required, same as the other §6.1 fields -- "Any
+    # time works" is itself a valid, single-chip answer, so an empty list is always a
+    # missing-answer error, never "nothing to say here".
     availability_raw = data.get("availability") or []
     allowed_days = {str(d) for d in church.serves_days}
     if not isinstance(availability_raw, list):
@@ -187,7 +191,9 @@ def validate_intake_payload(
     bad_availability = [
         v for v in availability_raw if v not in _AVAILABILITY_TIME_WORDS and v not in allowed_days
     ]
-    if bad_availability:
+    if not availability_raw:
+        errors["availability"] = "Choose at least one time (Any time works counts)."
+    elif bad_availability:
         errors["availability"] = "Choose from the times we offer."
     cleaned["preferred_availability"] = [
         str(v) for v in availability_raw if v not in bad_availability
@@ -198,9 +204,18 @@ def validate_intake_payload(
     if relationship is None:
         if not accepted:
             errors["attested_statements"] = "Please read and tick both statements."
-    elif not statements_satisfied(relationship, accepted):
-        errors["attested_statements"] = "Please read and tick both statements."
-    cleaned["attested_statements"] = sorted(accepted)
+        # No relationship yet to check codes against -- store nothing rather than guess.
+        cleaned["attested_statements"] = []
+    else:
+        if not statements_satisfied(relationship, accepted):
+            errors["attested_statements"] = "Please read and tick both statements."
+        # PRD-guardian cert-codes fix: store only codes within this relationship's own
+        # `required_statements(relationship)` -- a stray/forged code in the POST body (one
+        # that isn't even offered for this relationship) is dropped, never persisted
+        # verbatim. `statements_satisfied` only checks a *subset* relationship, so it alone
+        # wouldn't have caught extra junk riding along with the two real ticks.
+        allowed_codes = {code.value for code in required_statements(relationship)}
+        cleaned["attested_statements"] = sorted(accepted & allowed_codes)
 
     # --- Church-issued source code (Q-114), optional --------------------------------------
     cleaned["intake_source_code"] = str(data.get("intake_source_code") or "").strip().upper()[:6]

@@ -17,7 +17,7 @@ from ham.authz.commands import ImpersonationBlocked, PermissionDenied
 from ham.authz.guard import requires_action
 from ham.identity.services import retry_outbox_delivery, update_church_profile
 from ham.outbox.services import recent_failures, subscriber_status_counts
-from ham.platform.church import church_profile
+from ham.platform.church import US_STATE_CODES, church_profile
 from ham.requester_portal.choices import WEEKDAY_LABELS
 from ham.rules.view import rules_view
 
@@ -53,9 +53,9 @@ def admin_church_settings(request):
         values = {
             "ham_phone": request.POST.get("ham_phone", "").strip(),
             "ham_email": request.POST.get("ham_email", "").strip(),
-            # Q-147: same "absent key means leave unchanged" convention as serves_days above
-            # -- the settings screen doesn't render this field yet (S2.7's job); until it
-            # does, an unrelated settings save must not silently clear it.
+            # N15: the template now always renders this field (a `<select>`, "Not set" ->
+            # ""), so a normal POST always carries the key -- `request.POST.get("state",
+            # church.state)`'s fallback only guards a non-browser client that omits it.
             "state": request.POST.get("state", church.state).strip().upper(),
             "time_zone": request.POST.get("time_zone", "").strip(),
             "website_url": request.POST.get("website_url", "").strip(),
@@ -89,6 +89,7 @@ def admin_church_settings(request):
             "values": values,
             "errors": errors,
             "weekday_choices": sorted(WEEKDAY_LABELS.items()),
+            "state_choices": sorted(US_STATE_CODES),
         },
     )
 
