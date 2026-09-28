@@ -1,13 +1,18 @@
 from django.urls import path
 
-from . import views, views_admin_settings, views_admin_users, views_audit, views_me
-from .stepup import step_up_stub
+from . import (
+    auth_views,
+    views,
+    views_admin_settings,
+    views_admin_users,
+    views_audit,
+    views_me,
+)
 
 app_name = "web"
 
 # PUBLIC_ROUTES per foundation.md §7; the route-guard middleware itself lands with S3a. Views
-# below carry `@requires_action(...)` (S5) where a guard attaches; sign-in family (S3b) is not
-# built in this worktree yet.
+# below carry `@requires_action(...)` where a guard attaches; sign-in family (S3b) is public.
 urlpatterns = [
     path("healthz", views.healthz, name="healthz"),
     path("", views.home, name="home"),
@@ -15,8 +20,29 @@ urlpatterns = [
     path("offline", views.offline, name="offline"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("sw.js", views.service_worker, name="service_worker"),
-    # Temporary stand-in for S3b's real step-up screen (ham/web/stepup.py module docstring).
-    path("step-up", step_up_stub, name="step_up"),
+    # --- Auth (S3b): sign-in family is public (PUBLIC_ROUTES, ham/authz/guard.py) ----------
+    path("sign-in", auth_views.sign_in, name="sign_in"),
+    path("sign-in/code", auth_views.sign_in_code, name="sign_in_code"),
+    path("sign-in/link/<str:token>", auth_views.sign_in_link, name="sign_in_link"),
+    path("sign-in/mfa", auth_views.sign_in_mfa, name="sign_in_mfa"),
+    path("mfa/setup", auth_views.mfa_setup, name="mfa_setup"),
+    path("mfa/setup/codes", auth_views.mfa_setup_codes, name="mfa_setup_codes"),
+    path("step-up", auth_views.step_up, name="step_up"),
+    path("sign-out", auth_views.sign_out, name="sign_out"),
+    path("me/security", auth_views.me_security, name="me_security"),
+    path(
+        "me/security/recovery-codes",
+        auth_views.me_regenerate_recovery_codes,
+        name="me_recovery_codes_regenerate",
+    ),
+    path("me/security/forget-devices", auth_views.me_forget_devices, name="me_forget_devices"),
+    path("admin/users/<uuid:user_id>/mfa-reset", auth_views.admin_mfa_reset, name="user_mfa_reset"),
+    path(
+        "admin/users/<uuid:user_id>/impersonate",
+        auth_views.admin_impersonate,
+        name="impersonation_start",
+    ),
+    path("impersonation/stop", auth_views.impersonation_stop, name="impersonation_stop"),
     # Me (auth-and-access.md §F, non-security parts).
     path("me", views_me.me, name="me"),
     # Admin -> Users & roles (auth-and-access.md §G).

@@ -1,0 +1,25 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Save your recovery codes · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Save your recovery codes</h1>
+  <p>If you lose your phone, each of these codes gets you in once. Keep them somewhere safe.</p>
+
+  <ul class="recovery-codes">
+    {% for code in codes %}<li>{{ code }}</li>{% endfor %}
+  </ul>
+
+  <form method="post" action="{% url 'web:mfa_setup_codes' %}">
+    {% csrf_token %}
+    <div class="form-field form-field--toggle">
+      <label>
+        <input type="checkbox" name="confirmed" value="1" required>
+        I've saved my recovery codes somewhere safe
+      </label>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Finish</button>
+    </div>
+  </form>
+{% endblock %}

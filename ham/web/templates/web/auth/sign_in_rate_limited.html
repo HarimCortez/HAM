@@ -1,0 +1,12 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Too many emails · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Your last email is on its way</h1>
+  <p>
+    You've asked for several sign-in emails in a short time. The most recent one still works,
+    so check your inbox and spam folder.
+  </p>
+  <p><a class="btn btn--secondary" href="{% url 'web:sign_in' %}">Back to sign in</a></p>
+{% endblock %}

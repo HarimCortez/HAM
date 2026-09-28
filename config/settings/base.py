@@ -44,6 +44,12 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "procrastinate.contrib.django",
+    # S3b auth: HAM does NOT install `allauth`/`allauth.mfa` as Django apps — see
+    # `ham/identity/totp.py`'s module docstring: doing so pulls in the unrelated legacy
+    # `allauth` app's own `EmailAddress`/`EmailConfirmation` models via Django's unmigrated-app
+    # table sync, which broke test-database creation. `django-allauth[mfa]` stays a pyproject
+    # dependency only for `qrcode` (QR provisioning) and as a spike reference; HAM's own
+    # `ham.identity.totp`/`ham.identity.models.TOTPDevice`/`RecoveryCode` do the rest.
     "ham.platform",
     "ham.outbox",
     "ham.integrations",
@@ -69,6 +75,10 @@ MIDDLEWARE = [
     # Build request.actor (foundation.md §1, §7): must run after AuthenticationMiddleware
     # (needs request.user) and before the route guard (needs request.actor).
     "ham.identity.middleware.ActorContextMiddleware",
+    # Session/idle lifetimes (Q-032) and the impersonation idle timeout (§59, Q-053): needs
+    # request.actor (just built above) and must run before the route guard so an expired
+    # session is signed out before any view executes.
+    "ham.identity.middleware.SessionLifetimeMiddleware",
     # Route guard (foundation.md §7): every URL must declare an action or be public.
     "ham.authz.guard.RouteGuardMiddleware",
 ]
@@ -150,6 +160,24 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="no-reply@example.org")
 # secret store lookup and never needs a code change to add another environment variable per
 # provider. Empty by default; dev/test never use an Anymail backend so it is never read.
 ANYMAIL: dict = json.loads(env("ANYMAIL_SETTINGS_JSON", default="{}"))
+
+# Auth (S3b, foundation.md §3 "MFA"): encrypts TOTP secrets at rest (`ham.identity.crypto`).
+# Must be a `Fernet.generate_key()` value in production; dev/test fall back to a key derived
+# from SECRET_KEY (guarded against in `ham.identity.crypto`, never reachable when
+# HAM_ENV=production). Never a fixed business *rule* (CLAUDE.md "no magic numbers") — it's a
+# secret, so it belongs here, not in `ham.rules`.
+HAM_FIELD_ENCRYPTION_KEY = env("HAM_FIELD_ENCRYPTION_KEY", default="")
+
+# Session cookie ceiling: the *longest* possible HAM session (Q-032's standard/passwordless
+# lifetime). `ham.identity.middleware.SessionLifetimeMiddleware` enforces the shorter
+# MFA-role idle/absolute lifetimes and signs people out well before the browser cookie would
+# expire on its own; this is only the outer bound, read from the rules module rather than
+# hard-coded (CLAUDE.md "no magic numbers").
+from ham.rules import RULES as _RULES  # noqa: E402
+
+SESSION_COOKIE_AGE = int(_RULES.auth.SESSION_IDLE_LIFETIME_STANDARD.total_seconds())
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_SAMESITE = "Lax"
 
 LOGGING = {
     "version": 1,

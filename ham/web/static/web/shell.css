@@ -590,13 +590,11 @@ a:hover {
   min-height: var(--ham-size-control-md);
   padding-inline: var(--ham-space-3);
   border: 1.5px solid var(--ham-border-strong);
-  border-radius: var(--ham-radius-md);
-  background: var(--ham-bg-surface);
+  border-radius: var(--ham-radius-md);  background: var(--ham-bg-surface);
   color: var(--ham-text-primary);
 }
 
-.filter-bar__summary {
-  color: var(--ham-text-secondary);
+.filter-bar__summary {  color: var(--ham-text-secondary);
   font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
     var(--ham-font-ui);
 }
@@ -771,4 +769,23 @@ a:hover {
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
   border-color: var(--ham-tone-danger-border);
+}
+
+/* --- S3b auth: recovery codes grid (docs/ux/auth-and-access.md C3, F) -------------------- */
+.recovery-codes {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  text-align: left;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--ham-space-4);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--ham-space-2);
+}
+
+.recovery-codes li {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-2) var(--ham-space-3);
 }

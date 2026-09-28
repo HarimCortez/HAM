@@ -1,4 +1,85 @@
-# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit)
+# ham-backend-engineer — conventions from slices S1 (platform skeleton) + S3a (identity/authz/audit) + S3b (auth)
+
+## S3b additions: passwordless sign-in, TOTP MFA, step-up, impersonation
+- **Don't install `allauth`/`allauth.mfa` in `INSTALLED_APPS`** just to reuse their pure
+  algorithm/model code. `allauth.mfa.totp.internal.auth` (and anything importing
+  `allauth.mfa.models`) requires `"allauth.mfa" in INSTALLED_APPS`, and adding that (plus the
+  bare `"allauth"` app it needs) drags the *separate*, legacy top-level `allauth` app's own
+  `EmailAddress`/`EmailConfirmation` models into Django's unmigrated-app table sync — this
+  broke test-database creation (a FK to `identity_user` created before HAM's migrations run).
+  Fix: implement TOTP directly (RFC 6238 is HMAC-SHA1 over a time counter — a few lines of
+  stdlib `hmac`/`hashlib`, not "hand-rolled crypto") in `ham/identity/totp.py`; use
+  `cryptography.fernet` for at-rest encryption (`ham/identity/crypto.py`) and `qrcode`
+  (transitive dep of the `django-allauth[mfa]` pyproject extra, importable without the app
+  installed) for QR codes. Logged as `PRD-GAP Q-085` since the plan asked for the allauth
+  spike first.
+- **HAM's own passwordless sign-in module, not allauth's login-by-code**: allauth's
+  login-by-code is built around its own `allauth.account` login pipeline (`Stage`/session
+  keys/templates) that doesn't have a "one credential, two redemption paths (code OR
+  scanner-safe POST link)" primitive — see `ham/identity/authn.py`'s docstring for the full
+  spike note. `SignInChallenge` (`ham/identity/models.py`) stores only *hashes* of the code
+  and the link token (never the raw values) so a leaked DB row can't be replayed; consuming
+  either invalidates both (single `consumed_at`).
+- **GET must never consume a sign-in link** (docs/ux/auth-and-access.md A "scanner-safe"):
+  `authn.link_is_valid()` (GET, read-only) vs `authn.consume_link()` (POST only). The view for
+  `GET /sign-in/link/<token>` renders a plain "Continue" button; only its POST calls
+  `consume_link`.
+- **`ham.jobs.run_due_jobs_now()`** (new, dev/test-only): `send_transactional_email` enqueues
+  via Procrastinate (`jobs.defer`), which only inserts a `procrastinate_jobs` row — it does
+  NOT run synchronously in tests. This helper runs every currently-due job in-process (no
+  worker needed) so tests can assert on `django.core.mail.outbox` after triggering a
+  sign-in/notification email. Two gotchas it had to route around: (1) `scheduled_at` is
+  `NULL` for immediate (non-scheduled) jobs — `WHERE scheduled_at <= now()` silently matches
+  nothing; use `scheduled_at IS NULL OR scheduled_at <= now()`. (2) `args` (jsonb) comes back
+  from a raw `cursor.execute` as a Python `str`, not a dict — `json.loads()` it before
+  `**kwargs`-splatting into the task function.
+- **Session-key contract completed** (`ham/authz/context.py` documented the keys; S3b writes
+  them): `ham_impersonation_id`, `ham_mfa_satisfied`, `ham_step_up_at` (dict of kind ->
+  ISO8601), plus two more S3b added: `ham_session_started_at` (absolute-lifetime anchor) and
+  `ham_last_activity` (idle-lifetime anchor), both read/written by
+  `ham.identity.middleware.SessionLifetimeMiddleware` (runs right after
+  `ActorContextMiddleware`, before the route guard). Mid-session role grants "just work" for
+  the MFA-downgrade rule (Q-045) because `ActorContextMiddleware` rebuilds `ActorContext` from
+  the DB on every request — no cache to invalidate; `ActorContext.effective_roles` already
+  filters out unverified MFA roles using the *session's* `mfa_satisfied` flag, which stays
+  `False` for a newly-granted MFA role until that session completes a fresh TOTP/recovery
+  check.
+- **Route guard now redirects unauthenticated hits to `/sign-in?next=`** instead of the
+  neutral 404 (foundation.md §7); the 404 is reserved for a signed-in-but-unauthorized person
+  (`ham/authz/guard.py`'s `RouteGuardMiddleware.process_view`). This changed one S3a test's
+  expected status code (302, not 404) — check for that distinction before assuming "denied" is
+  always a 404 in a new test.
+- **`ActorContext` grew impersonation-banner fields** (`impersonation_reason`,
+  `target_display_name`, `impersonation_last_activity_at`, plus an
+  `impersonation_idle_minutes_left` property) so `ham.web`'s shell template never has to query
+  identity tables directly (foundation.md §1 "only ham.identity reads auth tables") — these
+  are populated only by `ham.identity.middleware.build_actor_context`, not by every caller.
+- **`handle_command_errors` (`ham/identity/web.py`)**: a decorator for views that call
+  `@command`-wrapped services, translating `StepUpRequired` into a `/step-up?next=&kind=`
+  redirect, `ImpersonationBlocked` into a flash message + redirect back, `PermissionDenied`
+  into the neutral 404. Some S5 views instead catch these exceptions inline (they were written
+  before this helper existed) and only needed `ham.web.stepup.redirect_to_step_up` (a bare
+  URL-builder, kept after trimming that module's placeholder `step_up_stub` view once the
+  real `/step-up` screen landed) — both styles coexist; don't assume every view uses the
+  decorator.
+- **Merge reconciliation pattern for two engineers editing the same seam**: when a shell/S5
+  slice stubs out a command S3b also owns (e.g. `ham.web.adapters.update_church_profile`), its
+  docstring says exactly what to do at merge ("delete the duplicate, point the view import at
+  the real one, keep the call signature"). Do that deletion yourself once you've merged their
+  branch in — don't leave two `@command("same.action")` implementations around; only one is
+  ever wired to a route, and the other is silent dead code that confuses the next reader.
+- **URL-name coordination across parallel worktrees**: agree on exact `path(..., name=...)`
+  values (e.g. `step_up`, `user_mfa_reset`, `impersonation_start`, `me_security`) before both
+  sides build screens against them — `{% maybe_url %}` (S5's `web_extras.py` tag) lets a
+  template reference a not-yet-merged URL name without crashing, but the *names* still have to
+  match exactly once both sides land, including argument shape (e.g. `impersonation_start`
+  takes a `user_id` kwarg, matching `admin/users/<uuid:user_id>/impersonate`).
+- A form that merely posts a button with no fields (e.g. an S5 template's one-click "Reset
+  two-step sign-in") can't satisfy a command that requires evidence (`verification_method`
+  required by `user.mfa_reset`, `reason` required by `impersonation.start`) — if you land the
+  real command after the screen already shipped a bare button, change that one control to a
+  link into a GET+POST confirmation view/template that collects the missing field, rather than
+  quietly making the requirement optional.
 
 ## Environment gotcha (UPDATED in S3a — the S1 note below is stale)
 As of S3a, this sandbox **does** have a working Django/Postgres/pytest toolchain: a real

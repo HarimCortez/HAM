@@ -1,0 +1,12 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Sign in · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>We can't sign you in</h1>
+  <p>
+    There's no active HAM account for that email, or it's turned off. If you think that's a
+    mistake, contact {{ church.email }}.
+  </p>
+  <p><a class="btn btn--secondary" href="{% url 'web:sign_in' %}">Back to sign in</a></p>
+{% endblock %}

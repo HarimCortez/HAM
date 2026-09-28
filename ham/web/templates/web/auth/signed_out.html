@@ -1,0 +1,8 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Signed out · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>You're signed out.</h1>
+  <p><a class="btn btn--primary" href="{% url 'web:sign_in' %}">Sign in again</a></p>
+{% endblock %}

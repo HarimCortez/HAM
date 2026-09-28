@@ -10,9 +10,22 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from ham.authz import roles
-from ham.identity.models import RoleAssignment, SharedIdentityProfile, User
+from ham.identity import mfa
+from ham.identity.crypto import encrypt
+from ham.identity.models import RoleAssignment, SharedIdentityProfile, TOTPDevice, User
 from ham.platform.clock import now as clock_now
 from ham.platform.env import refuse_in_production
+
+# Fixed dev-only TOTP secrets (foundation.md §2.11), one per §60.1 persona, so Playwright and
+# local sign-in don't need a real authenticator app. Never used outside development
+# (`refuse_in_production` below refuses the whole command in production).
+DEV_TOTP_SECRETS: dict[str, str] = {
+    "nadia@example.org": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+    "marcus@example.org": "MZXW6YTBOI5FCTLTMZXW6YTBOI5FCTLT",
+    "andre@example.org": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    "ruth@example.org": "OBQXG43XN5ZGI4A7OBQXG43XN5ZGI4A7",
+    "samuel@example.org": "NRSWG4TFOQYTEMZUNRSWG4TFOQYTEMZU",
+}
 
 # (email, full name, roles) — foundation.md §2.11.
 PERSONAS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -63,9 +76,23 @@ class Command(BaseCommand):
                             "grant_reason": "seed_dev",
                         },
                     )
-                # TODO(S3b): fixed dev-only TOTP secrets for the five §60.1 personas (Nadia,
-                # Marcus, Andre, Ruth, Samuel) so Playwright can sign in without a real
-                # authenticator app. `ham.identity` has no MFA model yet — allauth's
-                # `mfa_authenticator` table lands with S3b (auth).
+                secret = DEV_TOTP_SECRETS.get(email)
+                if secret is not None:
+                    now = clock_now()
+                    TOTPDevice.objects.update_or_create(
+                        user=user,
+                        defaults={
+                            "secret_encrypted": encrypt(secret),
+                            "created_at": now,
+                            "confirmed_at": now,
+                        },
+                    )
+                    if not user.recovery_codes.exists():
+                        mfa.regenerate_recovery_codes(user)
 
         self.stdout.write(self.style.SUCCESS(f"Seeded {len(PERSONAS)} example.org personas."))
+        self.stdout.write(
+            "Dev-only TOTP secrets (get a current code with `manage.py dev_totp <email>`):"
+        )
+        for email in DEV_TOTP_SECRETS:
+            self.stdout.write(f"  {email}: {DEV_TOTP_SECRETS[email]}")

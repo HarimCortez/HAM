@@ -46,6 +46,46 @@ def defer_later(job_name: str, /, *, schedule_at, **kwargs: Any) -> None:
     _app.tasks[job_name].configure(schedule_at=schedule_at).defer(**kwargs)
 
 
+def run_due_jobs_now() -> int:
+    """Synchronously run every currently-due job (dev/test helper only — see foundation.md §9.3
+    "§77 harness ... job-runner 'run due jobs now'"). Production always uses the real
+    `python manage.py procrastinate worker`; this exists so tests (and `make run`'s dev-only
+    `send_transactional_email` flow) don't need a separate worker process to observe an
+    enqueued job's effect (e.g. an email actually landing in the locmem/console backend).
+
+    Deliberately bypasses Procrastinate's own polling/retry machinery (no backoff, no lock
+    handling) — it is not a substitute for the worker in anything but a single-process test.
+    """
+    from django.db import connection
+
+    ran = 0
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, task_name, args FROM procrastinate_jobs "
+            "WHERE status = 'todo' AND (scheduled_at IS NULL OR scheduled_at <= now()) "
+            "ORDER BY id"
+        )
+        rows = cursor.fetchall()
+    for job_id, task_name, raw_args in rows:
+        import json
+
+        args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+        task = _app.tasks[task_name]
+        status = "succeeded"
+        try:
+            task.func(**args)
+        except Exception:
+            status = "failed"
+            raise
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE procrastinate_jobs SET status = %s WHERE id = %s", [status, job_id]
+                )
+        ran += 1
+    return ran
+
+
 def queue_lag_seconds() -> float | None:
     """Seconds since the oldest still-due job was supposed to run, or None if nothing is due.
 

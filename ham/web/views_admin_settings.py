@@ -1,8 +1,8 @@
 """Admin -> Church settings, Integrations, Rules (foundation.md §7).
 
-Church settings and Integrations retry go through `ham.web.adapters` (see that module's
-docstring on why, and the merge note for S3b). Rules is fully read-only against
-`ham.rules.view.rules_view`.
+Church settings and Integrations retry go through `ham.identity.services`'s
+`update_church_profile`/`retry_outbox_delivery` `@command`s (S3b). Rules is fully read-only
+against `ham.rules.view.rules_view`.
 """
 
 from __future__ import annotations
@@ -15,11 +15,10 @@ from django.views.decorators.http import require_http_methods
 
 from ham.authz.commands import ImpersonationBlocked, PermissionDenied
 from ham.authz.guard import requires_action
+from ham.identity.services import retry_outbox_delivery, update_church_profile
 from ham.outbox.services import recent_failures, subscriber_status_counts
 from ham.platform.church import church_profile
 from ham.rules.view import rules_view
-
-from .adapters import retry_outbox_delivery, update_church_profile
 
 
 @require_http_methods(["GET", "POST"])

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlencode
 
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from .context import ActorContext
 from .matrix import authorize
@@ -25,6 +27,12 @@ PUBLIC_ROUTES: frozenset[str] = frozenset(
         "sign_in",
         "sign_in_code",
         "sign_in_link",
+        # Reached mid-sign-in, before `django_login()` has run (foundation.md §7): the views
+        # themselves check for the pending-login session state and redirect to `sign_in` if
+        # it's missing, rather than the route guard denying them outright.
+        "sign_in_mfa",
+        "mfa_setup",
+        "mfa_setup_codes",
         "manifest",
         "service_worker",
         "offline",
@@ -78,6 +86,13 @@ class RouteGuardMiddleware:
             return _not_available(request)
 
         ctx = getattr(request, "actor", None) or ActorContext.anonymous()
+        if not ctx.is_authenticated:
+            # foundation.md §7 "Unauthenticated requests to protected routes redirect to
+            # /sign-in?next=" — distinct from the neutral 404 for a signed-in person who
+            # simply lacks the permission (navigation.md §6), which never leaks whether a
+            # route needs *more* privilege than "signed in at all".
+            query = urlencode({"next": request.get_full_path()})
+            return redirect(f"{reverse('web:sign_in')}?{query}")
         decision = authorize(ctx, action)
         if not decision.allowed or decision.blocked_by_impersonation:
             return _not_available(request)

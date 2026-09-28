@@ -9,15 +9,31 @@ from __future__ import annotations
 import pytest
 from django.urls import reverse
 
-from ham.identity.models import RoleAssignment, SharedIdentityProfile
+from ham.identity import totp
+from ham.identity.crypto import encrypt
+from ham.identity.models import RoleAssignment, SharedIdentityProfile, TOTPDevice
 from ham.platform.clock import now
+
+_DEV_SECRET = totp.new_secret()
 
 
 def _mfa_login(client, user):
     client.force_login(user)
+    TOTPDevice.objects.update_or_create(
+        user=user,
+        defaults={
+            "secret_encrypted": encrypt(_DEV_SECRET),
+            "created_at": now(),
+            "confirmed_at": now(),
+        },
+    )
     session = client.session
     session["ham_mfa_satisfied"] = True
     session.save()
+
+
+def _current_totp_code() -> str:
+    return totp.current_code(_DEV_SECRET)
 
 
 @pytest.fixture
@@ -134,7 +150,8 @@ def test_grant_role_requires_step_up_then_succeeds(admin_client, volunteer_user)
     assert confirm["Location"].startswith("/step-up")
 
     step_up = admin_client.post(
-        confirm["Location"], {"next": confirm["Location"], "kind": "role_change"}
+        confirm["Location"],
+        {"next": confirm["Location"], "kind": "role_change", "code": _current_totp_code()},
     )
     assert step_up.status_code == 302
     resumed = admin_client.get(step_up["Location"])
@@ -240,7 +257,8 @@ def test_audit_export_requires_step_up(director_client):
     assert response["Location"].startswith("/step-up")
 
     step_up = director_client.post(
-        response["Location"], {"next": reverse("web:audit_export"), "kind": "audit_export"}
+        response["Location"],
+        {"next": reverse("web:audit_export"), "kind": "audit_export", "code": _current_totp_code()},
     )
     assert step_up.status_code == 302
 

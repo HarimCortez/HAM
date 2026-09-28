@@ -35,10 +35,7 @@
       {% if can_mfa_reset %}
         {% maybe_url "web:user_mfa_reset" detail.user.id as mfa_reset_url %}
         {% if mfa_reset_url %}
-          <form method="post" action="{{ mfa_reset_url }}">
-            {% csrf_token %}
-            <button class="btn btn--secondary" type="submit">Reset two-step sign-in</button>
-          </form>
+          <a class="btn btn--secondary" href="{{ mfa_reset_url }}">Reset two-step sign-in</a>
         {% endif %}
       {% endif %}
       {% if can_impersonate %}
