@@ -1,0 +1,15 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ request_row.display_number }} &middot; {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}{{ item.media_kind|capfirst }} {{ item.index }}{% endblock %}
+
+{% block content %}
+  <div class="sheet media-viewer">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    {% if item.media_kind == "video" %}
+      <video class="media-viewer__media" src="{{ view_url }}" controls playsinline></video>
+    {% else %}
+      <img class="media-viewer__media" src="{{ view_url }}" alt="{{ request_row.display_number }}, photo {{ item.index }}">
+    {% endif %}
+  </div>
+{% endblock %}

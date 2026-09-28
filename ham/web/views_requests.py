@@ -13,6 +13,7 @@ from typing import Literal
 from django.contrib import messages
 from django.http import FileResponse, HttpResponseForbidden, HttpResponseNotFound
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
@@ -561,3 +562,34 @@ def request_media_thumb(request, request_id: uuid.UUID, media_id: uuid.UUID):
 @requires_action("request_media.view")
 def request_media_view(request, request_id: uuid.UUID, media_id: uuid.UUID):
     return _serve_media(request, request_id, media_id, variant="view")
+
+
+@require_http_methods(["GET"])
+@requires_action("request_media.view")
+def request_media_viewer(request, request_id: uuid.UUID, media_id: uuid.UUID):
+    """FIX-G UX minor: the installed PWA has no browser chrome, so the raw `/view` route (an
+    `<img>`/`<video>` `src`, unchanged below) left a photo/video with no way back. This is a
+    minimal HTML page around it -- "<- Back to HAM #NNN" -- that a gallery thumbnail's own
+    `<a href>` now points at instead of the raw file (`ham/web/templates/web/
+    _request_media_gallery.html`). Same scope (`get_request_by_id`) and masking
+    (`is_masked_view`) as `_serve_media`, and the same `Cache-Control: no-store` -- this page
+    is just as much a leader-only view of the request as the bytes it embeds."""
+    ctx = request.actor
+    if is_masked_view(ctx):
+        return HttpResponseForbidden()
+    request_row = get_request_by_id(ctx, request_id)
+    if request_row is None:
+        return render(request, "web/not_found.html", status=404)
+    item = get_ready_item(request_id=request_id, media_id=media_id)
+    if item is None:
+        return render(request, "web/not_found.html", status=404)
+    context = {
+        "request_row": request_row,
+        "item": item,
+        "view_url": reverse(
+            "web:request_media_view", kwargs={"request_id": request_id, "media_id": media_id}
+        ),
+    }
+    response = render(request, "web/request_media_viewer.html", context)
+    response["Cache-Control"] = "no-store"
+    return response

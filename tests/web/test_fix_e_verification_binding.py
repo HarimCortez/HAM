@@ -6,9 +6,15 @@ test. New file per wave brief.
 Before the fix: an attacker who types a victim's real email into their *own* draft (the same
 draft-owner, not the victim) could burn the victim's real challenge's wrong-attempt budget,
 since `verify_code` picked "the most recent, unconsumed challenge for this email+purpose" --
-which is always the victim's, because the resend cooldown blocks a second challenge being
+which is always the victim's, because the resend cooldown blocked a second challenge being
 created for the same email+purpose while the victim's is still live. That locked the victim
 out of entering their own, correct code.
+
+FIX-G Low updated the cooldown/hourly-cap itself to be scoped per (email, draft) for the
+intake purpose (so a third party can no longer block a victim's own draft's *resend budget*
+either) -- the attacker's own draft now gets its own, separate challenge row rather than being
+blocked by the victim's cooldown. `verify_code`'s draft_id scoping (this file's own subject)
+is what still keeps the two challenges' wrong-attempt budgets from ever touching each other.
 
 Uses plain `pytest.mark.django_db` (the PoC's `django_db(transaction=True)` was not needed for
 two separate `Client()` instances sharing one connection-backed test transaction, and left the
@@ -53,12 +59,13 @@ def test_attacker_cannot_burn_the_victims_own_challenge():
     cv.save(update_fields=["code_hash"])
     victim_failed_attempts_before = cv.failed_attempts
 
-    # Same email typed into a second, unrelated draft -- the resend cooldown means no second
-    # challenge row gets created, so before the fix this attacker's draft had no challenge of
-    # its own to guess against and verify_code fell back to "the most recent one for this
-    # email", i.e. the victim's.
+    # Same email typed into a second, unrelated draft -- FIX-G Low: the per-draft cooldown
+    # scoping means this draft gets its own challenge row (not blocked by the victim's
+    # cooldown); before the N3 fix, `verify_code` would still have fallen back to "the most
+    # recent challenge for this email" -- which, if it ever fell back at all, could be
+    # either row depending on timing, not reliably the attacker's own.
     _to_review(attacker, "10.0.0.2")
-    assert RequesterVerificationChallenge.objects.filter(purpose="intake").count() == 1
+    assert RequesterVerificationChallenge.objects.filter(purpose="intake").count() == 2
 
     for _ in range(RULES.intake.REQUESTER_CODE_MAX_ATTEMPTS):
         resp = attacker.post(
@@ -79,12 +86,23 @@ def test_attacker_cannot_burn_the_victims_own_challenge():
 
 
 def test_attacker_has_no_challenge_to_guess_against_at_all():
-    """The attacker's own draft never got a challenge row of its own (cooldown blocked a
-    second send for the shared email+purpose) -- `verify_code` must report "no_challenge" for
-    it, not silently fall through to someone else's row."""
+    """When the attacker's own draft genuinely has no challenge row of its own (e.g. it never
+    reached the point of requesting a code, or its challenge already expired/was purged),
+    `verify_code` must report "no_challenge" for it, not silently fall through to someone
+    else's row for the same email."""
     victim, attacker = Client(REMOTE_ADDR="10.0.0.3"), Client(REMOTE_ADDR="10.0.0.4")
     _to_review(victim, "10.0.0.3")
     _to_review(attacker, "10.0.0.4")
+
+    # FIX-G Low: the attacker's own draft *does* now get its own challenge (per-draft
+    # cooldown scoping, not blocked by the victim's) -- delete it to exercise the genuine
+    # "no challenge at all for this draft" case (e.g. expired/purged) that `verify_code` must
+    # still handle without falling through to the victim's own challenge for the same email.
+    challenges = list(
+        RequesterVerificationChallenge.objects.filter(purpose="intake").order_by("created_at")
+    )
+    assert len(challenges) == 2
+    challenges[1].delete()  # the attacker's own -- simulate it never existed/already expired
 
     resp = attacker.post(
         reverse("web:request_help_verify"), {"code": "999999"}, REMOTE_ADDR="10.0.0.4"

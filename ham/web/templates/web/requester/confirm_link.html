@@ -1,6 +1,6 @@
 {% extends "web/base_public.html" %}
 
-{% block title %}Confirm your request &middot; {{ church.short_name }} HAM{% endblock %}
+{% block title %}{% if kind == "new_link" %}Open your request{% else %}Confirm your request{% endif %} &middot; {{ church.short_name }} HAM{% endblock %}
 
 {% block public_content %}
   {% if already_received %}

@@ -114,6 +114,7 @@ class SourcesAndLabelsTest(unittest.TestCase):
                 "intake.INTAKE_MIN_FILL_TIME": ("Q-121",),
                 "intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR": ("Q-121",),
                 "intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY": ("Q-146",),
+                "intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY": ("Q-121",),
                 "media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION": ("Q-128",),
                 "media.REQUESTER_PHOTO_MAX_BYTES": ("Q-119",),
                 "media.REQUESTER_VIDEO_MAX_BYTES": ("Q-119",),

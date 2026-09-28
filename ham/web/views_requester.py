@@ -574,10 +574,17 @@ def request_help_verify(request: HttpRequest) -> HttpResponse:
             ):
                 already_request_id = drafts.consumed_request_id(draft_id) if draft_id else None
                 if already_request_id is not None:
+                    # NH1: this browser's own POST just failed verification -- no correct
+                    # code was entered, and merely *holding a session* that still names this
+                    # draft id is not proof of anything (anyone who ever had this browser, or
+                    # forged the cookie, would land here too). Never reveal the HAM # or a
+                    # path to the secure page from this branch; the verify session is also
+                    # spent so a bare replay of this same POST doesn't keep re-checking it.
+                    request.session.pop(_SESSION_VERIFY, None)
                     context = {
                         **_base_context(request),
                         "purpose": purpose,
-                        **_already_received_context(already_request_id, reveal=True),
+                        **_already_received_context(already_request_id, reveal=False),
                     }
                     return render(request, "web/requester/r8_verify.html", context)
             return render(
@@ -633,17 +640,24 @@ def _already_received_context(request_id: UUID, *, reveal: bool) -> dict[str, An
     anything (a bare, already-used link is not proof -- anyone could have the URL text).
 
     ``reveal=True`` only when the *caller* has already established that this exact browser
-    holds a valid session/link for this draft/request right now (it just typed a code in its
-    own session, or its own link-consume POST just succeeded) -- shows the HAM # and a button
-    straight to the secure page. ``reveal=False`` shows a neutral message with no HAM # and no
-    link at all, for a bare already-used-link GET/POST that proves nothing new."""
+    just proved something real -- a code that matched inside its own verify POST, or a
+    link-consume POST that itself just succeeded -- shows the HAM #. ``reveal=False`` shows a
+    neutral message with no HAM # at all, for a bare already-used-code/link replay that proves
+    nothing new.
+
+    NH1: even when ``reveal=True``, this never hands out a live secure-page link or its token
+    (a session/cookie is not, by itself, proof of anything, and handing out the decrypted
+    live token here bypassed the one audited way a requester is meant to get one). The person
+    is told to open the link already in their email instead; a *new* link is only ever issued
+    through the audited `regenerate_link_for_own_request` path (the click-through re-
+    verification flow), never straight from this "already received" branch."""
     if not reveal:
-        return {"already_received": True, "display_number": "", "secure_url": None}
+        return {"already_received": True, "display_number": "", "reveal": False}
     row = get_request_for_requester(request_id)
     return {
         "already_received": True,
         "display_number": row.display_number if row is not None else "",
-        "secure_url": services.current_secure_page_path(request_id),
+        "reveal": True,
     }
 
 
@@ -1063,12 +1077,23 @@ def request_help_link_expired_send(request: HttpRequest, token: str) -> HttpResp
     return redirect("web:request_help_verify")
 
 
+_SESSION_FIND_OPENED_AT = "ham_intake_find_opened_at"
+
+
 @require_http_methods(["GET", "POST"])
 def request_help_find(request: HttpRequest) -> HttpResponse:
     context = _base_context(request)
     if request.method == "POST":
         email = request.POST.get("email", "").strip()
-        services.find_my_request(email=email, ip_address=_client_ip(request))
+        # Q-121: the same honeypot + minimum-fill-time checks the intake form uses -- silent
+        # either way (identical "check your email" response, nothing sent for a bot).
+        bot = antiabuse.honeypot_tripped(
+            request.POST.get(antiabuse.HONEYPOT_FIELD_NAME)
+        ) or not antiabuse.min_fill_time_ok(request.session.get(_SESSION_FIND_OPENED_AT))
+        if not bot:
+            services.find_my_request(email=email, ip_address=_client_ip(request))
         context["submitted_email"] = email
         return render(request, "web/requester/r11b_find_request.html", context)
+    request.session[_SESSION_FIND_OPENED_AT] = antiabuse.sign_form_opened_at()
+    context["honeypot_field"] = antiabuse.HONEYPOT_FIELD_NAME
     return render(request, "web/requester/r11b_find_request.html", context)

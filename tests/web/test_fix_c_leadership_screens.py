@@ -69,14 +69,14 @@ def _make_request(**payload_kwargs):
 # --------------------------------------------------------------------------------------
 class TestPresentationLabels:
     def test_hazard_labels_splits_codes_and_note(self):
+        # FIX-G UX minor: the note is only ever about "Something else" -- neither
+        # "dogs_or_other_animals" nor "mold" is it, so it's no longer attached to whichever
+        # code happens to be first; it comes back as its own item instead.
         result = hazard_labels("dogs_or_other_animals, mold (friendly but loud)")
         assert result == [
-            {
-                "code": "dogs_or_other_animals",
-                "label": "Dogs or other animals",
-                "note": "friendly but loud",
-            },
+            {"code": "dogs_or_other_animals", "label": "Dogs or other animals", "note": ""},
             {"code": "mold", "label": "Mold", "note": ""},
+            {"code": "", "label": "", "note": "friendly but loud"},
         ]
 
     def test_hazard_labels_empty_is_empty_list(self):

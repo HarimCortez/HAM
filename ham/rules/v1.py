@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-7"
+RULES_VERSION = "2026.09.28-8"
 
 
 def rule(
@@ -509,6 +509,24 @@ class IntakeRules:
             "one).",
         ),
         provisional=("Q-146",),
+    )
+    # FIX-G NM1/PRD NEW-2: "Check on your request" (R11b) no longer issues a live link
+    # directly from an unauthenticated POST -- it sends a one-time verification link first
+    # (reusing the link-regeneration click-through machinery), with its own rate limits so a
+    # burst of "find" tries can't be used to enumerate/spam a real person's address. The
+    # per-request cooldown reuses REQUESTER_CODE_RESEND_COOLDOWN (Q-121); this is the new
+    # per-address daily cap.
+    FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY: int = rule(
+        3,
+        label="'Find my request' verification emails to one address in any rolling 24 hours",
+        unit="emails",
+        sources=("PRD §7.3", "Q-121"),
+        note=proposed(
+            "Q-121",
+            "3 per address per rolling 24 h, same shape as INTAKE_SUBMISSIONS_PER_EMAIL_PER_"
+            "DAY. The response is identical either way (no enumeration).",
+        ),
+        provisional=("Q-121",),
     )
 
 

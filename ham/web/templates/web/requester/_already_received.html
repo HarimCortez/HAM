@@ -1,21 +1,19 @@
+{% load web_extras %}
 {% comment %}
 M8: shared "already received" state for R8 (`r8_verify.html`) and the confirm-link page
 (`confirm_link.html`) -- confirming a code/link after the draft was already submitted (another
-device, a reused link). `secure_url` is only ever set when the caller has proof this exact
-browser holds a valid session/link right now (see `ham.web.views_requester.
-_already_received_context`'s docstring); otherwise this shows a neutral message with no HAM #
-and no link, never leaking the request to an unverified browser.
+device, a reused link). ``reveal`` is only ever true when the caller has already established
+that this exact browser just proved something real (see `ham.web.views_requester.
+_already_received_context`'s docstring); NH1: even then, this never links straight to the
+secure page or hands out a live token -- it points back at the person's own email instead.
 {% endcomment %}
-{% if secure_url %}
+{% if reveal %}
   <h1>We already received your request</h1>
   <p>Your request number is <strong>{{ display_number }}</strong>.</p>
-  <div class="action-bar">
-    <div class="action-bar__inner">
-      <a class="btn btn--primary" href="{{ secure_url }}">Open my request page</a>
-    </div>
-  </div>
+  <p>Open the link in your email to see it.</p>
 {% else %}
   <h1>Already received</h1>
-  <p>Check your email for the link to your request.</p>
-  <p><a href="{% url 'web:request_help_start' %}">Go to Ask for help</a></p>
+  <p>Check your email for the link to your request page.</p>
+  {% if church.phone %}<p>Or call <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a>.</p>{% endif %}
+  <p class="text-secondary"><a href="{% url 'web:request_help_start' %}">Ask for help</a></p>
 {% endif %}

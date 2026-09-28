@@ -33,10 +33,18 @@ def _start_and_reach_r8(client: Client) -> None:
 
 
 class TestR8AfterAnotherDeviceAlreadyConfirmed:
-    """The "Angela" scenario: confirms via the emailed link on her phone, then types the
-    code (now unconsumable -- another device already spent it) on her laptop."""
+    """The "Angela" scenario: confirms via the emailed link on her phone, then types a wrong
+    code (the real challenge is already consumed -- another device spent it) on her laptop.
 
-    def test_r8_reveals_ham_number_and_a_way_in_not_start_again(self, client: Client):
+    FIX-G NH1: a session that still names this draft id is NOT proof of anything by itself --
+    no correct code was ever entered on this browser. This must show the same neutral message
+    as a truly unknown code, never the HAM # (see `TestConfirmLinkAlreadyUsedIsNeutralFor
+    AnUnverifiedBrowser` below for the equivalent link-replay case) -- but it also must never
+    say "start again" (which would invite a duplicate submission)."""
+
+    def test_r8_after_other_device_confirms_shows_neutral_message_not_start_again(
+        self, client: Client
+    ):
         mail.outbox.clear()
         _start_and_reach_r8(client)
         run_due_jobs_now()
@@ -57,15 +65,14 @@ class TestR8AfterAnotherDeviceAlreadyConfirmed:
         run_due_jobs_now()
 
         # Back on the original browser (laptop): its own session still has the pending code
-        # entry for this exact draft. Whatever code it types can no longer be checked (the
-        # challenge is already consumed) -- this must not say "couldn't find a pending code,
-        # please start again".
+        # entry for this exact draft, but this POST's own code is wrong -- nothing was just
+        # proven on THIS browser.
         code_resp = client.post(reverse("web:request_help_verify"), {"code": "000000"})
         assert code_resp.status_code == 200
         content = code_resp.content.decode()
-        assert "We already received your request" in content
-        assert "HAM #" in content
-        assert "Open my request page" in content
+        assert "Already received" in content
+        assert "HAM #" not in content
+        assert "/request-help/r/" not in content
         assert "please start again" not in content.lower()
         assert "please try again" not in content.lower()
 

@@ -33,7 +33,11 @@ HAZARD_LABELS: dict[str, str] = {
     "sagging_floors_roof_stairs": "Sagging floors, roof or stairs",
     "pests": "Pests",
     "something_else": "Something else",
-    "none_known": "None that I know of",
+    # FIX-G UX minor: "you" (not "I") -- this label is read back on the requester's own
+    # secure page, addressing them directly, not quoting their own first-person form answer
+    # (`ham.requester_portal.choices.Hazard`'s R4 checkbox label stays first-person, since
+    # that one *is* the requester answering about themselves).
+    "none_known": "None that you know of",
 }
 
 # ISO weekday numbers (1=Monday..7=Sunday) plus the two time-of-day words and "any time
@@ -177,6 +181,16 @@ def hazard_labels(known_hazards: str) -> list[dict[str, str]]:
     (2) A bare "none_known" answer is not itself a hazard -- it is filtered out of the
     returned list entirely so the caller's own empty-list branch renders the neutral "None
     that they know of" line (no warning-triangle icon) instead of a hazard-shaped item.
+
+    FIX-G UX minor: the free-text note is always about the "Something else" hazard (it's the
+    only hazard the form even collects a note for) -- it used to be attached to whichever
+    hazard happened to be ticked *first*, which misattributed it to an unrelated hazard
+    whenever "Something else" wasn't the first checkbox ticked. Now attached to the
+    "something_else" item specifically, wherever it falls in the ticked list; if that code
+    somehow isn't present (defensive -- the form itself requires it), the note is returned as
+    its own separate item (`code=""`, same shape the caller already renders as a plain "Note:
+    ..." line for a note with no codes at all) instead of silently landing on a different
+    hazard.
     """
     stored = (known_hazards or "").strip()
     if not stored:
@@ -192,10 +206,19 @@ def hazard_labels(known_hazards: str) -> list[dict[str, str]]:
     codes = [c.strip() for c in stored.split(",") if c.strip() and c.strip() != "none_known"]
     if not codes and note:
         return [{"code": "", "label": "", "note": note}]
-    return [
-        {"code": code, "label": HAZARD_LABELS.get(code, code), "note": note if i == 0 else ""}
-        for i, code in enumerate(codes)
-    ]
+    items = [{"code": code, "label": HAZARD_LABELS.get(code, code), "note": ""} for code in codes]
+    if note:
+        target = next((item for item in items if item["code"] == "something_else"), None)
+        if target is None and len(items) == 1:
+            # No ambiguity with exactly one ticked hazard -- attach the note there, same as
+            # before, even though the form itself only ever pairs a note with "something_else"
+            # (defensive: this module's input is a stored string, not a fresh form submission).
+            target = items[0]
+        if target is not None:
+            target["note"] = note
+        else:
+            items.append({"code": "", "label": "", "note": note})
+    return items
 
 
 def urgency_line(reason_code: str, justification: str) -> str:

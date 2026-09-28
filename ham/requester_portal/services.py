@@ -207,27 +207,6 @@ def resolve_token(token: str, *, now: dt.datetime | None = None) -> RequesterCon
     return RequesterContext(request_id=link.request_id, link_id=link.id)
 
 
-def current_secure_page_path(request_id: UUID) -> str | None:
-    """M8: the URL path to the requester's own currently-live access link, or `None` if there
-    is none (e.g. a `NEEDS_PHONE_CHECK` request never has one). Used only when a caller has
-    already independently established that *this exact browser* holds a valid session/link
-    for this draft/request (`ham.web.views_requester`'s already-received handling) -- never
-    surfaced to a browser that merely replayed an already-used code/link with no such proof."""
-    link = (
-        RequesterAccessLink.objects.filter(request_id=request_id, revoked_at__isnull=True)
-        .order_by("-issued_at")
-        .first()
-    )
-    if link is None:
-        return None
-    from django.urls import reverse
-
-    from ham.platform.crypto import decrypt
-
-    token = decrypt(link.token_ciphertext)
-    return reverse("web:request_help_secure_page", kwargs={"token": token})
-
-
 def _resource_own_request(ctx: RequesterContext, *args: Any, **kwargs: Any) -> RequesterContext:
     return ctx
 
@@ -325,11 +304,13 @@ def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResu
 
     Usability re-check M7: this used to send a verification *code* email (intake wording,
     with nowhere on R11b to type the code) and, once that code was entered, a *second*
-    "new link" email (E3) via the generic link-regeneration path. R11b never asked anyone to
-    prove anything beyond holding the inbox this link is emailed to (the same trust level as
-    any "email me a reset link" flow) -- there is no code step here at all now: a fresh
-    access link is issued directly and exactly one E4 email ("Here's the link to your
-    request") is sent per matching request, never the code/E3 wording.
+    "new link" email (E3) via the generic link-regeneration path. There is still no code step
+    on R11b -- exactly one E4 email ("Open my request page") is sent per matching request.
+
+    FIX-G NM1/PRD NEW-2: a fresh access link is no longer issued directly from this
+    unauthenticated POST (see `_request_found_verification`) -- E4 now carries a one-time
+    verification link that must itself be clicked and confirmed before any live link is
+    issued or an old one revoked.
 
     M1: also enforces `RULES.intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR` -- counted from
     `FindRequestAttempt`, which logs every try (matched or not), not just the ones that
@@ -352,32 +333,39 @@ def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResu
     normalized = normalize_email(email)
     if normalized is not None:
         for request_id in _requests_for_email(normalized):
-            _issue_and_notify_found_link(request_id=request_id, email=normalized)
+            _request_found_verification(
+                request_id=request_id, email=normalized, ip_address=ip_address
+            )
     return ChallengeRequestResult("sent")
 
 
-def _issue_and_notify_found_link(*, request_id: UUID, email: str) -> None:
-    """M7: issues a fresh access link directly (no code/verification step -- see
-    `find_my_request`'s docstring) and emails E4 immediately, the same way
-    `ham.requester_portal.verification`'s code emails are sent immediately rather than
-    through the outbox -- this deliberately never touches the generic
-    `RequesterAccessLinkIssued`/E3 ("new link") path (that event's own docstring in
-    `notifications.py` flags the R11a/R11b ambiguity this resolves: R11b gets its own event/
-    audit action and its own email wording, not a repurposed "your old link is dead" one)."""
-    from .notifications import send_found_request_email
+def _request_found_verification(*, request_id: UUID, email: str, ip_address: str) -> None:
+    """FIX-G NM1/PRD NEW-2: an unauthenticated "Check on your request" POST must not, by
+    itself, issue a fresh live access link and revoke the requester's old one (§7.3, §58,
+    §70.3) -- that used to happen here directly, with no verification step and no record of
+    *how* the person proved anything. Now sends a one-time verification link instead
+    (`ham.requester_portal.verification.request_find_verification`, its own `PURPOSE_FIND`
+    challenge); the actual link is only issued -- and the old one only revoked -- once that
+    link is clicked and confirmed
+    (`ham.web.views_requester.request_help_new_link` -> `regenerate_link_for_own_request`,
+    which already records `verification_method="email_link"` and a
+    `RequestContactVerification` row)."""
+    from .verification import request_find_verification
 
     display_number = _facts(request_id).display_number
-    issued = issue_link(request_id=request_id, kind=RequesterAccessLink.KIND_REGENERATED)
-    audit_record(
-        ctx=None,
-        actor_type=ACTOR_TYPE_SYSTEM,
-        action="requester_link.found",
-        target_type="request",
-        target_id=str(request_id),
-        project_id=request_id,
-        context={"link_id": str(issued.link.id)},
+    result = request_find_verification(
+        request_id=request_id, email=email, ip_address=ip_address, display_number=display_number
     )
-    send_found_request_email(display_number=display_number, email=email, link=issued.link)
+    if result.status == "sent":
+        audit_record(
+            ctx=None,
+            actor_type=ACTOR_TYPE_SYSTEM,
+            action="requester_link.found",
+            target_type="request",
+            target_id=str(request_id),
+            project_id=request_id,
+            context={"challenge_id": str(result.challenge_id)},
+        )
 
 
 # ---------------------------------------------------------------------------------------
@@ -603,7 +591,6 @@ __all__ = [
     "IssuedLink",
     "RequestLinkFacts",
     "SubmissionResult",
-    "current_secure_page_path",
     "find_my_request",
     "issue_link",
     "link_owner_contact",
