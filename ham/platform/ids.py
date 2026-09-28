@@ -45,3 +45,11 @@ class UUID7Field(models.UUIDField):
         kwargs.setdefault("default", uuid7)
         kwargs.setdefault("editable", False)
         super().__init__(*args, **kwargs)
+
+    def deconstruct(self):  # type: ignore[no-untyped-def]
+        # Django's generic deconstruct() drops kwargs equal to models.Field defaults
+        # (primary_key=False), and __init__ above would then re-default it to True on a
+        # migration round-trip. Always emit primary_key explicitly so non-PK uses survive.
+        name, path, args, kwargs = super().deconstruct()
+        kwargs["primary_key"] = self.primary_key
+        return name, path, args, kwargs

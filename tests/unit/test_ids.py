@@ -22,3 +22,11 @@ def test_uuid7_values_sort_by_creation_time():
 def test_uuid7_values_are_unique():
     values = {uuid7() for _ in range(1000)}
     assert len(values) == 1000
+
+
+def test_uuid7field_non_pk_survives_deconstruct_round_trip() -> None:
+    from ham.platform.ids import UUID7Field
+
+    field = UUID7Field(primary_key=False, unique=True)
+    _, _, args, kwargs = field.deconstruct()
+    assert UUID7Field(*args, **kwargs).primary_key is False
