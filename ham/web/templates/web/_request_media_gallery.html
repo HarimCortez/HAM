@@ -8,10 +8,13 @@ and `gallery` (`ham.media.services.MediaGalleryView`: `counts` always present, `
 `None` for a masked (Administrator-only) view -- Q-124/Q-138 -- and a tuple of
 `MediaItemView(id, media_kind, status, ready, index)` otherwise).
 
-Thumbnails/full views load from the authorized, short-lived `request_media.view` routes
-(`ham.web.views_requests.request_media_thumb`/`request_media_view`), never a raw storage URL;
-alt text is "HAM #<number> photo/video <index>" only -- never a filename, status detail, or
-anything else that could carry PII (§68).
+Thumbnails load from the authorized, short-lived `request_media.view` thumb route
+(`ham.web.views_requests.request_media_thumb`), never a raw storage URL; alt text is "HAM
+#<number> photo/video <index>" only -- never a filename, status detail, or anything else that
+could carry PII (§68). FIX-G UX minor: each thumbnail now links to a minimal HTML viewer page
+(`request_media_viewer`, "&larr; Back to HAM #NNN") instead of straight to the raw `/view`
+route -- the installed PWA has no browser chrome, so opening the raw file had no way back. The
+raw `/view` route is unchanged and still what that page's own `<img>`/`<video>` embeds.
 {% endcomment %}
 {% load web_extras %}
 {% comment %}
@@ -41,7 +44,7 @@ processing chip (each was separately announced on load); a `space-8` gap before 
             {% if item.media_kind == "photo" %}
               <a
                 class="media-gallery__link"
-                href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
+                href="{% url 'web:request_media_viewer' request_id=detail.id media_id=item.id %}"
               >
                 <img
                   class="media-gallery__thumb"
@@ -53,7 +56,7 @@ processing chip (each was separately announced on load); a `space-8` gap before 
             {% else %}
               <a
                 class="media-gallery__link media-gallery__link--video"
-                href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
+                href="{% url 'web:request_media_viewer' request_id=detail.id media_id=item.id %}"
                 aria-label="{{ detail.display_number }}, video {{ item.index }}"
               >
                 <span class="text-secondary" aria-hidden="true">&#9654;&nbsp;Video {{ item.index }}</span>

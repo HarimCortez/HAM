@@ -1,6 +1,11 @@
 """FIX-F2 item 3 (UX M7): "Check on your request" (R11b) sends exactly one E4 "here's the
-link" email per matching request -- never the code email, never a second E3 "new link" email,
-and never creates a `RequesterVerificationChallenge` at all. New file per wave brief.
+link" email per matching request -- never the code wording, never a second E3 "new link"
+email.
+
+FIX-G NM1/PRD NEW-2 updated this flow further: the E4 email is now a one-time verification
+link (not a live access link) -- see `tests/requester_portal/test_fix_g_nm1_find_verification.
+py` for the click-through/issuance regression tests. This file keeps the "exactly one email,
+right wording" checks.
 """
 
 from __future__ import annotations
@@ -23,8 +28,10 @@ def _lookups(real_portal_lookups):
     pass
 
 
-class TestFindMyRequestSendsE4Directly:
-    def test_sends_one_link_only_email_no_code_no_challenge(self, real_portal_lookups):
+class TestFindMyRequestSendsE4VerificationLink:
+    def test_sends_one_verification_link_only_email_no_code_no_live_link_yet(
+        self, real_portal_lookups
+    ):
         from ham.authz.context import RequesterContext
         from ham.requests.certifications import required_statements
         from ham.requests.services import SubmittedRequestPayload, submit_request
@@ -70,15 +77,17 @@ class TestFindMyRequestSendsE4Directly:
         assert "your old link no longer works" not in sent.body.lower()
         assert "open my request page" in sent.body.lower()
 
-        # No verification challenge exists -- R11b never asks anyone to type a code at all.
-        assert not RequesterVerificationChallenge.objects.filter(request_id=request.id).exists()
-
-        # A fresh live access link was issued for the request.
-        assert RequesterAccessLink.objects.filter(
+        # FIX-G NM1: a `PURPOSE_FIND` verification challenge now exists (this is a one-time
+        # verification link, not the code-entry flow -- R11b still never asks anyone to type
+        # anything), but no live access link is issued -- and nothing is revoked -- until that
+        # link is clicked and confirmed.
+        assert RequesterVerificationChallenge.objects.filter(
+            request_id=request.id, purpose=RequesterVerificationChallenge.PURPOSE_FIND
+        ).exists()
+        assert not RequesterAccessLink.objects.filter(
             request_id=request.id, revoked_at__isnull=True
         ).exists()
 
-        # Its own, dedicated audit action -- not the generic "requester_link.regenerated".
         assert AuditEvent.objects.filter(
             action="requester_link.found", target_id=str(request.id)
         ).exists()

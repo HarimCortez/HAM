@@ -40,4 +40,9 @@ urlpatterns = [
         views.request_media_view,
         name="request_media_view",
     ),
+    path(
+        "requests/<uuid:request_id>/media/<uuid:media_id>/",
+        views.request_media_viewer,
+        name="request_media_viewer",
+    ),
 ]

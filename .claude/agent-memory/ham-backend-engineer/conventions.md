@@ -1573,3 +1573,118 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   caller's pre-existing "no hazards" empty-state branch (shield icon, "None that they know of")
   renders for it automatically, rather than adding a second special case in every template that
   calls this function.
+
+## FIX-G (step-2 intake, NH1/NM1 security re-check + UX minors)
+- **"A session/cookie is proof of nothing" is a distinct bug shape from H1/N3's "the wrong
+  challenge got selected" (Fix A) — both need fixing, and fixing one does not fix the other.**
+  NH1: `_already_received_context`'s `reveal=True` branch used to fire whenever *this
+  browser's session* merely still named an already-submitted draft id, even when the POST that
+  reached that branch had just **failed** verification (`verify_code` returned
+  `reason="no_challenge"`, i.e. no correct code was ever entered on this browser). Fixed by
+  keying `reveal` strictly on "did THIS request just independently prove something" (a code
+  that verified inside this exact POST, or a link-consume POST that itself just succeeded),
+  never on session contents alone — the `no_challenge` branch in `ham.web.views_requester.
+  request_help_verify` now hard-codes `reveal=False` and pops `_SESSION_VERIFY` (so a bare
+  replay of the same failed POST doesn't keep re-checking a spent session). Even the
+  legitimate `reveal=True` branches stopped decrypting and handing out a live secure-page
+  token (`ham.requester_portal.services.current_secure_page_path`, deleted outright) — "you
+  proved something" still isn't the same authorization level as "the audited link-issuance
+  path decided to hand you a token"; the reveal template now says "open the link in your
+  email" instead of linking anywhere.
+- **An unauthenticated "prove you own this address" POST must never itself be the thing that
+  mutates state (issues a live credential, revokes an old one) — it may only ever *trigger a
+  send* of something that, when clicked, goes through the exact same audited re-verification
+  path a "my link already expired" flow already uses.** NM1/PRD NEW-2:
+  `ham.requester_portal.services.find_my_request` (R11b "Check on your request") used to call
+  `issue_link`+email directly, synchronously, from the POST handler itself — no click-through,
+  no `verification_method` recorded anywhere. Fixed by giving R11b its own challenge purpose,
+  `RequesterVerificationChallenge.PURPOSE_FIND` (new, alongside `PURPOSE_INTAKE`/
+  `PURPOSE_LINK_REGENERATION` — CharField `choices=` metadata only, no real migration
+  behavior, but `makemigrations` still wants a state migration for it), and a new
+  `ham.requester_portal.verification.request_find_verification` that creates that challenge
+  and emails only a link (an E4-specific text builder, no code — R11b's UI never had a code
+  field) pointing at the **same URL** link-regeneration's own click-through page already uses
+  (`/request-help/new-link/<token>`, reusing `_CONFIRM_PATH_TEMPLATES`) — since
+  `ham.web.views_requester.request_help_new_link`'s POST handler never branches on
+  `challenge.purpose` (only checks `request_id is not None`), no view code needed touching at
+  all: it already calls `regenerate_link_for_own_request` (issues, revokes the old one,
+  records `verification_method="email_link"` + a `RequestContactVerification` row) for
+  whichever purpose's challenge got consumed. The old `_issue_and_notify_found_link`/
+  `send_found_request_email` (notifications.py) are gone entirely — nothing issues a link
+  from the `find_my_request` call path itself anymore, only `request_find_verification`'s own
+  independent rate limits (new rule `RULES.intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY`,
+  Q-121; the "1 per request" limit reuses the existing `REQUESTER_CODE_RESEND_COOLDOWN` rather
+  than inventing a new rule for it — reuse an existing named rule before adding a new one when
+  the numeric value and its rationale really are the same).
+- **A per-address abuse counter that's meant to be independent of a *different* flow sharing
+  the same underlying model needs its own `purpose` value, not a shared one filtered some
+  other way** — `request_find_verification`'s cooldown/daily-cap queries are plain
+  `purpose=PURPOSE_FIND` filters, so R11a's own link-regeneration resends (`purpose=
+  PURPOSE_LINK_REGENERATION`) never eat into R11b's budget or vice versa, for free, the same
+  H2 "split the counters by purpose" pattern Fix A already established.
+- **A rate-limit cooldown/hourly-cap keyed only on the untrusted-input side of a two-sided
+  relationship (here: `email_key` alone) is abusable as a denial-of-service against the
+  *other* side (here: `draft_id`), even when neither side alone is secret** — L(low):
+  `ham.requester_portal.verification._request`'s cooldown and
+  `REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR` queries now additionally filter by `draft_id`
+  when one is given (i.e. for `purpose=PURPOSE_INTAKE` only — link regeneration/find have no
+  browser-created `draft_id` to scope by, they're already scoped by `request_id`), because
+  anyone can create their own draft and type a victim's real email into it with zero proof of
+  ownership, then use *that* draft's sends to burn the shared per-email cooldown/hourly budget
+  and block the victim's own "resend code" button for up to an hour. This incidentally fixed
+  an already-flagged flaky test (`tests/web/test_fix_f2_already_received.py`, real-clock,
+  shared fixed test email `doris.p@example.org` across many test files) — draft-scoping the
+  budget means unrelated tests using the same address no longer share a rate-limit counter at
+  all.
+- **A `FixedClock` (`ham.platform.clock`) advances via `.advance(timedelta)`, not `.tick()`**
+  — there is no `tick` method; grep the class before guessing a name that reads naturally.
+- **`ham.platform.church.church_profile()` returns a frozen `ChurchProfileView` dataclass, not
+  a mutable model instance** — to change the phone/email/etc. a test exercises, mutate the
+  real singleton row instead: `from ham.platform.models import ChurchProfile; row =
+  ChurchProfile.get_solo(); row.ham_phone = "..."; row.save(update_fields=["ham_phone"])` (the
+  view's `phone`/`email` map from the row's `ham_phone`/`ham_email` fields, not same-named).
+- **A free-text note field that's only ever collected for ONE specific fixed-vocabulary code
+  (here: hazards' `hazard_note`, only ever paired with `Hazard.SOMETHING_ELSE` by the form)
+  must be attached to that code specifically when reconstructing a list from a stored
+  comma+paren string, not to "whichever code happens to be first"** — `ham.requests.
+  presentation.hazard_labels` now looks for `"something_else"` among the parsed codes and
+  attaches the note there; when it's absent (a defensive-only case — the form itself requires
+  it) and there's more than one code, the note becomes its own separate item (`code=""`,
+  already-existing rendering shape for "note with no codes at all") rather than silently
+  landing on an unrelated hazard. Kept a narrow backward-compatible exception: when there is
+  *exactly one* code (no "something_else" needed to disambiguate at all), the note still
+  attaches to that lone code, same as before — several pre-existing tests exercise a single
+  arbitrary code + note as a generic "parenthetical-note parsing" fixture, not a hazard-
+  semantics one.
+- **Removing a function whose only caller imported a module for exactly that one call trips
+  `lint-imports`'s "unused ignore" check, and it's a hard failure (exit 1), not a warning** —
+  deleting `ham.requester_portal.notifications.send_found_request_email` (its only reason to
+  import `ham.integrations.email.service`) left a stale `ignore_imports` entry in
+  `pyproject.toml`'s `[tool.importlinter]` section; `lint-imports` fails the whole run on "No
+  matches for ignored import X -> Y" until the now-dead ignore line is deleted too. Grep
+  `pyproject.toml` for the module's own name whenever deleting its last cross-layer import.
+- **A "leadership viewer" page wrapping an already-authorized raw media route
+  (`ham.web.views_requests.request_media_thumb`/`request_media_view`) should reuse the exact
+  same scope/masking checks by hand (`get_request_by_id(ctx, request_id)` then
+  `is_masked_view(ctx)`), not factor `_serve_media` to also return HTML** — the new
+  `request_media_viewer` view (`/requests/<id>/media/<mid>/`, new URL name
+  `request_media_viewer`) sets `Cache-Control: no-store` manually rather than stacking
+  `@never_cache` on top (the two don't compose to the same string — `@never_cache` adds
+  `max-age=0, no-cache, must-revalidate, private` alongside `no-store`, which broke an exact-
+  match test expecting bare `"no-store"`, the same value `_serve_media`'s raw routes send).
+  Gallery thumbnails (`_request_media_gallery.html`) now link `<a href>` at this new route
+  instead of the raw `/view` route; the raw route is unchanged and is what the new page's own
+  `<img>`/`<video src>` still points at.
+- **The e2e/Playwright suite silently times out waiting for a selector (30s, unhelpful stack)
+  when the frontend simply hasn't been built yet in this worktree (`frontend/dist` missing) —
+  not a flaky test.** `npm ci --prefix frontend && npm run build --prefix frontend` once per
+  worktree before trusting any `tests/e2e/*` failure as a real regression; check `ls
+  ham/web/static/web/dist/` or `frontend/dist` first if an e2e test fails on a file this
+  slice never touched.
+- **Verifying "fails before, passes after" empirically for a fix round with many small,
+  interdependent changes**: `git worktree add /tmp/<scratch> <pre-fix-sha>`, copy just the new/
+  changed test files into it (not the source), point a second scratch Postgres DB at it,
+  `migrate` then `pytest` them there — every one should fail (confirms the test actually
+  exercises the old bug, not a tautology), then re-run the same files against the real
+  worktree's post-fix code (should all pass). Clean up with `git worktree remove --force` +
+  `DROP DATABASE` when done; don't leave the scratch worktree/DB behind.

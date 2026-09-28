@@ -41,7 +41,12 @@ class TestNoteParsingRobustToParens:
         assert items == [{"code": "mold", "label": "Mold", "note": "in the bathroom, near the tub"}]
 
     def test_multiple_codes_with_a_parenthetical_note(self):
+        # FIX-G UX minor: the note is only ever about "Something else" (the only hazard the
+        # form collects a note for) -- neither "mold" nor "pests" is it, so it's no longer
+        # attached to whichever code happens to be first; it comes back as its own item
+        # instead (see `TestNoteAttachedToSomethingElse` below for the "something_else" case).
         items = hazard_labels("mold, pests (seen in the kitchen (twice))")
-        assert [i["code"] for i in items] == ["mold", "pests"]
-        assert items[0]["note"] == "seen in the kitchen (twice)"
+        assert [i["code"] for i in items] == ["mold", "pests", ""]
+        assert items[0]["note"] == ""
         assert items[1]["note"] == ""
+        assert items[2]["note"] == "seen in the kitchen (twice)"

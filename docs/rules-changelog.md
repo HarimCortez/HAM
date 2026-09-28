@@ -201,3 +201,17 @@ Two new `intake` values, closing gaps the step-2 fix round's security/PRD review
 New invariant: the presigned upload URL must not outlive the reservation it belongs to
 (`PRESIGNED_UPLOAD_URL_LIFETIME <= MEDIA_UPLOAD_INTENT_LIFETIME`); the view URL lifetime must
 be positive.
+
+## 2026.09.28-8 — step 2 fix round (FIX-G: "check on your request" verification)
+
+Content hash: `sha256:cc7ba9d2eeb15fbf5736b16f9456de3f8e4408f8e8cd8aa8a572674f221b14ed`
+
+One new `intake` value, closing NM1/PRD NEW-2 from the FIX-G security review: "Check on your
+request" (R11b) no longer issues a live access link (and revokes the old one) directly from an
+unauthenticated POST — it now sends a one-time verification link first, through the same
+click-through machinery R11a's "my link expired" flow already uses, and only issues/revokes
+once that link is clicked and confirmed.
+- `intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY` = 3: **Q-121** (proposed default in use), a
+  per-address daily cap on these verification emails, independent of the existing per-request
+  resend cooldown (`REQUESTER_CODE_RESEND_COOLDOWN`, reused as-is for the "1 per request"
+  limit) and of link-regeneration's own budgets.

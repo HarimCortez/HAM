@@ -46,18 +46,20 @@ def _code_email_text(*, code: str, link_url: str, church, purpose: str) -> tuple
     wording instead ("open your request page")."""
     minutes = int(RULES.intake.REQUESTER_CODE_LIFETIME.total_seconds() // 60)
     formatted = f"{code[:3]} {code[3:]}" if len(code) == 6 else code
+    # UX minor: the email is plain text -- no button exists, just this link -- so "use the
+    # button below" was never accurate. "Or open this link" describes what's actually there.
     if purpose == RequesterVerificationChallenge.PURPOSE_INTAKE:
         subject = f"{church.short_name} HAM: Confirm your request"  # Q-102: neutral subject
         text = (
-            f"Your code is {formatted}. Or use the button below.\n\n{link_url}\n\n"
+            f"Your code is {formatted}. Or open this link:\n\n{link_url}\n\n"
             f"It works once, for {minutes} minutes. Your answers are saved. If you didn't ask "
             "for this, you can ignore this email."
         )
     else:
         subject = f"{church.short_name} HAM code"  # Q-102: neutral subject
         text = (
-            f"Your code is {formatted}. Use it to open your request page, or use the button "
-            f"below.\n\n{link_url}\n\n"
+            f"Your code is {formatted}. Use it to open your request page, or open this "
+            f"link:\n\n{link_url}\n\n"
             f"It works once, for {minutes} minutes. If you didn't ask for this, you can "
             "ignore this email."
         )
@@ -73,6 +75,11 @@ def _code_email_text(*, code: str, link_url: str, church, purpose: str) -> tuple
 _CONFIRM_PATH_TEMPLATES: dict[str, str] = {
     RequesterVerificationChallenge.PURPOSE_INTAKE: "/request-help/verify/link/{token}",
     RequesterVerificationChallenge.PURPOSE_LINK_REGENERATION: "/request-help/new-link/{token}",
+    # FIX-G NM1: "find" reuses the exact same click-through route as link regeneration -- the
+    # route itself never branches on `purpose` (`ham.web.views_requester.
+    # request_help_new_link`), only the rate-limit budgets and the wording of the first,
+    # unverified email differ (`request_find_verification` below).
+    RequesterVerificationChallenge.PURPOSE_FIND: "/request-help/new-link/{token}",
 }
 
 
@@ -127,6 +134,71 @@ def request_link_regeneration_code(
     )
 
 
+def request_find_verification(
+    *, request_id: UUID, email: str, ip_address: str = "", display_number: str = ""
+) -> ChallengeRequestResult:
+    """FIX-G NM1/PRD NEW-2: "Check on your request" (R11b) verification. Sends a one-time
+    link only (no code entry UI exists for R11b) that lands on the exact same click-through
+    route as link regeneration (`/request-help/new-link/<token>`) -- clicking it, then
+    confirming, is what actually issues a fresh link and revokes the old one
+    (`ham.web.views_requester.request_help_new_link` -> `regenerate_link_for_own_request`,
+    which already records `verification_method="email_link"` and a `RequestContactVerification`
+    row). This function itself never issues or reveals a live link, unlike the old
+    `_issue_and_notify_found_link` it replaces.
+
+    Its own purpose (`PURPOSE_FIND`) keeps its rate-limit budgets independent of R11a's "my
+    link expired" resends: at most one email per *request* per
+    `RULES.intake.REQUESTER_CODE_RESEND_COOLDOWN`, and at most
+    `RULES.intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY` per *address* per rolling 24 hours.
+    Callers (`ham.requester_portal.services.find_my_request`) must render the same response
+    regardless of status (intake.md §9 "no enumeration")."""
+    email = email.strip().lower()
+    email_key = _email_key(email)
+    now = clock_now()
+    purpose = RequesterVerificationChallenge.PURPOSE_FIND
+
+    cooldown = RULES.intake.REQUESTER_CODE_RESEND_COOLDOWN
+    last_for_request = (
+        RequesterVerificationChallenge.objects.filter(request_id=request_id, purpose=purpose)
+        .order_by("-created_at")
+        .first()
+    )
+    if last_for_request is not None and now - last_for_request.created_at < cooldown:
+        return ChallengeRequestResult("cooldown", retry_at=last_for_request.created_at + cooldown)
+
+    day_start = now - dt.timedelta(hours=24)
+    recent_for_address = RequesterVerificationChallenge.objects.filter(
+        email_key=email_key, purpose=purpose, created_at__gte=day_start
+    ).count()
+    if recent_for_address >= RULES.intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY:
+        return ChallengeRequestResult("rate_limited", retry_at=day_start + dt.timedelta(hours=24))
+
+    code = otp.generate_code(RULES.intake.REQUESTER_CODE_LENGTH)
+    link_token = otp.generate_token()
+    challenge = RequesterVerificationChallenge.objects.create(
+        purpose=purpose,
+        request_id=request_id,
+        email_key=email_key,
+        code_hash=otp.hash_value(code),
+        link_token_hash=otp.hash_value(link_token),
+        created_at=now,
+        expires_at=now + RULES.intake.REQUESTER_CODE_LIFETIME,
+        ip_address=ip_address or None,
+    )
+    minutes = int(RULES.intake.REQUESTER_CODE_LIFETIME.total_seconds() // 60)
+    link_url = _confirm_url(link_token, purpose=purpose)
+    subject = f"Your {display_number}" if display_number else "Your HAM request"
+    text = (
+        f"Open my request page: {link_url}\n\n"
+        f"It works once, for {minutes} minutes. If you didn't ask for this, you can ignore "
+        "this email."
+    )
+    send_transactional_email(
+        to=email, subject=subject, text_body=text, category="requester_found_link"
+    )
+    return ChallengeRequestResult("sent", challenge_id=challenge.id)
+
+
 def _request(
     *,
     purpose: str,
@@ -147,20 +219,31 @@ def _request(
     # distinctly different ("too many codes") outcome only when a request existed. Splitting
     # the counters by purpose closes that oracle regardless of what the caller does with the
     # result (see the second half of this fix, below).
+    # FIX-G Low: for the intake purpose (the only one with a `draft_id`), both the cooldown and
+    # the hourly per-address cap are additionally scoped to THIS draft -- otherwise anyone
+    # could type a victim's real email into a draft *they* control and burn the victim's own
+    # cooldown/hourly budget (both are keyed by `email_key` alone), blocking the victim's own
+    # "resend code" for up to an hour. Link regeneration/find (`draft_id is None`) are
+    # unaffected -- those purposes are already scoped by `request_id`, not a browser-supplied
+    # draft anyone can create at will.
     if not bypass_cooldown:
-        last = (
-            RequesterVerificationChallenge.objects.filter(email_key=email_key, purpose=purpose)
-            .order_by("-created_at")
-            .first()
+        last_qs = RequesterVerificationChallenge.objects.filter(
+            email_key=email_key, purpose=purpose
         )
+        if draft_id is not None:
+            last_qs = last_qs.filter(draft_id=draft_id)
+        last = last_qs.order_by("-created_at").first()
         cooldown = RULES.intake.REQUESTER_CODE_RESEND_COOLDOWN
         if last is not None and now - last.created_at < cooldown:
             return ChallengeRequestResult("cooldown", retry_at=last.created_at + cooldown)
 
     window_start = now - dt.timedelta(hours=1)
-    recent = RequesterVerificationChallenge.objects.filter(
+    recent_qs = RequesterVerificationChallenge.objects.filter(
         email_key=email_key, purpose=purpose, created_at__gte=window_start
-    ).count()
+    )
+    if draft_id is not None:
+        recent_qs = recent_qs.filter(draft_id=draft_id)
+    recent = recent_qs.count()
     if recent >= RULES.intake.REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR:
         return ChallengeRequestResult("rate_limited", retry_at=window_start + dt.timedelta(hours=1))
 
@@ -378,6 +461,7 @@ __all__ = [
     "challenge_for_link_token",
     "consume_link",
     "link_is_valid",
+    "request_find_verification",
     "request_intake_verification",
     "request_link_regeneration_code",
     "verify_code",

@@ -56,9 +56,17 @@ class RequesterVerificationChallenge(models.Model):
 
     PURPOSE_INTAKE = "intake"
     PURPOSE_LINK_REGENERATION = "link_regeneration"
+    # FIX-G NM1/PRD NEW-2: "Check on your request" (R11b) gets its own purpose, not
+    # `PURPOSE_LINK_REGENERATION` -- it must have its own rate-limit budgets
+    # (`RULES.intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY`), independent of R11a's "my link
+    # expired" resends, even though both purposes point at the exact same consume route
+    # (`/request-help/new-link/<token>`, `ham.web.views_requester.request_help_new_link`,
+    # which never branches on `purpose`).
+    PURPOSE_FIND = "find"
     PURPOSE_CHOICES = [
         (PURPOSE_INTAKE, "Intake"),
         (PURPOSE_LINK_REGENERATION, "Link regeneration"),
+        (PURPOSE_FIND, "Find my request"),
     ]
 
     id = UUID7Field()
