@@ -1,0 +1,15 @@
+{% extends "web/base.html" %}
+
+{% block title %}Invitation sent · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Invitation sent{% endblock %}
+
+{% block content %}
+  <section class="empty-state" aria-labelledby="invite-sent-title">
+    <h1 id="invite-sent-title">Invitation sent</h1>
+    <p>
+      {% if email %}{{ email }} has{% else %}They have{% endif %} been sent an email with a
+      sign-in link. It works for {{ invitation_days }} days.
+    </p>
+    <a class="btn btn--primary" href="{% url 'web:admin_users_invite' %}">Invite someone else</a>
+  </section>
+{% endblock %}

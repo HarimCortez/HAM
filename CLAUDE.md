@@ -24,11 +24,12 @@ Web app for one church's Men's Ministry home-assistance projects.
 - Comments: delete-only, never edit (§57). Incidents: immutable + amendments (§56). Agreements: exact version retained 7 years (§41, §42).
 
 ## Stack
-TBD — record the decision as `docs/adr/0001-stack.md` (ham-architect drafts, product owner decides). Update this section once decided, including commands:
-- Install: `TBD`
-- Test: `TBD`
-- Lint/typecheck: `TBD`
-- Migrate DB: `TBD`
+Decided: Django 5.2 LTS + Postgres + HTMX, Procrastinate jobs, HAM's own email-code sign-in + pyotp two-step (ADR amendment 2026-09-28), Render (`docs/adr/0001-stack.md`, Accepted). Commands (see `Makefile` for the canonical versions):
+- Install: `make install` (`uv venv .venv && uv pip install -e ".[dev]"`); local Postgres: `make dev-db` (`scripts/dev_db.sh`, no Docker needed)
+- Test: `make test` (`pytest`, needs `DATABASE_URL` — `make dev-db` first, or point at any Postgres 16)
+- Lint/typecheck: `make lint` (`ruff check`, `ruff format --check`, `mypy`)
+- Migrate DB: `make migrate` (`python manage.py migrate`)
+- Run: `make run` (dev server), `make worker` (Procrastinate), `make tokens` (design tokens build/check)
 
 ## PRD gaps
 Never silently invent behavior the PRD leaves open. Log it in `docs/prd-open-questions.md` as `Q-NNN` with the PRD section, the options, and a proposed default; mark code that depends on it with `// PRD-GAP Q-NNN`.
@@ -53,4 +54,4 @@ Default loop for a feature: architect + ux-designer (in parallel) → ui-designe
 ## Design
 - UX specs live in `docs/ux/`; the design system lives in `design-system/`. The frontend uses design tokens only, with no hard-coded colors or spacing.
 - Mobile first (390px), then tablet (768px) and desktop (1280px+). Desktop layouts should make real use of the extra space rather than stretching the mobile layout.
-- Dev server URL for visual QA: `TBD` (fill in once the stack is chosen).
+- Dev server URL for visual QA: `http://localhost:8000` (`make run`).

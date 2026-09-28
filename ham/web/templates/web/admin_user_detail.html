@@ -1,0 +1,184 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}{{ detail.display_name }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}{{ detail.display_name }}{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>{{ detail.display_name }}
+        {% if detail.status == "active" %}<span class="chip chip--success"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check-big"></use></svg>Active</span>{% endif %}
+        {% if detail.status == "invited" %}<span class="chip chip--attention"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg>Invited</span>{% endif %}
+        {% if detail.status == "disabled" %}<span class="chip chip--neutral"><svg class="chip__icon" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-ban"></use></svg>Turned off</span>{% endif %}
+      </h1>
+      <p class="text-secondary">{{ detail.user.email }}
+        {% if detail.user.last_sign_in_at %} · Last signed in {{ detail.user.last_sign_in_at|church_time }}{% endif %}</p>
+    </div>
+  </div>
+
+  <section class="card mb-6">
+    <h2>Account</h2>
+    <div class="form-actions">
+      {% if can_update_identity %}
+        <a class="btn btn--secondary" href="{% url 'web:admin_user_identity_update' user_id=detail.user.id %}">Edit name / phone</a>
+      {% endif %}
+      {% if can_mfa_reset %}
+        {% maybe_url "web:user_mfa_reset" detail.user.id as mfa_reset_url %}
+        {% if mfa_reset_url %}
+          <a class="btn btn--secondary" href="{{ mfa_reset_url }}">Reset two-step sign-in</a>
+        {% endif %}
+      {% endif %}
+      {% if can_impersonate %}
+        {% maybe_url "web:impersonation_start" detail.user.id as impersonate_url %}
+        {% if impersonate_url %}
+          <a class="btn btn--secondary" href="{{ impersonate_url }}">Troubleshoot as {{ detail.display_name }}…</a>
+        {% endif %}
+      {% endif %}
+      {% if can_enable and detail.status == "disabled" %}
+        <form method="post" action="{% url 'web:admin_user_enable' user_id=detail.user.id %}">
+          {% csrf_token %}
+          <button class="btn btn--secondary" type="submit">Turn on account</button>
+        </form>
+      {% endif %}
+    </div>
+    {% if can_resend_invitation or can_cancel_invitation %}
+      <div class="form-actions mt-4">
+        {% if can_resend_invitation %}
+          <form method="post" action="{% url 'web:admin_user_invitation_resend' user_id=detail.user.id %}">
+            {% csrf_token %}
+            <button class="btn btn--secondary" type="submit">Resend invitation</button>
+          </form>
+        {% endif %}
+        {% if can_cancel_invitation %}
+          <form method="post" action="{% url 'web:admin_user_invitation_cancel' user_id=detail.user.id %}">
+            {% csrf_token %}
+            <label for="id_cancel_reason" class="visually-hidden">Reason</label>
+            <input id="id_cancel_reason" type="text" name="reason" placeholder="Reason (optional)"
+                   aria-describedby="id_cancel_reason_hint">
+            <p id="id_cancel_reason_hint" class="form-field__hint">Keep this factual; avoid
+              personal details you wouldn't want kept on record (not included in audit exports).</p>
+            <button class="btn btn--secondary" type="submit">Cancel invitation</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
+    {% if can_disable %}
+      <div class="form-actions mt-6">
+        <a class="btn btn--danger" href="{% url 'web:admin_user_disable' user_id=detail.user.id %}">Turn off account…</a>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if review_error %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <p>{{ review_error }}</p>
+    </div>
+  {% endif %}
+
+  {% if pending %}
+    <section class="sheet mb-6" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">Change {{ detail.display_name }}'s roles?</h2>
+      <ul>
+        {% for role in pending.add %}
+          <li>Add {{ role_labels|get_item:role }}: {{ role_descriptions|get_item:role }}</li>
+        {% endfor %}
+        {% for role in pending.remove %}
+          <li>Remove {{ role_labels|get_item:role }}</li>
+        {% endfor %}
+      </ul>
+      {% if pending.needs_mfa_setup %}
+        <p>{{ detail.display_name }} will need to set up two-step sign-in the next time they
+          sign in. Their new access starts once that's done.</p>
+      {% endif %}
+      <p>After this change, {{ detail.display_name }} can:</p>
+      <ul>
+        {% for description in pending.after_descriptions %}
+          <li>{{ description }}</li>
+        {% empty %}
+          <li class="text-secondary">Nothing — no standing role would be left.</li>
+        {% endfor %}
+      </ul>
+      <p class="text-secondary">Who's told: {{ detail.display_name }} gets an email about this change.</p>
+      <form method="post" action="{% url 'web:admin_user_roles_confirm' user_id=detail.user.id %}">
+        {% csrf_token %}
+        {% for role in pending.add %}<input type="hidden" name="add" value="{{ role }}">{% endfor %}
+        {% for role in pending.remove %}<input type="hidden" name="remove" value="{{ role }}">{% endfor %}
+        {% if pending.reason_required %}
+          <div class="form-field">
+            <label for="id_reason">Reason (the authorizing Board or pastoral decision)</label>
+            <textarea id="id_reason" name="reason" required aria-describedby="id_reason_hint"></textarea>
+            <p id="id_reason_hint" class="form-field__hint">Keep this factual; avoid personal
+              details you wouldn't want kept on record (not included in audit exports).</p>
+          </div>
+        {% endif %}
+        <div class="form-actions">
+          <button class="btn btn--primary" type="submit">Confirm changes</button>
+          <a class="btn btn--secondary" href="{% url 'web:admin_user_detail' user_id=detail.user.id %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  {% else %}
+    <form method="post" action="{% url 'web:admin_user_detail' user_id=detail.user.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="stage" value="review">
+      <section aria-labelledby="roles-title">
+        <h2 id="roles-title">Roles</h2>
+        {% for role in role_order %}
+          <div class="role-row">
+            {% if editable|get_item:role %}
+              <input type="checkbox" id="id_role_{{ role }}" name="roles" value="{{ role }}"
+                     {% if role in active_roles %}checked{% endif %}>
+              <label for="id_role_{{ role }}" class="role-row__body">
+                <span>{{ role_labels|get_item:role }}</span>
+                <p class="role-row__desc">{{ role_descriptions|get_item:role }}</p>
+              </label>
+            {% else %}
+              <input type="hidden" {% if role in active_roles %}name="roles" value="{{ role }}"{% endif %}>
+              <div class="role-row__body">
+                <span class="locked-note">
+                  <svg class="nav__icon" aria-hidden="true" width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-shield"></use></svg>
+                  {{ role_labels|get_item:role }}{% if role in active_roles %} · on{% endif %}
+                </span>
+                <p class="role-row__desc">Only an Administrator can change this.</p>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </section>
+
+      <section aria-labelledby="leads-title" class="mt-6">
+        <h2 id="leads-title">Leads projects</h2>
+        <p class="text-secondary">Not leading any projects right now.
+          Project and Task Leaders are chosen inside each project.</p>
+      </section>
+
+      <section aria-labelledby="cando-title" class="mt-6">
+        <h2 id="cando-title">What {{ detail.display_name }} can do</h2>
+        <ul>
+          {% for role in detail.active_global_roles %}
+            <li>{{ role_descriptions|get_item:role }}</li>
+          {% empty %}
+            <li class="text-secondary">No standing role yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <div class="form-actions mt-6">
+        <button class="btn btn--primary" type="submit">Review changes</button>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if recent_events %}
+    <section aria-labelledby="recent-title" class="mt-8">
+      <h2 id="recent-title">Recent access changes</h2>
+      <ul>
+        {% for event in recent_events %}
+          <li>{{ event.action|action_label }} &middot; {{ event.occurred_at|church_time }}</li>
+        {% endfor %}
+      </ul>
+      <p><a href="{% url 'web:audit_log' %}?user={{ detail.user.id }}">See all in audit log</a></p>
+    </section>
+  {% endif %}
+{% endblock %}

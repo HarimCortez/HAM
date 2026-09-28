@@ -1,0 +1,30 @@
+{% extends "web/base.html" %}
+
+{% block title %}Rules · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Rules{% endblock %}
+
+{% block content %}
+  <h1>Rules</h1>
+  <p class="text-secondary">Fixed business rules (PRD §34, §76). Version
+    <code>{{ rules_view.version }}</code>. These values aren't editable here — changing one
+    ships as a release.</p>
+
+  {% regroup rules_view.rows by group as grouped_rows %}
+  {% for group in grouped_rows %}
+    <h2>{{ group.grouper }}</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th scope="col">Rule</th><th scope="col">Value</th><th scope="col">Source</th></tr>
+      </thead>
+      <tbody>
+        {% for row in group.list %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.value }}{% if row.provisional %}<br><span class="text-secondary">Proposed default — may change ({{ row.provisional_questions|join:", " }})</span>{% endif %}</td>
+            <td>{{ row.sources|join:", " }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+{% endblock %}

@@ -1,0 +1,95 @@
+# Render blueprint (docs/adr/0001-stack.md §4-§6). Another church deploys its own HAM by
+# forking this blueprint, setting HAM_BRAND to its own design-system/brands/<id>/ folder, and
+# supplying its own secrets — no code change (Q-026).
+databases:
+  - name: ham-db
+    databaseName: ham
+    user: ham
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: ham-web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: HAM_ENV
+        value: production
+      - key: HAM_BRAND
+        value: miami-temple
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ham-db
+          property: connectionString
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DJANGO_EMAIL_BACKEND
+        value: anymail.backends.resend.EmailBackend
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ANYMAIL_RESEND_API_KEY
+        sync: false
+      # PRD-guardian review B2: sign-in emails build an absolute link from this.
+      - key: HAM_BASE_URL
+        sync: false
+      - key: HAM_FIELD_ENCRYPTION_KEY
+        sync: false
+      # Security review round 3, N5: Render's edge proxy adds exactly one `X-Forwarded-For`
+      # hop; anything further left in that header is client-controlled and must not be
+      # trusted by the sign-in IP throttle (`ham.web.auth_views._client_ip`).
+      - key: HAM_TRUSTED_PROXY_COUNT
+        value: "1"
+    buildCommand: "python manage.py migrate --noinput"
+
+  - type: worker
+    name: ham-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: "python manage.py procrastinate worker --delete-jobs=successful"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: DJANGO_SECRET_KEY
+      - key: HAM_ENV
+        value: production
+      - key: HAM_BRAND
+        value: miami-temple
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ham-db
+          property: connectionString
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_EMAIL_BACKEND
+        value: anymail.backends.resend.EmailBackend
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ANYMAIL_RESEND_API_KEY
+        sync: false
+      # Security review round 3, N4: the worker builds emails (invitations, role-change,
+      # impersonation-ended notices) too — without its own HAM_BASE_URL every link in those
+      # emails silently fell back to prod.py's default and pointed at localhost.
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_BASE_URL
+      # The worker decrypts job payloads (security review C2) — must be the exact same key as
+      # ham-web's, never a second, independently-typed `sync: false` value that can drift
+      # (security review round 3, N9).
+      - fromService:
+          type: web
+          name: ham-web
+          envVarKey: HAM_FIELD_ENCRYPTION_KEY

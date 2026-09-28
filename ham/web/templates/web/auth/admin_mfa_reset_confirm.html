@@ -1,0 +1,40 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Reset two-step sign-in · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Reset two-step sign-in{% endblock %}
+
+{% block content %}
+  <section class="sheet" aria-labelledby="reset-title">
+    <h2 id="reset-title">Reset two-step sign-in for {{ target.profile.full_name|default:target.email }}?</h2>
+    <p>
+      Removes their authenticator app, recovery codes and trusted devices. Next time they sign
+      in, they'll set up two-step sign-in again. We'll email them.
+    </p>
+
+    {% if error %}
+      <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-field">
+        <label for="id_verification_method">How did you confirm it's them?</label>
+        <select name="verification_method" id="id_verification_method" required>
+          <option value="">Choose one</option>
+          <option value="phone_call">Phone call to a number I already had</option>
+          <option value="in_person">In person</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="id_note">Note <span class="form-field__optional">(optional)</span></label>
+        <textarea name="note" id="id_note"></textarea>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn--primary" type="submit">Reset two-step sign-in</button>
+        <a class="btn btn--secondary" href="{% url 'web:admin_user_detail' user_id=target.id %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

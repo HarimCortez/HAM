@@ -1,0 +1,66 @@
+{% load static web_extras %}<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  {% include "web/_head.html" %}
+  <title>{% if request.actor.is_impersonating %}Acting as {{ impersonation_target_full_name|default:request.actor.target_display_name }} · {% endif %}{% block title %}{{ church.short_name }} HAM{% endblock %}</title>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="app-shell">
+    <header class="app-bar">
+      <a class="app-bar__logo-link" href="{% url 'web:home' %}">
+        <img class="app-bar__logo" src="{{ church.logo_on_dark|brand_static }}"
+             alt="{{ church.logo_alt }} — HAM" height="32">
+      </a>
+      {% comment %}
+      M10: this is a page label, not a heading — every content page supplies its own single
+      `<h1>` (patterns.md §1 "one h1 per screen"). Hidden at >=1024 (components.md §1: the app
+      bar there carries search/notifications/avatar instead, and the sidebar/page h1 already
+      say the same thing).
+      {% endcomment %}
+      <p class="app-bar__title">{% block app_bar_title %}{% endblock %}</p>
+    </header>
+
+    {% include "web/_impersonation_banner.html" %}
+
+    <div id="offline-status" class="offline-banner" role="status" hidden>
+      You're offline. Showing what was saved earlier. We'll update when you reconnect.
+    </div>
+
+    <div class="app-shell__body">
+      <nav class="nav nav--rail" aria-label="Primary">
+        {% include "web/_nav_items.html" %}
+      </nav>
+      <nav class="nav nav--sidebar" aria-label="Primary">
+        {% comment %}
+        Bug fix (docs/ux/screenshots/step1-shell: logo appeared twice at >=1024px). The app
+        bar already carries the full lockup at desktop (components.md §1 "Desktop (>=1024):
+        full lockup left ... Sidebar sits below"), so the sidebar repeats only the text label,
+        never the logo image again.
+        {% endcomment %}
+        <div class="sidebar-header">
+          <span class="sidebar-header__label">Home Assistance Ministry</span>
+        </div>
+        {% include "web/_nav_items.html" %}
+      </nav>
+
+      <main id="main-content" class="app-shell__main" tabindex="-1">
+        {% if messages %}
+          <ul class="messages">
+            {% for message in messages %}
+              <li class="inline-alert inline-alert--{{ message.tags|default:'info' }}" role="status">
+                {{ message }}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    <nav class="nav nav--bottom" aria-label="Primary">
+      {% include "web/_nav_items.html" with items=bottom_nav_items active_key=bottom_nav_active_key %}
+    </nav>
+  </div>
+</body>
+</html>

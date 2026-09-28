@@ -1,0 +1,34 @@
+{% load web_extras %}<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  {% include "web/_head.html" %}
+  <title>{% block title %}{{ church.short_name }} HAM{% endblock %}</title>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="public-shell">
+    <header class="public-shell__bar">
+      <img class="app-bar__logo" src="{{ church.logo_on_dark|brand_static }}"
+           alt="{{ church.logo_alt }} — HAM" height="32">
+    </header>
+
+    {% include "web/_impersonation_banner.html" %}
+
+    <main id="main-content" class="public-shell__content" tabindex="-1">
+      <div class="public-card">
+        <p class="public-card__eyebrow">Home Assistance Ministry &middot; {{ church.name }}</p>
+        {% if messages %}
+          <ul class="messages">
+            {% for message in messages %}
+              <li class="inline-alert inline-alert--{{ message.tags|default:'info' }}" role="status">
+                {{ message }}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% block public_content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{% extends "web/base.html" %}
+
+{% block title %}Integrations · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Integrations{% endblock %}
+
+{% block content %}
+  <h1>Integrations</h1>
+  <p class="text-secondary">HAM keeps working if an integration is down (PRD §70.3); this
+    page shows delivery counts only, never who or what the messages were about.</p>
+
+  <table class="data-table">
+    <thead>
+      <tr><th scope="col">Subscriber</th><th scope="col">Status</th><th scope="col">Count</th></tr>
+    </thead>
+    <tbody>
+      {% for row in counts %}
+        <tr>
+          <td>{{ row.subscriber }}</td>
+          <td>{{ row.status }}</td>
+          <td>{{ row.count }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">No deliveries recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 style="margin-top: var(--ham-space-8);">Recent failures</h2>
+  {% if failures %}
+    <table class="data-table">
+      <thead>
+        <tr><th scope="col">Subscriber</th><th scope="col">Status</th><th scope="col">Attempts</th><th scope="col">Error</th><th scope="col"></th></tr>
+      </thead>
+      <tbody>
+        {% for delivery in failures %}
+          <tr>
+            <td>{{ delivery.subscriber }}</td>
+            <td>{{ delivery.status }}</td>
+            <td>{{ delivery.attempts }}</td>
+            <td>{{ delivery.last_error }}</td>
+            <td>
+              <form method="post" action="{% url 'web:admin_integrations_retry' delivery_id=delivery.id %}">
+                {% csrf_token %}
+                <button class="btn btn--secondary" type="submit">Retry</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-secondary">Nothing has failed recently.</p>
+  {% endif %}
+{% endblock %}

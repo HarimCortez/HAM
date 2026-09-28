@@ -8,3 +8,21 @@ build/
 *.log
 .claude/agent-memory-local/
 .claude/settings.local.json
+
+# Python / Django
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+staticfiles/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock.bak
+
+# Local Postgres cluster (make dev-db)
+/pgdata/
+
+
+# Agent worktrees (temporary, per session)
+/.claude/worktrees/

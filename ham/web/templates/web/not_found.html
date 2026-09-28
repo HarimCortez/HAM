@@ -1,0 +1,7 @@
+{% extends signed_in|yesno:"web/base.html,web/base_public.html" %}
+
+{% block title %}Page not available · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Page not available{% endblock %}
+
+{% block public_content %}{% include "web/_not_found_content.html" %}{% endblock %}
+{% block content %}{% include "web/_not_found_content.html" %}{% endblock %}

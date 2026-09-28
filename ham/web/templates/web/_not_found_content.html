@@ -1,0 +1,7 @@
+{% comment %}
+navigation.md §6 "No permission / not found": the same neutral screen for both, so the
+existence of a project is never leaked (§68). Never show a project title or ID here.
+{% endcomment %}
+<h1>This page isn't available to your account</h1>
+<p>If you think you should have access, ask the HAM Director.</p>
+<p><a class="btn btn--primary" href="{% url 'web:home' %}">Go home</a></p>

@@ -1,0 +1,18 @@
+{
+  "name": "ham-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HAM's small TypeScript bundle: the PWA service worker and its build-time helpers (docs/adr/0001-stack.md, foundation.md S5). Everything else is server-rendered Django + HTMX.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.1.0",
+    "@fontsource-variable/oswald": "^5.1.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

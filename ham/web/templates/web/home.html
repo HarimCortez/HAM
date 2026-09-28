@@ -1,0 +1,71 @@
+{% extends "web/base.html" %}
+{% load web_extras %}
+
+{% block title %}Home · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Home{% endblock %}
+
+{% block content %}
+  {% comment %}
+  navigation.md §1 "Home is a to-do list, not a menu" and §7 "per highest role". Real per-role
+  cards (invitations, reconfirmations, project-day check-in...) arrive with staffing/projects;
+  this slice ships the placeholder plus two step-1-only additions below. M10: the app-bar
+  title is a label, not a heading; this greeting is the page's one real `<h1>`.
+  {% endcomment %}
+  <h1>Hi{% if first_name %} {{ first_name }}{% endif %}</h1>
+
+  <div class="home-grid">
+    <div class="home-grid__attention">
+      {% if show_invite_card %}
+        <section class="card" aria-labelledby="home-invite-title">
+          <h2 id="home-invite-title">Invite someone</h2>
+          <p>Bring a new volunteer, contractor or leader into HAM.</p>
+          <a class="btn btn--primary" href="{% url 'web:admin_users_invite' %}">Invite someone</a>
+        </section>
+      {% endif %}
+
+      {% if integration_counts is not None %}
+        <section class="card" aria-labelledby="home-integrations-title">
+          <h2 id="home-integrations-title">Integrations</h2>
+          {% if integration_counts %}
+            <ul>
+              {% for row in integration_counts %}
+                <li>{{ row.subscriber }}: {{ row.status }} ({{ row.count }})</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-secondary">No deliveries recorded yet.</p>
+          {% endif %}
+          <p>
+            Recent sign-in failures (last {{ recent_sign_in_failures.window_hours }} hours): {{ recent_sign_in_failures.count }}
+            {% if recent_sign_in_failures.latest_at %}
+              &middot; most recent {{ recent_sign_in_failures.latest_at|church_time }}
+            {% endif %}
+          </p>
+          <a href="{% url 'web:admin_integrations' %}">See integrations detail</a>
+        </section>
+      {% endif %}
+
+      {% if not show_invite_card and integration_counts is None %}
+        <section class="empty-state" aria-labelledby="home-empty-title">
+          <svg class="empty-state__illustration" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+            <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+            <path d="M7 9h10M7 13h6" />
+          </svg>
+          <h3 id="home-empty-title">Your to-do list will appear here</h3>
+          <p>
+            Once projects, invitations and reconfirmations are live, the things that need you
+            will show up on this page first — nothing to check right now.
+          </p>
+          <a class="btn btn--secondary" href="{% url 'web:me' %}">Update my profile</a>
+        </section>
+      {% endif %}
+    </div>
+
+    <div class="home-grid__upcoming">
+      <section class="card" aria-labelledby="home-coming-up-title">
+        <h2 id="home-coming-up-title">Coming up</h2>
+        <p class="text-secondary">Your schedule will appear here once projects are live.</p>
+      </section>
+    </div>
+  </div>
+{% endblock %}

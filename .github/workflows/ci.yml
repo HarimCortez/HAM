@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  DJANGO_SETTINGS_MODULE: config.settings.test
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ham_test
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ham_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend install
+        run: npm ci --prefix frontend
+
+      - name: Frontend typecheck
+        run: npm run typecheck --prefix frontend
+
+      - name: Frontend build
+        run: npm run build --prefix frontend
+
+      - name: Install Playwright Chromium (for the e2e smoke suite below)
+        run: uv run playwright install --with-deps chromium
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy .
+
+      - name: Missing migrations check
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Import boundaries (import-linter)
+        run: uv run lint-imports
+
+      - name: Permission matrix docs (--check)
+        run: uv run python manage.py build_permission_matrix --check
+
+      - name: Run tests
+        run: uv run pytest --maxfail=1
+
+      - name: Design tokens build (--check)
+        run: uv run python manage.py build_tokens --brand miami-temple --check
+
+      - name: pip-audit
+        run: uv run pip-audit
+        continue-on-error: true

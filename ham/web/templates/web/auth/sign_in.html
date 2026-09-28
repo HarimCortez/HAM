@@ -1,0 +1,30 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Sign in · {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>Sign in to HAM</h1>
+  <p>No password needed. We'll email you a link and a code.</p>
+
+  {% if error %}
+    <div class="inline-alert inline-alert--danger" role="alert"><p>{{ error }}</p></div>
+  {% endif %}
+
+  <form method="post" action="{% url 'web:sign_in' %}" novalidate>
+    {% csrf_token %}
+    {% if request.GET.next %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
+    <div class="form-field">
+      <label for="id_email">Email</label>
+      <input type="email" name="email" id="id_email"
+             autocomplete="username email" inputmode="email" required autofocus>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--primary" type="submit">Email me a sign-in link</button>
+    </div>
+  </form>
+
+  <p class="text-secondary">
+    Asked HAM for help with your home? You don't need to sign in. Use the link we emailed
+    you{% if church.phone %}, or call {{ church.phone }}{% endif %}.
+  </p>
+{% endblock %}
