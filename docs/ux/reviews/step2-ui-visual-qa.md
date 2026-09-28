@@ -443,3 +443,49 @@ ham-ui-designer · 2026-09-28 · report only. Server on port 8041, DB `ham_qa` (
 5. R6 error summary copy: "Please read and tick both statements. · Fix in Please confirm" reads awkwardly. Use "Tick both statements in Please confirm."
 
 axe: 0 violations on 37 requester pages and 31 of 32 leadership pages; the only violation is N4.
+
+---
+
+## Final re-check at f1d4fb9
+ham-ui-designer · 2026-09-28 · report only.
+- **Setup:** server on port 8042 with `HAM_BASE_URL=http://127.0.0.1:8042`. Without it, local presigned PUTs go to :8000 and every upload shows "Couldn't upload"; that's a QA environment issue, not an app bug. DB `ham_qa` was recreated (FIX-F2's `req_urgency_reason_iff_urgent` constraint rejected old QA rows), migrated and seeded.
+- **Captures:** 390, 768, 1280, 1440, 390 + 200% text (root measured at 32px) and 195px. Chromium 141, axe-core 4.10. Screenshots are in the session scratchpad (`step2-qa-final/`).
+- **Tests:** `tests/e2e/test_fix_f1_{large_text,requests_filter,wizard_layout}.py` pass (4 passed).
+
+| ID | Status | Evidence |
+|---|---|---|
+| B1 | **Fixed** | `container-type` on `.action-bar` plus `@container (max-width:22em)` (shell.css:1851–1878). At 390 + 200% text, Back and Continue stack at L32–R358. At 195px they sit at L16–R179. scrollWidth equals the viewport on every requester page in every mode. The residual bar height is logged as N6. |
+| B2 | Fixed | No overflow anywhere. `overflow-wrap:anywhere` on `.choice-card` causes N7. |
+| B3 | Fixed | The choice grid is 2 columns at 390 (10.5em). Reopened as N7 because of mid-word breaks. |
+| N1 | **Fixed** | `<details open>` at ≥768. q, category, status and Filter all return `checkVisibility()` true at 768, 1280 and 1440. At 390 the bar collapses behind "Filters". |
+| N2 | Fixed | At 1280 the h1 sits directly under the progress bar, with the aside in the right column (`r3-home-tenant-1280`). |
+| N3 | Fixed | The init script runs on DOMContentLoaded. The test asserts `fontSize === '32px'` and no horizontal scroll. |
+| N4 | Fixed | `.split-detail` has `tabindex="0"`. axe reports 0 violations on the Administrator's /requests. |
+| N5 | Fixed | The Pastor banner is 129px at 390 (was about 190). Text wraps in 2 lines and the actions sit on their own row. Home shows 3 urgent cards plus "6 more urgent", and only the first Open is Primary. |
+| M2 | **Partially fixed** | At <1280, `.wizard-aside` still renders after `.action-bar` on R1–R6 and R9 (for example `afterBar: ASIDE.wizard-aside` on r9 at 390, 768 and 390 + 200% text). The aside then scrolls up under the bar, and "Good to know" repeats the intro line on R3. On short pages (R11b at top 308, R12 at 298 at 390) the bar still sits mid-screen. |
+| M3 | Partially fixed | R3 and R4 cards have icons. R2 category cards have none. The 2-column grid at 390 breaks words (N7). |
+| M10 | Fixed | The rejected tile shows a file-x icon, the file name in bold and the reason on its own line. Pickers are full width. Uploaded tiles read "Uploaded". Polish: the "×" remove button covers the photo's centre-top. |
+| M16 | Fixed | The filter bar is labelled and grouped at ≥768 and becomes a "Filters" disclosure at 390. |
+| M17 | Fixed | The Director's awareness card has `icon-phone-call` and "oldest waiting 1 day". Pastor urgent cards show "waiting under 1 h". |
+| B2/B3 gaps | Fixed, but see N7 | |
+
+### New Major
+- **N6. The stacked sticky bar takes up to a third of the viewport at 200% zoom and text.** It is 141px of 422 at 195px (33%) and 177px of 844 at 390 + 200% text (21%), and it covers the fields while typing.
+  - **Where:** shell.css:1878 (`@container (max-width:22em)`) stacks Back above the primary.
+  - **Fix (per the B1 spec, "Back relocation under 22em"):** under 22em, keep only the primary in the sticky bar. Render Back as a tertiary text link in the flow, above the bar (duplicate the markup with `.action-bar__back--inline`, and toggle it with the same container query on a wrapping container). The bar then drops to 101px / 77px.
+- **N7. Mid-word breaks in icon choice cards at default text size.**
+  - **Examples:** at 390, "Townh/ouse", "Apartm/ent or condo" and "Mobile or manufa/ctured home" (`r3-home-tenant-390`). At 1280, "manufactur/ed home".
+  - **Cause:** `overflow-wrap:anywhere` (shell.css:1734) collapses the label's min-content. In a 10.5em column (shell.css:1705), the radio (24px), icon (24px), gaps and padding leave only about 70px of text width.
+  - **Fix:**
+    - (a) shell.css:1734: `overflow-wrap: break-word; hyphens: auto;`. `html` already needs `lang="en"`.
+    - (b) Icon grids get a wider minimum: `.choice-grid:has(.choice-card__icon){grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr))}`. That gives 1 column at 390 and 2 columns in the 640px main column at 1280. Icon-less grids (R2 categories) keep 10.5em and 2 columns at 390, which already reads well.
+    - (c) Alternative to (b): a compact card variant with the icon stacked above the label.
+
+### Minors / polish
+1. R7N: the phone number wraps as "(305) 555-/0177". Put `white-space:nowrap` on the phone span. Done is still auto width in the bar (spec: full width). The quiet block has extra top padding.
+2. L9: the "What to say" summary still shows a stray glyph after the label instead of the `.disclosure` chevron. The script block has about 24px of extra top padding.
+3. Pastor Home: "waiting under 1 h" breaks between "1" and "h". Use `&nbsp;` or `nowrap` on the age.
+4. L2 at 390: "Photos (2) · Videos (0)" and "The home" still sit about `space-2` from the section above (spec `space-8`). Timestamps remain verbose.
+5. The 1280 split pane cuts content mid-heading with no fade or scroll affordance. Consider a bottom fade mask on `.split-detail` when it overflows.
+
+**axe:** 0 violations across 58 requester runs (390 and 1280, over two passes) and 32 leadership runs (390 and 1280).
