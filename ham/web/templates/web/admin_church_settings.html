@@ -35,6 +35,23 @@
       <label for="id_website_url">Website <span class="form-field__optional">(optional)</span></label>
       <input id="id_website_url" name="website_url" type="url" value="{{ values.website_url }}">
     </div>
+    <fieldset class="form-field{% if errors.serves_days %} form-field--error{% endif %}">
+      <legend>Days HAM serves requesters</legend>
+      <p class="form-field__help" id="id_serves_days_help">Shown as visiting-time choices on
+        the public "Ask for help" form (Q-112). Choose at least one day.</p>
+      <div class="choice-chip-group" role="group" aria-describedby="id_serves_days_help">
+        {% for value, label in weekday_choices %}
+          <label class="choice-chip">
+            <input type="checkbox" name="serves_days" value="{{ value }}"
+                   {% if value in values.serves_days %}checked{% endif %}>
+            {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+      {% if errors.serves_days %}
+        <p class="form-field__error">{{ errors.serves_days }}</p>
+      {% endif %}
+    </fieldset>
     <div class="form-actions">
       <button class="btn btn--primary" type="submit">Save</button>
     </div>

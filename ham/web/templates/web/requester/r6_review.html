@@ -1,0 +1,107 @@
+{% extends "web/base_public.html" %}
+{% load web_extras %}
+
+{% block title %}Check and send &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="Check and send" %}
+{% endblock %}
+
+{% block public_content %}
+  <h1>Check and send</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h3>Your need</h3>
+      <a href="{% url 'web:request_help_step' step='need' %}">Edit</a>
+    </div>
+    <p>{{ review.need_category_label }}{% if payload.urgent_requested %} &middot; Urgent{% endif %}</p>
+    <p class="text-secondary">&ldquo;{{ payload.description|default:"" }}&rdquo;</p>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h3>The home</h3>
+      <a href="{% url 'web:request_help_step' step='home' %}">Edit</a>
+    </div>
+    <p>{{ payload.line1|default:"" }}{% if payload.line2 %}, {{ payload.line2 }}{% endif %}, {{ payload.city|default:"" }} {{ payload.postal_code|default:"" }}</p>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h3>Safety at the home</h3>
+      <a href="{% url 'web:request_help_step' step='safety' %}">Edit</a>
+    </div>
+    <p>{{ payload.hazards|join:", " }}</p>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-card__header">
+      <h3>Reaching you</h3>
+      <a href="{% url 'web:request_help_step' step='reaching-you' %}">Edit</a>
+    </div>
+    <p>{{ payload.full_name|default:"" }} &middot; {{ payload.phone|default:"" }}</p>
+    {% if review.no_email %}
+      <p>We'll call this number to confirm:</p>
+      <p class="summary-card__highlight">{{ payload.phone|default:"" }}</p>
+    {% else %}
+      <p>We'll send a code to:</p>
+      <p class="summary-card__highlight">{{ payload.email|default:"" }}</p>
+    {% endif %}
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {# Anti-abuse (docs/ux/intake.md §9): honeypot + minimum fill time, fail silently. #}
+    <div class="visually-hidden" aria-hidden="true">
+      <label for="id_{{ honeypot_field }}">Leave this field blank</label>
+      <input type="text" id="id_{{ honeypot_field }}" name="{{ honeypot_field }}" tabindex="-1" autocomplete="off">
+    </div>
+
+    <h2>Please confirm</h2>
+    <p class="text-secondary">Filling this in for someone? Please read these to them. They're the one agreeing.</p>
+
+    {% if review.relationship == "owner" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="owner_authority"
+               {% if "owner_authority" in payload.attested_statements %}checked{% endif %}>
+        <span>I own this home, and I give HAM permission to do the work we agree on.</span>
+      </label>
+    {% elif review.relationship == "tenant" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="tenant_authority"
+               {% if "tenant_authority" in payload.attested_statements %}checked{% endif %}>
+        <span>I rent this home. Before any work begins, I'll get written permission from my
+          landlord or property owner.</span>
+      </label>
+    {% elif review.relationship == "authorized_family_member" %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="attested_statements" value="family_authority"
+               {% if "family_authority" in payload.attested_statements %}checked{% endif %}>
+        <span><strong>{{ payload.owner_name|default:"The owner" }}</strong> owns this home and
+          has asked me to request this help for them.</span>
+      </label>
+    {% endif %}
+
+    <label class="choice-card choice-card--statement">
+      <input type="checkbox" name="attested_statements" value="responsibility"
+             {% if "responsibility" in payload.attested_statements %}checked{% endif %}>
+      <span>If a homeowners' association, condominium association, landlord or property manager
+        needs to approve work, I'll get their OK. What I've shared is true to the best of my
+        knowledge.</span>
+    </label>
+
+    <p class="text-secondary">&#x1F512; Your details stay private inside HAM. Only the people
+      handling your request can see them.</p>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <button class="btn btn--primary" type="submit">Send request</button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

@@ -18,6 +18,7 @@ from ham.authz.guard import requires_action
 from ham.identity.services import retry_outbox_delivery, update_church_profile
 from ham.outbox.services import recent_failures, subscriber_status_counts
 from ham.platform.church import church_profile
+from ham.requester_portal.choices import WEEKDAY_LABELS
 from ham.rules.view import rules_view
 
 # Scope trim (step-1 usability review, prd.md): calendar/drive/fitness are documented no-op
@@ -75,7 +76,15 @@ def admin_church_settings(request):
             else:
                 messages.success(request, "Church settings updated.")
                 return redirect("web:admin_church_settings")
-    return render(request, "web/admin_church_settings.html", {"values": values, "errors": errors})
+    return render(
+        request,
+        "web/admin_church_settings.html",
+        {
+            "values": values,
+            "errors": errors,
+            "weekday_choices": sorted(WEEKDAY_LABELS.items()),
+        },
+    )
 
 
 @require_http_methods(["GET"])

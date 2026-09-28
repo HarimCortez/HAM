@@ -1,0 +1,25 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Link expired &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>This link has expired</h1>
+  <p>For your privacy, request links stop working after a while. We can send you a new one.</p>
+
+  {% if has_email %}
+    <p>We'll send a code to <strong>{{ masked_email }}</strong>.</p>
+    <form method="post" action="{% url 'web:request_help_link_expired_send' token=token %}">
+      {% csrf_token %}
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <button class="btn btn--primary" type="submit">Send me a code</button>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <p>Please call us{% if church.phone %} at <a href="tel:{{ church.phone }}">{{ church.phone }}</a>{% endif %}.
+      We'll help you right away.</p>
+  {% endif %}
+
+  <p><a href="{% url 'web:request_help_find' %}">Different email? Check on your request</a></p>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "web/base_public.html" %}
+
+{% block title %}Page not available &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1>We couldn't open this page</h1>
+  <p>This link may be incorrect, or the page is no longer available.</p>
+  <div class="action-bar">
+    <div class="action-bar__inner">
+      <a class="btn btn--secondary" href="{% url 'web:request_help_find' %}">Check on your request</a>
+    </div>
+  </div>
+{% endblock %}

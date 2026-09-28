@@ -1,0 +1,12 @@
+{% comment %}
+Step header (design-system/components.md C§21): eyebrow "Step N of 5 · Title" + progress bar.
+Context: step_number, step_count, step_title.
+{% endcomment %}
+<div class="step-header">
+  <p class="step-header__eyebrow">
+    {% if step_number == step_count %}Last step{% else %}Step {{ step_number }} of {{ step_count }} &middot; {{ step_title }}{% endif %}
+  </p>
+  <div class="step-header__progress" aria-hidden="true">
+    <div class="step-header__progress-fill" style="width: {% widthratio step_number step_count 100 %}%"></div>
+  </div>
+</div>

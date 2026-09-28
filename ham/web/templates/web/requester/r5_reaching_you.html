@@ -1,0 +1,109 @@
+{% extends "web/base_public.html" %}
+{% load web_extras %}
+
+{% block title %}Reaching you &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block eyebrow %}
+  {% include "web/requester/_step_header.html" with step_title="Reaching you" %}
+{% endblock %}
+
+{% block public_content %}
+  <h1>How can we reach you?</h1>
+  <p class="step-header__caption">Your answers are saved.</p>
+
+  {% include "web/requester/_error_summary.html" %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    <div class="form-field{% if errors.full_name %} form-field--error{% endif %}">
+      <label for="id_full_name">Your name</label>
+      <input type="text" id="id_full_name" name="full_name" autocomplete="name" value="{{ payload.full_name|default:'' }}">
+      {% if errors.full_name %}<p class="form-field__error">{{ errors.full_name }}</p>{% endif %}
+    </div>
+
+    <div class="form-field{% if errors.phone %} form-field--error{% endif %}">
+      <label for="id_phone">Phone number</label>
+      <p class="form-field__help">A mobile number is best, but any number where we can reach you works.</p>
+      <input type="tel" id="id_phone" name="phone" autocomplete="tel" value="{{ payload.phone|default:'' }}">
+      {% if errors.phone %}<p class="form-field__error">{{ errors.phone }}</p>{% endif %}
+    </div>
+
+    <div class="form-field{% if errors.email %} form-field--error{% endif %}" id="email-field"
+         {% if payload.no_email %}hidden{% endif %}>
+      <label for="id_email">Email</label>
+      <p class="form-field__help">We'll email you a code to confirm it's you, then send updates
+        and a link to check on your request.</p>
+      <input type="email" id="id_email" name="email" autocomplete="email" value="{{ payload.email|default:'' }}">
+      {% if errors.email %}<p class="form-field__error">{{ errors.email }}</p>{% endif %}
+    </div>
+
+    <label class="choice-card">
+      <input type="checkbox" name="no_email" value="1" id="id_no_email"
+             {% if payload.no_email %}checked{% endif %}
+             onchange="document.getElementById('email-field').hidden = this.checked; document.getElementById('no-email-note').hidden = !this.checked; document.getElementById('contact-pref-fieldset').hidden = this.checked;">
+      <span>I don't use email</span>
+    </label>
+
+    <div class="inline-alert inline-alert--info" id="no-email-note" role="status" {% if not payload.no_email %}hidden{% endif %}>
+      <p>That's OK. A HAM leader will call you to confirm your request before it goes further.
+        We'll keep you updated by phone and take any photos we need when we visit.</p>
+    </div>
+
+    <fieldset class="form-field{% if errors.contact_preference %} form-field--error{% endif %}"
+              id="contact-pref-fieldset" {% if payload.no_email %}hidden{% endif %}>
+      <legend>How should we contact you?</legend>
+      {% if errors.contact_preference %}<p class="form-field__error">{{ errors.contact_preference }}</p>{% endif %}
+      <div class="choice-grid">
+        {% for value in contact_preference_choices %}
+          <label class="choice-card">
+            <input type="radio" name="contact_preference" value="{{ value }}"
+                   {% if payload.contact_preference == value %}checked{% endif %}>
+            <span>{{ contact_preference_labels|get_item:value }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset class="form-field{% if errors.availability %} form-field--error{% endif %}">
+      <legend>When could someone visit?</legend>
+      {% if errors.availability %}<p class="form-field__error">{{ errors.availability }}</p>{% endif %}
+      <div class="choice-chip-group">
+        {% for value, label in weekday_choices %}
+          <label class="choice-chip">
+            <input type="checkbox" name="availability" value="{{ value }}"
+                   {% if value in payload.availability %}checked{% endif %}>
+            {{ label }}
+          </label>
+        {% endfor %}
+        <label class="choice-chip">
+          <input type="checkbox" name="availability" value="{{ availability_mornings }}"
+                 {% if availability_mornings in payload.availability %}checked{% endif %}>
+          Mornings
+        </label>
+        <label class="choice-chip">
+          <input type="checkbox" name="availability" value="{{ availability_afternoons }}"
+                 {% if availability_afternoons in payload.availability %}checked{% endif %}>
+          Afternoons
+        </label>
+        <label class="choice-chip">
+          <input type="checkbox" name="availability" value="{{ availability_any_time }}"
+                 {% if availability_any_time in payload.availability %}checked{% endif %}>
+          Any time works
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="form-field">
+      <label for="id_note">Anything else about reaching you or visiting? <span class="form-field__optional">(optional)</span></label>
+      <textarea id="id_note" name="note" rows="2">{{ payload.note|default:"" }}</textarea>
+    </div>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost" href="{% url 'web:request_help_step' step=prev_step %}">Back</a>
+        <button class="btn btn--primary" type="submit">Continue</button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

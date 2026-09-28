@@ -240,6 +240,20 @@ def regenerate_link(*, token: str, email: str, ip_address: str = "") -> Challeng
     )
 
 
+def link_owner_contact(*, token: str) -> tuple[UUID, str | None] | None:
+    """R11a "link expired": looks up the request behind ``token`` even if the link itself is
+    now expired/revoked/superseded (still-identifying rows are never deleted), so the expired-
+    link page can offer "send a code to d•••@gmail.com" without the person retyping their
+    address. Returns ``None`` only when the token is entirely unknown/malformed (R12) — the
+    caller (S2.7) shows the same neutral page either way it can't help further (a `None`
+    email here still means "this request exists but has no email on file")."""
+    candidates = otp.hash_candidates(token)
+    link = RequesterAccessLink.objects.filter(token_hash__in=candidates).first()
+    if link is None:
+        return None
+    return link.request_id, _contact(link.request_id)
+
+
 def find_my_request(*, email: str, ip_address: str = "") -> ChallengeRequestResult:
     """R11b "Check on your request" (Q-117): one link-only email per matching request; an
     address with no request gets none at all. The HTTP-visible response is identical
@@ -432,6 +446,7 @@ __all__ = [
     "SubmissionResult",
     "find_my_request",
     "issue_link",
+    "link_owner_contact",
     "regenerate_link",
     "regenerate_link_for_own_request",
     "register_email_to_request_ids_lookup",

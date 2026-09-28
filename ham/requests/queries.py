@@ -232,6 +232,72 @@ def outcome_summary(request: AssistanceRequest) -> list[PriorRequestOutcome]:
     ]
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class RequesterPageRow:
+    """S2.7's secure request page (R10): the requester's *own* view of their own request,
+    reached only through an already-resolved `RequesterContext` (a valid access link/token
+    already scopes this to exactly one request — intake-contracts.md §1 `Scope.OWN_REQUEST`).
+    Unlike `RequestDetailRow` (leadership), the contact fields here are the raw values on
+    file: the view is responsible for masking them (`ham.requester_portal.projection.
+    masked_contact`) before they ever reach a template — this dataclass itself is never
+    passed straight into a response."""
+
+    id: UUID
+    reference_number: int
+    display_number: str
+    status: str
+    need_category: str
+    description: str
+    urgent_requested: bool
+    known_hazards: str
+    preferred_availability: str
+    preferred_contact_method: str
+    property_type: str
+    city: str
+    postal_code: str
+    line1: str
+    full_name: str
+    email: str | None
+    phone: str
+    submitted_at: dt.datetime
+    closed_at: dt.datetime | None
+    cancel_reason_code: str
+
+
+def get_request_for_requester(request_id: UUID) -> RequesterPageRow | None:
+    """`ham.web`'s secure-page view (S2.7) builds a `RequesterContext` from the link token
+    first (`ham.requester_portal.services.resolve_token`), so by the time this is called the
+    caller is already known to hold a live link for exactly this request; no further
+    authorization decision happens here (foundation.md §7: the *route* declared
+    `requester.request.view`, scoped `OWN_REQUEST`)."""
+    try:
+        r = AssistanceRequest.objects.select_related("property", "requester").get(pk=request_id)
+    except AssistanceRequest.DoesNotExist:
+        return None
+    return RequesterPageRow(
+        id=r.id,
+        reference_number=r.reference_number,
+        display_number=r.display_number,
+        status=r.status,
+        need_category=r.need_category,
+        description=r.description,
+        urgent_requested=r.urgent_requested,
+        known_hazards=r.known_hazards,
+        preferred_availability=r.preferred_availability,
+        preferred_contact_method=r.preferred_contact_method,
+        property_type=r.property.property_type,
+        city=r.property.city,
+        postal_code=r.property.postal_code,
+        line1=r.property.line1,
+        full_name=r.requester.full_name,
+        email=r.requester.email,
+        phone=r.requester.phone,
+        submitted_at=r.submitted_at,
+        closed_at=r.closed_at,
+        cancel_reason_code=r.cancel_reason_code,
+    )
+
+
 # --------------------------------------------------------------------------------------
 # Requester-portal lookups (intake-contracts.md §8.3): the three callables
 # `ham.requester_portal.services` needs but may not import this app's models to build

@@ -16,7 +16,7 @@
 
     <main id="main-content" class="public-shell__content" tabindex="-1">
       <div class="public-card">
-        <p class="public-card__eyebrow">Home Assistance Ministry &middot; {{ church.name }}</p>
+        {% block eyebrow %}<p class="public-card__eyebrow">Home Assistance Ministry &middot; {{ church.name }}</p>{% endblock %}
         {% if messages %}
           <ul class="messages">
             {% for message in messages %}

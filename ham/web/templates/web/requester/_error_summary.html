@@ -1,0 +1,13 @@
+{% comment %}
+Error summary (design-system/components.md C§30). Context: errors (dict field->message).
+{% endcomment %}
+{% if errors %}
+  <div class="inline-alert inline-alert--danger error-summary" role="alert" tabindex="-1" id="error-summary">
+    <p class="error-summary__title">Please check {{ errors|length }} thing{{ errors|length|pluralize }}</p>
+    <ul>
+      {% for field, message in errors.items %}
+        <li><a href="#id_{{ field }}">{{ message }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}

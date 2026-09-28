@@ -1123,3 +1123,369 @@ input[type="radio"] {
   border-radius: var(--ham-radius-md);
   padding: var(--ham-space-2) var(--ham-space-3);
 }
+
+/* ==========================================================================================
+   Step 2 (Intake), S2.7: public requester screens R1-R12
+   (design-system/screens/intake.md; design-system/components.md C19-C32). Tokens only.
+   Simplified from the hi-fi spec where noted below (container queries -> media queries, the
+   desktop step-rail/aside are omitted) -- see the S2.7 handback for the full list; behavior
+   and accessibility are unaffected.
+   ========================================================================================== */
+
+/* --- Step header (C21) -------------------------------------------------------------------- */
+.step-header {
+  margin-bottom: var(--ham-space-2);
+}
+
+.step-header__eyebrow {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-2);
+}
+
+.step-header__progress {
+  height: var(--ham-size-progress-height);
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-pill);
+  overflow: hidden;
+}
+
+.step-header__progress-fill {
+  height: 100%;
+  background: var(--ham-action-primary-bg);
+  border-radius: var(--ham-radius-pill);
+}
+
+.step-header__caption {
+  color: var(--ham-text-tertiary);
+  font-size: var(--ham-type-body-size);
+  margin: var(--ham-space-1) 0 var(--ham-space-6);
+}
+
+/* --- Choice card / choice chip (C19) ------------------------------------------------------ */
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11em), 1fr));
+  gap: var(--ham-space-2);
+  margin-bottom: var(--ham-space-4);
+}
+
+.choice-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-3);
+  min-height: var(--ham-size-choice-card-min);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  background: var(--ham-bg-surface);
+  border: 1.5px solid var(--ham-border-strong);
+  border-radius: var(--ham-radius-md);
+  cursor: pointer;
+  font: var(--ham-type-body-lg-weight, 600) var(--ham-type-body-lg-size) / var(--ham-type-body-lg-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-3);
+}
+
+.choice-card input {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-top: 2px;
+}
+
+.choice-card:has(:checked) {
+  background: var(--ham-bg-selected);
+  border-color: var(--ham-border-selected);
+  color: var(--ham-text-brand);
+}
+
+.choice-card:has(:focus-visible) {
+  outline: var(--ham-size-focus-ring-width) solid var(--ham-focus-ring);
+  outline-offset: var(--ham-size-focus-ring-offset);
+}
+
+.choice-card--exclusive {
+  margin-top: var(--ham-space-2);
+}
+
+.choice-card--statement {
+  font-weight: 400;
+}
+
+.choice-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-2);
+}
+
+.choice-chip-group--stacked {
+  flex-direction: column;
+}
+
+.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-4);
+  border-radius: var(--ham-radius-pill);
+  border: 1.5px solid var(--ham-border-strong);
+  background: var(--ham-bg-surface);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  cursor: pointer;
+}
+
+.choice-chip:has(:checked) {
+  background: var(--ham-bg-selected);
+  border-color: var(--ham-border-selected);
+}
+
+.choice-chip input {
+  accent-color: var(--ham-action-primary-bg);
+}
+
+/* --- Code input (C20) ---------------------------------------------------------------------- */
+.code-input input {
+  max-width: var(--ham-size-code-input-max);
+  width: 100%;
+  min-height: var(--ham-size-control-lg);
+  text-align: center;
+  letter-spacing: var(--ham-type-code-entry-tracking, 0.25em);
+  font: var(--ham-type-code-entry-weight) var(--ham-type-code-entry-size) / var(--ham-type-code-entry-line-height)
+    var(--ham-type-code-entry-family, var(--ham-font-ui));
+}
+
+.type-code-entry {
+  font: var(--ham-type-code-entry-weight) var(--ham-type-code-entry-size) / var(--ham-type-code-entry-line-height)
+    var(--ham-type-code-entry-family, var(--ham-font-ui));
+}
+
+/* --- Sticky action bar (C22) ---------------------------------------------------------------- */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--ham-bg-surface);
+  border-top: 1px solid var(--ham-border-default);
+  padding: var(--ham-space-3) var(--ham-space-4) calc(var(--ham-space-3) + env(safe-area-inset-bottom, 0px));
+  margin: var(--ham-space-6) calc(var(--ham-space-4) * -1) 0;
+  z-index: var(--ham-z-sticky, 10);
+}
+
+.action-bar__inner {
+  display: flex;
+  gap: var(--ham-space-3);
+  max-width: var(--ham-size-form-max);
+  margin: 0 auto;
+}
+
+.action-bar__inner .btn--primary {
+  flex: 1;
+}
+
+@media (min-width: 1024px) {
+  .action-bar {
+    position: static;
+    border-top: none;
+    margin: var(--ham-space-8) 0 0;
+    padding: 0;
+  }
+
+  .action-bar__inner {
+    justify-content: space-between;
+    max-width: none;
+  }
+
+  .action-bar__inner .btn--primary {
+    flex: none;
+  }
+}
+
+/* --- Review summary card (C23) --------------------------------------------------------------- */
+.summary-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-4);
+  margin-bottom: var(--ham-space-3);
+}
+
+.summary-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--ham-space-2);
+}
+
+.summary-card__header h3 {
+  margin: 0;
+}
+
+.summary-card__highlight {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  overflow-wrap: anywhere;
+}
+
+/* --- Upload tile / grid / summary (C24) ------------------------------------------------------ */
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr));
+  gap: var(--ham-space-2);
+  list-style: none;
+  padding: 0;
+  margin: var(--ham-space-3) 0;
+}
+
+.upload-tile {
+  position: relative;
+  background: var(--ham-bg-surface);
+  border-radius: var(--ham-radius-md);
+  overflow: hidden;
+}
+
+.upload-tile__thumb {
+  aspect-ratio: 1 / 1;
+  background: var(--ham-bg-sunken);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-tile__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upload-tile__status {
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  color: var(--ham-text-secondary);
+  padding: var(--ham-space-1) var(--ham-space-1);
+}
+
+.upload-tile__remove {
+  position: absolute;
+  top: var(--ham-space-1);
+  right: var(--ham-space-1);
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  border-radius: 50%;
+  background: var(--ham-bg-surface);
+  box-shadow: var(--ham-shadow-sm);
+  border: none;
+  cursor: pointer;
+}
+
+.upload-summary {
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 768px) {
+  .upload-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  }
+}
+
+/* --- Masked contact block (C25) --------------------------------------------------------------- */
+.masked-block {
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  background: var(--ham-bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+  margin-bottom: var(--ham-space-6);
+}
+
+.masked-block p {
+  margin: 0;
+}
+
+/* --- Requester status card / action card (C26, C27) --------------------------------------------- */
+.status-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-5);
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-info-icon);
+  margin-bottom: var(--ham-space-6);
+}
+
+.status-card p {
+  font-size: var(--ham-type-body-lg-size);
+}
+
+.action-card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-4);
+  border-left: var(--ham-size-accent-bar) solid var(--ham-tone-attention-icon);
+  margin-bottom: var(--ham-space-6);
+}
+
+.action-card h3 {
+  margin-top: 0;
+}
+
+.action-card .btn {
+  width: 100%;
+  margin-top: var(--ham-space-3);
+}
+
+/* --- Success hero, quiet block --------------------------------------------------------------- */
+.success-hero {
+  font-size: var(--ham-size-icon-xl);
+  color: var(--ham-tone-success-icon);
+  margin: 0 0 var(--ham-space-2);
+}
+
+.quiet-block {
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  margin: var(--ham-space-4) 0;
+}
+
+/* --- Error summary (C30) ---------------------------------------------------------------------- */
+.error-summary ul {
+  padding-left: var(--ham-space-5);
+}
+
+.error-summary a {
+  color: var(--ham-tone-danger-fg);
+}
+
+/* --- Disclosure (C31) ------------------------------------------------------------------------- */
+.disclosure summary {
+  min-height: var(--ham-size-target-min);
+  display: flex;
+  align-items: center;
+  color: var(--ham-text-link);
+  cursor: pointer;
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.disclosure[open] summary {
+  margin-bottom: var(--ham-space-2);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ham-text-link);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
