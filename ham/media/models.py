@@ -47,12 +47,20 @@ FAILURE_CORRUPT = "corrupt"
 # isn't available to re-encode a video at all — the item is marked failed and the original is
 # still deleted (never served), rather than silently leaving it stuck in `processing` forever.
 FAILURE_PROCESSING_UNAVAILABLE = "processing_unavailable"
+# Security review M3: the periodic stale-upload sweeper's two release reasons -- a reservation
+# that was never completed (`media.sweep_stale_uploads`, MEDIA_UPLOAD_INTENT_LIFETIME) and an
+# item stuck in `processing` because the worker that had it died mid-job
+# (MEDIA_PROCESSING_TIMEOUT).
+FAILURE_UPLOAD_EXPIRED = "upload_expired"
+FAILURE_PROCESSING_TIMED_OUT = "processing_timed_out"
 FAILURE_CHOICES = (
     (FAILURE_TOO_LONG, "Too long"),
     (FAILURE_TOO_LARGE, "Too large"),
     (FAILURE_UNSUPPORTED, "Unsupported"),
     (FAILURE_CORRUPT, "Corrupt"),
     (FAILURE_PROCESSING_UNAVAILABLE, "Processing unavailable"),
+    (FAILURE_UPLOAD_EXPIRED, "Upload expired"),
+    (FAILURE_PROCESSING_TIMED_OUT, "Processing timed out"),
 )
 
 UPLOADED_BY_REQUESTER = "requester"

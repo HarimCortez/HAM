@@ -67,7 +67,7 @@ def test_unsafe_key_rejected(store):
 def test_presign_put_url_round_trips_via_dev_view(db, store, settings):
     key = str(uuid.uuid4())
     upload = store.presign_put(
-        key, content_type="image/jpeg", max_bytes=100, expires_in=dt.timedelta(minutes=15)
+        key, content_type="image/jpeg", content_length=10, expires_in=dt.timedelta(minutes=15)
     )
     assert upload.key == key
     assert upload.expires_at > dt.datetime.now(dt.UTC)
@@ -82,7 +82,7 @@ def test_presign_put_url_round_trips_via_dev_view(db, store, settings):
 def test_presign_put_rejects_oversize_body(db, store):
     key = str(uuid.uuid4())
     upload = store.presign_put(
-        key, content_type="image/jpeg", max_bytes=5, expires_in=dt.timedelta(minutes=15)
+        key, content_type="image/jpeg", content_length=5, expires_in=dt.timedelta(minutes=15)
     )
     path = upload.url.split("http://localhost:8000", 1)[1]
     resp = Client().put(path, data=b"way too big", content_type="image/jpeg")
@@ -90,10 +90,23 @@ def test_presign_put_rejects_oversize_body(db, store):
     assert store.head(key) is None
 
 
+def test_presign_put_rejects_undersize_body(db, store):
+    """Security review M2: the PUT is signed for an *exact* length, not just a ceiling -- a
+    body shorter than declared is refused too, not silently accepted."""
+    key = str(uuid.uuid4())
+    upload = store.presign_put(
+        key, content_type="image/jpeg", content_length=50, expires_in=dt.timedelta(minutes=15)
+    )
+    path = upload.url.split("http://localhost:8000", 1)[1]
+    resp = Client().put(path, data=b"too small", content_type="image/jpeg")
+    assert resp.status_code == 400
+    assert store.head(key) is None
+
+
 def test_presign_put_rejects_wrong_content_type(db, store):
     key = str(uuid.uuid4())
     upload = store.presign_put(
-        key, content_type="image/jpeg", max_bytes=100, expires_in=dt.timedelta(minutes=15)
+        key, content_type="image/jpeg", content_length=1, expires_in=dt.timedelta(minutes=15)
     )
     path = upload.url.split("http://localhost:8000", 1)[1]
     resp = Client().put(path, data=b"x", content_type="image/png")

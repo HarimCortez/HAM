@@ -649,6 +649,11 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
     # `RequesterContext` is duck-type-compatible with `ActorContext` for `.effective_roles`
     # (intake-contracts.md §1) but is not a nominal subtype, hence the ignore.
     gallery = media_services.media_gallery_for(ctx, ctx.request_id)  # type: ignore[arg-type]
+    # PRD guardian N11: the secure page used to ignore whether uploads are currently open and
+    # why a leader asked for more (the batch's own reason, L11) -- both are needed so R9's
+    # "add photos" affordance and any "we asked for more photos because..." copy can be
+    # accurate instead of always assuming uploads are open.
+    batch = media_services.current_batch_view(ctx.request_id)
     masked = projection.masked_contact(
         email=row.email,
         phone=row.phone,
@@ -672,7 +677,11 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
             "availability": _availability_display(row.preferred_availability),
             "photo_count": gallery.counts.photos,
             "video_count": gallery.counts.videos,
-            "can_add_photos": row.status not in {"CANCELLED"},
+            "can_add_photos": row.status not in {"CANCELLED"} and (batch is None or batch.is_open),
+            "batch_open": batch is None or batch.is_open,
+            "batch_reopen_reason": batch.reason
+            if batch and batch.is_open and batch.kind == "reopened"
+            else "",
             "church": church,
         }
     )

@@ -175,3 +175,15 @@ carry no `provisional=` tag.
 New invariant: the presigned upload URL must not outlive the reservation it belongs to
 (`PRESIGNED_UPLOAD_URL_LIFETIME <= MEDIA_UPLOAD_INTENT_LIFETIME`); the view URL lifetime must
 be positive.
+
+## 2026.09.28-6 — step 2 fix round (FIX-B: media security)
+
+Content hash: `sha256:da176a0734d061ccc65edf97000c4cf458fe4c76b4d4c0f8de241d6c22d455e5`
+
+One new engineering value, `media.MEDIA_PROCESSING_TIMEOUT` = 1 hour: an item stuck in
+`processing` (the worker died mid-job, e.g. an OOM'd ffmpeg re-encode) is treated as failed
+and its slot freed after this long, found by the security review's M3 ("reserved slots never
+free up"). Not a Q-numbered open question -- same engineering-value category as the other
+`media.*` lifetimes above.
+
+New invariant: the processing timeout must be positive.

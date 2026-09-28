@@ -24,8 +24,9 @@ from typing import TYPE_CHECKING, Literal
 
 from django.db import transaction
 
-from ham.authz import roles
+from ham.audit.services import record as audit_record
 from ham.authz.commands import CommandResult, OutboxSpec, PermissionDenied, command
+from ham.authz.context import SystemContext
 from ham.platform.clock import now as clock_now
 from ham.platform.ids import uuid7
 from ham.platform.storage import PresignedUpload, get_object_store
@@ -50,13 +51,6 @@ from .models import (
 
 if TYPE_CHECKING:
     from ham.authz.context import ActorContext, RequesterContext
-
-# intake.md §5, §6: leadership roles that see the full gallery through `request_media.view`.
-# The Administrator (Q-124/Q-138) also holds `request_media.view` but is deliberately not in
-# this set: `media_gallery_for` masks the item list down to counts for it alone.
-_FULL_ACCESS_ROLES = frozenset(
-    {roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR, roles.PASTOR, roles.BOARD_REPRESENTATIVE}
-)
 
 
 class MediaValidationError(ValueError):
@@ -104,20 +98,29 @@ def _validate_intent(intent: UploadIntent) -> None:
         raise MediaValidationError("file is too large")
 
 
+class UploadsClosed(ValueError):
+    """Every batch for this request is closed and none was ever auto-opened by staff
+    (security review L3 / PRD guardian M7): a requester may never open a new batch on their
+    own once batch #1 (or any later, staff-opened batch) has closed -- only
+    `reopen_batch` (a leadership decision, §46) may open batch #2 and on."""
+
+
 def _get_or_open_initial_batch(request_id: uuid.UUID) -> RequestMediaBatch:
     """Row-locked get-or-create of request #1's batch (intake.md §3 "enforced under
     select_for_update() on the batch"). Must be called inside an open transaction.
+
+    Security review L3 / PRD guardian M7: this **only ever creates batch #1**. If every batch
+    for this request is already closed, it refuses (`UploadsClosed`) rather than silently
+    opening a new one -- a requester uploading on their own can never reopen collection once
+    staff or the initial batch itself has closed it; only `reopen_batch` (a deliberate
+    leadership decision, `request_media.batch_opened`, audited) may do that.
 
     **Deliberately not audited** (CLAUDE.md priority 3, considered and left this way): opening
     batch #1 is a side effect of the requester's own `reserve_uploads` call for their own
     request -- itself already excluded from intake.md §6's audit-action list per this module's
     own docstring, since it is a technical pre-step, not a distinct decision by any actor. The
     consequential, audited event for requester media is the per-item `request_media.uploaded`
-    (once a file actually lands), not the container being created. This is not the same as
-    `reopen_batch` below (`request_media.batch_opened`, audited): that one is a deliberate
-    staff decision to reopen media collection on an already-closed request, with its own
-    reason -- a discrete leadership action worth a record, unlike a requester's first upload
-    on their own still-open request opening their own batch #1."""
+    (once a file actually lands), not the container being created."""
     batch = (
         RequestMediaBatch.objects.select_for_update()
         .filter(request_id=request_id, closed_at__isnull=True)
@@ -126,13 +129,14 @@ def _get_or_open_initial_batch(request_id: uuid.UUID) -> RequestMediaBatch:
     )
     if batch is not None:
         return batch
-    next_number = RequestMediaBatch.objects.filter(request_id=request_id).count() + 1
+    if RequestMediaBatch.objects.filter(request_id=request_id).exists():
+        raise UploadsClosed("uploads are closed")
     m = RULES.media
     return RequestMediaBatch.objects.create(
         id=uuid7(),
         request_id=request_id,
-        number=next_number,
-        kind=BATCH_KIND_INITIAL if next_number == 1 else BATCH_KIND_REOPENED,
+        number=1,
+        kind=BATCH_KIND_INITIAL,
         opened_by_user_id=None,
         reason="",
         opened_at=clock_now(),
@@ -147,7 +151,8 @@ def reserve_uploads(ctx: RequesterContext, *, intents: list[UploadIntent]) -> li
     """Reserves one slot per intent in the request's currently-open batch (opening it if
     needed) and returns a presigned PUT URL for each (intake.md §7 `POST
     /r/<token>/media/intents`). Raises `MediaValidationError` for a bad intent,
-    `PermissionDenied` if there is no request yet, `ValueError` if the batch doesn't have
+    `PermissionDenied` if there is no request yet, `UploadsClosed` (a `ValueError`) once every
+    batch is closed and none may auto-open (L3/M7), `ValueError` if the batch doesn't have
     enough free slots for all of them.
     """
     if ctx.request_id is None:
@@ -201,7 +206,9 @@ def reserve_uploads(ctx: RequesterContext, *, intents: list[UploadIntent]) -> li
             upload = store.presign_put(
                 key,
                 content_type=intent.content_type,
-                max_bytes=_max_bytes(intent.media_kind),
+                # Security review M2: sign the exact declared size (already validated <= the
+                # type's rules-module cap by `_validate_intent` above), not just a ceiling.
+                content_length=intent.declared_bytes,
                 expires_in=RULES.media.PRESIGNED_UPLOAD_URL_LIFETIME,
             )
             reserved.append(
@@ -241,6 +248,7 @@ def complete_upload(ctx: RequesterContext, *, item_id: uuid.UUID) -> CommandResu
             audit_action="request_media.rejected",
             target_type="request_media",
             target_id=str(item.id),
+            project_id=item.request_id,
             context={"request_id": str(item.request_id)},
         )
     if meta.content_type not in _accepted_types(item.media_kind):
@@ -255,6 +263,7 @@ def complete_upload(ctx: RequesterContext, *, item_id: uuid.UUID) -> CommandResu
             audit_action="request_media.rejected",
             target_type="request_media",
             target_id=str(item.id),
+            project_id=item.request_id,
             context={"request_id": str(item.request_id)},
         )
 
@@ -273,6 +282,7 @@ def complete_upload(ctx: RequesterContext, *, item_id: uuid.UUID) -> CommandResu
         audit_action="request_media.uploaded",
         target_type="request_media",
         target_id=str(item.id),
+        project_id=item.request_id,
         context={"request_id": str(item.request_id)},
         outbox=OutboxSpec(
             event_type="RequestMediaStored",
@@ -310,6 +320,7 @@ def remove_item(ctx: RequesterContext, *, item_id: uuid.UUID) -> CommandResult:
         audit_action="request_media.removed",
         target_type="request_media",
         target_id=str(item.id),
+        project_id=item.request_id,
         context={"request_id": str(item.request_id)},
         outbox=OutboxSpec(
             event_type="RequestMediaDeleted",
@@ -334,10 +345,25 @@ def _request_resource(ctx: ActorContext, *, request_id: uuid.UUID, **_: object) 
 
 @command("request_media.reopen", resource_from=_request_resource)
 def reopen_batch(ctx: ActorContext, *, request_id: uuid.UUID, reason: str) -> CommandResult:
-    """Leadership "Ask for more photos" (§46, L11). A reason is required."""
+    """Leadership "Ask for more photos" (§46, L11). A reason is required.
+
+    PRD guardian N10: refuses a closed/cancelled request (asking a closed request for more
+    photos makes no sense) and a no-email request (there is nothing to email the ask to --
+    Q-025's NEEDS_PHONE_CHECK path has no address on file at all, and a later-verified
+    no-email request still has none)."""
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("a reason is required to reopen a batch")
+
+    from ham.requests.services import is_request_open
+
+    if not is_request_open(request_id):
+        raise ValueError("this request is closed; uploads can't be reopened")
+
+    from ham.requests.models import Requester
+
+    if not Requester.objects.filter(request_id=request_id).exclude(email=None).exists():
+        raise ValueError("this request has no email on file; there is no one to ask")
 
     with transaction.atomic():
         from ham.requests.models import AssistanceRequest
@@ -366,6 +392,7 @@ def reopen_batch(ctx: ActorContext, *, request_id: uuid.UUID, reason: str) -> Co
         target_type="media_batch",
         target_id=str(batch.id),
         reason=reason,
+        project_id=request_id,
         context={"request_id": str(request_id)},
         outbox=OutboxSpec(
             event_type="RequestMediaBatchOpened",
@@ -404,6 +431,12 @@ class MediaItemView:
     media_kind: str
     status: str
     ready: bool
+    # 1-based position among items of the same `media_kind` (accessible alt text, PRD M3 /
+    # UX B1: "HAM #024, photo 3" -- never a filename or anything PII-derived).
+    index: int
+    # "" unless `status == "rejected"` and the reason is worth a leader knowing about (right
+    # now only `processing_unavailable` -- a system limitation, not the requester's fault).
+    failure_code: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +447,10 @@ class MediaGalleryView:
 
 
 _VISIBLE_STATUSES = (STATUS_READY, "processing", STATUS_UPLOADED)
+# PRD M3: a `processing_unavailable` item (the worker had no way to re-encode it, e.g. no
+# ffmpeg on this deployment -- never the requester's fault) is worth showing leadership as its
+# own state, distinct from every other silently-hidden rejection (too large/wrong type/corrupt
+# stay invisible, same as before this fix round).
 
 
 def media_gallery_for(ctx: ActorContext, request_id: uuid.UUID) -> MediaGalleryView:
@@ -422,24 +459,48 @@ def media_gallery_for(ctx: ActorContext, request_id: uuid.UUID) -> MediaGalleryV
     Authorization that the caller may reach this action at all is the view's own
     `@requires_action("request_media.view")` — this only decides *how much* to show once
     that's already true (Q-124's masking is service-layer behaviour, not a matrix flag, same
-    as `requester_pii.reveal`)."""
-    items_qs = RequestMedia.objects.filter(
-        request_id=request_id, status__in=_VISIBLE_STATUSES
-    ).order_by("reserved_at")
+    as `requester_pii.reveal`).
+
+    PRD guardian N9: masking is decided by `ham.requests.queries.is_masked_view(ctx)` (true
+    only when the Administrator role is what's granting access and no leadership role also
+    would), never by "does this actor hold the Administrator role" alone -- someone who holds
+    both Administrator and a leadership role must still see the full gallery."""
+    from ham.requests.queries import is_masked_view
+
+    from .models import FAILURE_PROCESSING_UNAVAILABLE
+
+    visible_qs = RequestMedia.objects.filter(request_id=request_id, status__in=_VISIBLE_STATUSES)
+    # Usable-media counts (Q-138's "photo count") never include an unprocessable item.
     counts = MediaCounts(
-        photos=items_qs.filter(media_kind=MEDIA_KIND_PHOTO).count(),
-        videos=items_qs.filter(media_kind=MEDIA_KIND_VIDEO).count(),
+        photos=visible_qs.filter(media_kind=MEDIA_KIND_PHOTO).count(),
+        videos=visible_qs.filter(media_kind=MEDIA_KIND_VIDEO).count(),
     )
-    has_full_access = bool(ctx.effective_roles & _FULL_ACCESS_ROLES)
-    if not has_full_access:
+    if is_masked_view(ctx):
         return MediaGalleryView(counts=counts, items=None)
-    items = tuple(
-        MediaItemView(
-            id=i.id, media_kind=i.media_kind, status=i.status, ready=i.status == STATUS_READY
-        )
-        for i in items_qs
+    unavailable_qs = RequestMedia.objects.filter(
+        request_id=request_id, status="rejected", failure_code=FAILURE_PROCESSING_UNAVAILABLE
     )
-    return MediaGalleryView(counts=counts, items=items)
+    items_qs = (visible_qs | unavailable_qs).order_by("reserved_at")
+    photo_i = video_i = 0
+    items = []
+    for i in items_qs:
+        if i.media_kind == MEDIA_KIND_PHOTO:
+            photo_i += 1
+            index = photo_i
+        else:
+            video_i += 1
+            index = video_i
+        items.append(
+            MediaItemView(
+                id=i.id,
+                media_kind=i.media_kind,
+                status=i.status,
+                ready=i.status == STATUS_READY,
+                index=index,
+                failure_code=i.failure_code,
+            )
+        )
+    return MediaGalleryView(counts=counts, items=tuple(items))
 
 
 def view_urls_for(request_id: uuid.UUID) -> dict[uuid.UUID, tuple[str | None, str | None]]:
@@ -458,3 +519,96 @@ def view_urls_for(request_id: uuid.UUID) -> dict[uuid.UUID, tuple[str | None, st
         )
         out[item.id] = (thumb_url, view_url)
     return out
+
+
+def get_ready_item(*, request_id: uuid.UUID, media_id: uuid.UUID) -> RequestMedia | None:
+    """Looks up one `ready` item, scoped to `request_id` (PRD M3 leadership thumb/view
+    routes). `None` if the item doesn't exist, isn't `ready` yet (still `processing`/etc.),
+    or belongs to a different request -- callers treat every case the same (404), never
+    distinguishing "wrong request" from "not found" (§68, no enumeration)."""
+    return RequestMedia.objects.filter(
+        id=media_id, request_id=request_id, status=STATUS_READY
+    ).first()
+
+
+def read_media_bytes(
+    item: RequestMedia, *, variant: Literal["thumb", "view"]
+) -> tuple[bytes, str] | None:
+    """Reads one derivative's bytes straight from storage for the leadership thumb/view routes
+    (PRD M3 / UX B1) -- streamed through the app, not a client-visible presigned URL, so the
+    route's own `Cache-Control: no-store` response header is the only thing that ever
+    describes how long a browser may cache it. `None` if this variant has no key (e.g. a
+    video's thumbnail -- videos get no `thumb_key`, ``ham.media.jobs.process_item``)."""
+    key = item.thumb_key if variant == "thumb" else item.storage_key
+    if not key:
+        return None
+    store = get_object_store()
+    try:
+        data = store.get_object(key)
+    except FileNotFoundError:  # pragma: no cover - defensive; ready implies the key exists
+        return None
+    if variant == "thumb":
+        content_type = "image/jpeg"
+    else:
+        content_type = "image/jpeg" if item.media_kind == MEDIA_KIND_PHOTO else "video/mp4"
+    return data, content_type
+
+
+@dataclass(frozen=True, slots=True)
+class MediaBatchView:
+    """PRD guardian N11: what the requester's own secure page shows about upload state --
+    whether the current batch is still open, and (only when a leader reopened it) their
+    reason, so "we asked for more photos: {reason}" can be shown without another round trip.
+    """
+
+    is_open: bool
+    kind: str
+    reason: str
+
+
+def current_batch_view(request_id: uuid.UUID) -> MediaBatchView | None:
+    """The request's most recent batch (by number), or `None` if none has ever been opened."""
+    batch = RequestMediaBatch.objects.filter(request_id=request_id).order_by("-number").first()
+    if batch is None:
+        return None
+    return MediaBatchView(is_open=batch.is_open, kind=batch.kind, reason=batch.reason)
+
+
+def purge_all_for_request(request_id: uuid.UUID) -> int:
+    """Deletes every stored object (original/derivative/thumbnail, whatever a given item still
+    has a key for) belonging to `request_id`, and audits one `request_media.purged` event per
+    item that held a key -- security review M4: the spam purge (`ham.requests.services.
+    purge_expired_request`) used to `request.delete()` straight away, cascade-deleting the
+    `RequestMedia`/`RequestMediaBatch` rows but leaving their objects orphaned in storage
+    forever, since nothing ever told the object store to delete them.
+
+    `ham.requests` sits *below* `ham.media` in the layers contract (`ham.web ->
+    ham.requester_portal -> ham.media -> ham.requests -> ...`), so it may never import this
+    function directly; `ham.media.apps.MediaConfig.ready()` registers it into
+    `ham.requests.services.register_media_purge_hook` instead (the reverse of the lookup
+    pattern `ham.requester_portal` uses for its own cross-app queries), and
+    `purge_expired_request` calls the hook, inside its own transaction, before deleting the
+    request row.
+
+    Plain function, not `@command`: no human actor of its own (the human decision -- and its
+    own audit event, `request.purged` -- belongs to the caller); always invoked from inside
+    another action's own transaction, same as `close_open_batches` above."""
+    store = get_object_store()
+    purged = 0
+    for item in RequestMedia.objects.filter(request_id=request_id):
+        keys = [k for k in (item.storage_key, item.thumb_key, item.quarantine_key) if k]
+        if not keys:
+            continue
+        for key in keys:
+            store.delete(key)
+        audit_record(
+            ctx=SystemContext(),
+            action="request_media.purged",
+            target_type="request_media",
+            target_id=str(item.id),
+            reason="spam_purge",
+            project_id=request_id,
+            context={"request_id": str(request_id)},
+        )
+        purged += 1
+    return purged

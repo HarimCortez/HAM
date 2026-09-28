@@ -92,18 +92,7 @@ its own page, h2 inside the list page).
     {% endif %}
   </section>
 
-  <section aria-labelledby="request-detail-photos-{{ detail.id }}">
-    <h3 id="request-detail-photos-{{ detail.id }}">Photos ({{ gallery.counts.photos }})</h3>
-    {% if detail.photo_count_only %}
-      <p class="text-secondary">{{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }} &middot; not shown to the Administrator role.</p>
-    {% elif gallery.items %}
-      <ul class="request-row__markers">
-        {% for item in gallery.items %}<li>{{ item.media_kind }} &middot; {{ item.status }}</li>{% endfor %}
-      </ul>
-    {% else %}
-      <p class="text-secondary">No photos yet.</p>
-    {% endif %}
-  </section>
+  {% include "web/_request_media_gallery.html" %}
 
   <section aria-labelledby="request-detail-home-{{ detail.id }}">
     <h3 id="request-detail-home-{{ detail.id }}">The home</h3>

@@ -183,3 +183,62 @@ emits `RequestAwaitingApproval`, whose outbox dispatch job is only enqueued once
 transaction commits) needs a second (or third/fourth) call to actually observe the end state
 (e.g. a `Notification` row landing). Call it in a small loop, not once, when chaining more than
 one hop.
+
+## FIX-B (step-2 fix round, media security + requester email links)
+
+Branch `fix-b` off `feature/step-2-intake`. Findings worked: security H4/M2/M3/M4/L1/L3, PRD
+guardian M3/M7/N6/N9/N10/N11, N3/Q-149. Full list and rationale in the handback message; a few
+reusable decisions worth keeping for next time:
+
+- **The reverse-lookup pattern for "a lower layer needs to call a higher layer's function"**
+  (not just "a higher layer needs the lower layer's data", which `ham.requester_portal`'s
+  existing `register_request_facts_lookup`-style seam already covered): the higher layer
+  defines the registration point **in the lower layer's own module** (`ham.requests.services.
+  register_media_purge_hook`, a plain `_media_purge_hook: Any = None` global + setter), and
+  registers its real implementation from its own `AppConfig.ready()` (`ham.media.apps.
+  MediaConfig.ready()` calls `register_media_purge_hook(purge_all_for_request)`) — legal
+  because the higher layer (`ham.media`) is always allowed to import the lower one
+  (`ham.requests`), just not the reverse. Used for `ham.requests`'s spam purge
+  (`purge_expired_request`) needing to delete `ham.media`'s storage objects before
+  `request.delete()` cascades away the rows that pointed at them (M4).
+- **`ObjectStore.presign_put`'s `max_bytes` param was a ceiling, not an exact size** (M2): a
+  simple S3 PUT presign has no native max-size parameter, only an exact one — signing
+  `ContentLength` makes SigV4 reject a PUT whose `Content-Length` header doesn't match
+  exactly, so I renamed the param to `content_length` (breaking change to the `ObjectStore`
+  Protocol, all three implementations — R2, local, and the dev-storage view's token payload
+  — updated together) and pass the intent's already-validated `declared_bytes`, not the
+  type's rules-module cap. `complete_upload`'s own `head()`-based re-check on completion
+  still exists as defense in depth; `process_item` (the background worker) now does its own
+  `head()`-based re-check too, before `get_object()`, since nothing guarantees the object at
+  that key is still the same one `complete_upload` looked at.
+- **A periodic sweeper needs its own rule for "how stuck is too stuck"** (M3): there was
+  already `MEDIA_UPLOAD_INTENT_LIFETIME` in the rules module (defined, never read by
+  anything) for a reservation that's never completed, but nothing covered an item stuck in
+  `processing` because the worker that had it died mid-job — added `media.
+  MEDIA_PROCESSING_TIMEOUT` (1 hour, an engineering value, not Q-numbered) for that second
+  case. Bumped `RULES_VERSION` to `2026.09.28-6`; both this and the (pre-existing, dormant)
+  intent lifetime are read by one new job, `media.sweep_stale_uploads` (`*/15 * * * *`),
+  registered the same way as `media.retention_sweep`.
+- **Two "reverse lookup" cross-app registries with the same shape now exist in this repo**:
+  `ham.requester_portal.services`'s three (portal → requests) and `ham.requests.services.
+  register_media_purge_hook` (requests → media, this fix round). If a third one shows up,
+  it's probably worth a shared tiny helper in `ham.platform`, but two didn't justify it yet.
+- **Model `choices=` changes need a migration** even though nothing enforces them at the DB
+  level by default — Django's field deconstruction includes `choices`, so
+  `makemigrations --check` fails without one. Added two new `RequestMedia.failure_code`
+  values (`upload_expired`, `processing_timed_out`) for the M3 sweeper; migration
+  `ham/media/migrations/0002_alter_requestmedia_failure_code.py`.
+- **`is_masked_view(ctx)` (from `ham.requests.queries`) vs. "does this actor hold role X"**:
+  several places in this codebase had drifted to checking role membership directly instead of
+  the shared masking predicate (N9's `media_gallery_for`) — worth grepping for
+  `effective_roles & _SOME_ROLE_SET` in any module that's supposed to honor Q-124's masking
+  before assuming a set-membership check is equivalent to it; they diverge the moment an
+  actor holds two roles at once, which nothing else in the test suite exercises by default.
+- **Streaming vs. presigned-URL for the leadership thumb/view routes**: chose streaming
+  (`ham.media.services.read_media_bytes` + a `Cache-Control: no-store` response) over
+  redirecting to a fresh `presign_get()` URL, mainly so there's exactly one place that sets
+  the no-store header and the route never leaks a signed storage URL into the browser's
+  network panel / history for someone to reopen after the leader's session ends. The existing
+  `view_urls_for` (presigned-URL variant) is still there, unused by any route — flagged as
+  dead code for whoever next touches `ham.media`, not removed (wasn't part of this fix round's
+  task list).

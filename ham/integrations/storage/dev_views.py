@@ -49,10 +49,12 @@ def local_storage_object(request: HttpRequest, token: str) -> HttpResponse:
         if request.method != "PUT":
             return HttpResponseNotAllowed(["PUT"])
         content_type = payload["ct"]
-        max_bytes = payload["max"]
+        declared_length = payload["len"]
         body = request.body
-        if len(body) > max_bytes:
-            return HttpResponseBadRequest("object exceeds the size this URL was signed for")
+        if len(body) != declared_length:
+            return HttpResponseBadRequest(
+                "object size does not match the length this URL was signed for"
+            )
         request_content_type = (request.content_type or "").split(";")[0].strip()
         if request_content_type != content_type:
             return HttpResponseBadRequest("content type does not match this URL's signature")

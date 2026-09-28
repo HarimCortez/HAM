@@ -279,6 +279,10 @@ def test_reopen_batch_requires_a_reason(open_request):
 
 
 def test_reopen_batch_closes_the_previous_one_and_opens_a_new_one(open_request):
+    from ham.requests.models import Requester
+
+    Requester.objects.create(request=open_request, full_name="", email="on-file@example.org")
+
     ctx = _requester_ctx(open_request.id)
     services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])
     first_batch = RequestMediaBatch.objects.get(request=open_request, number=1)

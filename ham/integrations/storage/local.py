@@ -78,7 +78,7 @@ class LocalObjectStore:
         return base_url.rstrip("/")
 
     def presign_put(
-        self, key: str, *, content_type: str, max_bytes: int, expires_in: dt.timedelta
+        self, key: str, *, content_type: str, content_length: int, expires_in: dt.timedelta
     ) -> PresignedUpload:
         now = dt.datetime.now(dt.UTC)
         expires_at = now + expires_in
@@ -87,7 +87,10 @@ class LocalObjectStore:
                 "op": "put",
                 "key": key,
                 "ct": content_type,
-                "max": max_bytes,
+                # Security review M2: the local dev stand-in for a real presigned PUT enforces
+                # the exact declared length, not just a ceiling (mirrors S3's ``ContentLength``
+                # signing -- see ``ham.integrations.storage.s3.R2ObjectStore.presign_put``).
+                "len": content_length,
                 "exp": expires_at.isoformat(),
             }
         )

@@ -8,8 +8,10 @@ every write, so a template-level "don't show the button" is never the only guard
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from django.contrib import messages
+from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -19,13 +21,14 @@ from ham.authz.commands import ImpersonationBlocked, PermissionDenied
 from ham.authz.guard import requires_action
 from ham.authz.matrix import authorize
 from ham.identity.services import display_names_for
-from ham.media.services import media_gallery_for
+from ham.media.services import get_ready_item, media_gallery_for, read_media_bytes
 from ham.requests import presentation
 from ham.requests.queries import (
     can_see_needs_phone_check,
     contact_verifications,
     get_request_by_id,
     get_request_detail,
+    is_masked_view,
     list_requests,
     needs_phone_check_list,
     outcome_summary,
@@ -414,3 +417,41 @@ def request_more_photos(request, request_id: uuid.UUID):
             "max_photos": RULES.media.REQUESTER_MEDIA_BATCH_MAX_PHOTOS,
         },
     )
+
+
+# --------------------------------------------------------------------------------------
+# PRD guardian M3 / UX B1: leadership thumb/view routes. Streamed through the app (never a
+# client-visible presigned storage URL) with `Cache-Control: no-store`, so nothing about a
+# requester's photo ever sits in a shared cache or browser history entry independent of a
+# signed-in leader's own session. The Administrator holds `request_media.view` (counts only,
+# Q-138) but is excluded here by `is_masked_view` -- the route guard alone isn't enough,
+# same reasoning as `_build_detail_context`'s gallery masking.
+# --------------------------------------------------------------------------------------
+def _serve_media(
+    request, request_id: uuid.UUID, media_id: uuid.UUID, *, variant: Literal["thumb", "view"]
+):
+    ctx = request.actor
+    if is_masked_view(ctx):
+        return HttpResponseForbidden()
+    item = get_ready_item(request_id=request_id, media_id=media_id)
+    if item is None:
+        return HttpResponseNotFound()
+    result = read_media_bytes(item, variant=variant)
+    if result is None:
+        return HttpResponseNotFound()
+    data, content_type = result
+    response = HttpResponse(data, content_type=content_type)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@require_http_methods(["GET"])
+@requires_action("request_media.view")
+def request_media_thumb(request, request_id: uuid.UUID, media_id: uuid.UUID):
+    return _serve_media(request, request_id, media_id, variant="thumb")
+
+
+@require_http_methods(["GET"])
+@requires_action("request_media.view")
+def request_media_view(request, request_id: uuid.UUID, media_id: uuid.UUID):
+    return _serve_media(request, request_id, media_id, variant="view")

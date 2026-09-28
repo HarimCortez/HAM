@@ -1,0 +1,73 @@
+{% comment %}
+PRD guardian M3 / UX B1: leadership photo/video gallery, included from `_request_detail.html`
+(`{% include "web/_request_media_gallery.html" %}`) -- kept in its own file so this fix round
+(FIX-B) and FIX-C's template work don't collide on the same lines.
+
+Expects the same context `_build_detail_context` already builds: `detail` (id, display_number)
+and `gallery` (`ham.media.services.MediaGalleryView`: `counts` always present, `items` is
+`None` for a masked (Administrator-only) view -- Q-124/Q-138 -- and a tuple of
+`MediaItemView(id, media_kind, status, ready, index)` otherwise).
+
+Thumbnails/full views load from the authorized, short-lived `request_media.view` routes
+(`ham.web.views_requests.request_media_thumb`/`request_media_view`), never a raw storage URL;
+alt text is "HAM #<number> photo/video <index>" only -- never a filename, status detail, or
+anything else that could carry PII (§68).
+{% endcomment %}
+<section class="media-gallery" aria-labelledby="request-detail-photos-{{ detail.id }}">
+  <h3 id="request-detail-photos-{{ detail.id }}">
+    Photos ({{ gallery.counts.photos }}) &middot; Videos ({{ gallery.counts.videos }})
+  </h3>
+  {% if gallery.items is None %}
+    <p class="text-secondary">
+      {{ gallery.counts.photos }} photo{{ gallery.counts.photos|pluralize }},
+      {{ gallery.counts.videos }} video{{ gallery.counts.videos|pluralize }}
+      &middot; not shown to the Administrator role.
+    </p>
+  {% elif gallery.items %}
+    <ul class="media-gallery__grid">
+      {% for item in gallery.items %}
+        <li class="media-gallery__item">
+          {% if item.status == "ready" %}
+            {% if item.media_kind == "photo" %}
+              <a
+                class="media-gallery__link"
+                href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
+                target="_blank"
+                rel="noopener"
+              >
+                <img
+                  class="media-gallery__thumb"
+                  src="{% url 'web:request_media_thumb' request_id=detail.id media_id=item.id %}"
+                  alt="{{ detail.display_number }}, photo {{ item.index }}"
+                  loading="lazy"
+                >
+              </a>
+            {% else %}
+              <a
+                class="media-gallery__link media-gallery__link--video"
+                href="{% url 'web:request_media_view' request_id=detail.id media_id=item.id %}"
+                target="_blank"
+                rel="noopener"
+                aria-label="{{ detail.display_number }}, video {{ item.index }}"
+              >
+                <span class="text-secondary" aria-hidden="true">&#9654;&nbsp;Video {{ item.index }}</span>
+              </a>
+            {% endif %}
+          {% elif item.status == "processing" or item.status == "uploaded" %}
+            <span class="chip chip--neutral" role="status">
+              {{ item.media_kind|capfirst }} {{ item.index }} &middot; processing&hellip;
+            </span>
+          {% elif item.failure_code == "processing_unavailable" %}
+            <span class="chip chip--attention" role="status">
+              {{ item.media_kind|capfirst }} {{ item.index }} &middot; couldn't be processed
+            </span>
+          {% else %}
+            <span class="chip chip--neutral">{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ item.status }}</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-secondary">No photos or videos yet.</p>
+  {% endif %}
+</section>

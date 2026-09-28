@@ -162,6 +162,9 @@ class TestFullEmailFlow:
         photos_resp = client.get(reverse("web:request_help_photos", kwargs={"token": token}))
         assert photos_resp.status_code == 200
 
+        # Security review M2: the presigned PUT is signed for the exact declared length, so
+        # the body below must be exactly that many bytes.
+        photo_body = b"\xff\xd8\xff" * 10
         reserve_resp = client.post(
             reverse("web:request_help_media_reserve", kwargs={"token": token}),
             data=json.dumps(
@@ -170,7 +173,7 @@ class TestFullEmailFlow:
                         {
                             "media_kind": "photo",
                             "content_type": "image/jpeg",
-                            "declared_bytes": 1000,
+                            "declared_bytes": len(photo_body),
                         }
                     ]
                 }
@@ -181,7 +184,7 @@ class TestFullEmailFlow:
         reserved = json.loads(reserve_resp.content)["files"][0]
 
         put_path = reserved["put_url"].split("http://testserver", 1)[-1]
-        put_resp = client.put(put_path, data=b"\xff\xd8\xff" * 10, content_type="image/jpeg")
+        put_resp = client.put(put_path, data=photo_body, content_type="image/jpeg")
         assert put_resp.status_code == 204
 
         complete_resp = client.post(reserved["complete_url"])

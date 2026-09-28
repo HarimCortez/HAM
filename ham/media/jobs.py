@@ -19,11 +19,15 @@ from ham.rules import RULES, media_retention_period
 
 from . import processing
 from .models import (
+    FAILURE_PROCESSING_TIMED_OUT,
     FAILURE_PROCESSING_UNAVAILABLE,
+    FAILURE_TOO_LARGE,
+    FAILURE_UPLOAD_EXPIRED,
     MEDIA_KIND_PHOTO,
     STATUS_PROCESSING,
     STATUS_PURGED,
     STATUS_READY,
+    STATUS_RESERVED,
     STATUS_UPLOADED,
     RequestMedia,
 )
@@ -31,6 +35,16 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 _SYSTEM = SystemContext()
+
+
+def _max_bytes(media_kind: str) -> int:
+    """Same rule `ham.media.services._max_bytes` reads -- kept as its own tiny copy here (a
+    pure lookup into `RULES.media`, not a private call across modules) rather than importing
+    a private name from a sibling module."""
+    m = RULES.media
+    if media_kind == MEDIA_KIND_PHOTO:
+        return m.REQUESTER_PHOTO_MAX_BYTES
+    return m.REQUESTER_VIDEO_MAX_BYTES
 
 
 def _mark_rejected(item: RequestMedia, *, failure_code: str) -> None:
@@ -46,6 +60,7 @@ def _mark_rejected(item: RequestMedia, *, failure_code: str) -> None:
         target_type="request_media",
         target_id=str(item.id),
         reason=failure_code,
+        project_id=item.request_id,
         context={"request_id": str(item.request_id)},
     )
 
@@ -64,9 +79,22 @@ def process_item(item_id: str) -> None:
     item.save(update_fields=["status"])
 
     store = get_object_store()
+    # Security review M2: re-check the object's actual size (a `head()` call, not just trust
+    # what `complete_upload` recorded) before reading its bytes -- the quarantine object
+    # could in principle have been swapped between completion and this job running (e.g. a
+    # retried job, or a delayed worker), and reading an oversized object straight into memory
+    # is exactly the "worker loads the whole object" the finding calls out.
+    meta = store.head(item.quarantine_key)
+    if meta is None:
+        _mark_rejected(item, failure_code="corrupt")
+        return
+    if meta.size > _max_bytes(item.media_kind):
+        _mark_rejected(item, failure_code=FAILURE_TOO_LARGE)
+        return
+
     try:
         original = store.get_object(item.quarantine_key)
-    except FileNotFoundError:
+    except FileNotFoundError:  # pragma: no cover - defensive; head() just confirmed it exists
         _mark_rejected(item, failure_code="corrupt")
         return
 
@@ -128,6 +156,7 @@ def _purge_item(item: RequestMedia, *, closing_status: str) -> None:
         target_type="request_media",
         target_id=str(item.id),
         reason=closing_status,
+        project_id=item.request_id,
         context={"request_id": str(item.request_id)},
     )
 
@@ -169,3 +198,41 @@ def retention_sweep(timestamp: int) -> int:
                 _purge_item(item, closing_status=request.status)
                 purged += 1
     return purged
+
+
+@jobs.periodic_job(name="media.sweep_stale_uploads", cron="*/15 * * * *")
+def sweep_stale_uploads(timestamp: int) -> int:
+    """Every 15 minutes: security review M3 -- "originals with GPS data can stay in
+    quarantine forever, and reserved slots never free up" (`MEDIA_UPLOAD_INTENT_LIFETIME` was
+    defined in the rules module but nothing ever read it). Releases two kinds of stuck item,
+    both the same way as a rejected upload (quarantine object deleted, slot freed, audited):
+
+    - `reserved`/`uploaded` items whose `reserved_at` is older than
+      `RULES.media.MEDIA_UPLOAD_INTENT_LIFETIME` -- a presigned PUT the browser never used, or
+      one that was used but `complete_upload` was never called.
+    - `processing` items whose `uploaded_at` is older than
+      `RULES.media.MEDIA_PROCESSING_TIMEOUT` -- the worker that had the job died mid-run
+      (`process_item` has no separate "processing started at" timestamp; `uploaded_at` is set
+      once, when the item enters the pipeline, and is always <= when processing began).
+
+    Returns the count released, for tests/logs."""
+    now = clock_now()
+    released = 0
+
+    intent_cutoff = now - RULES.media.MEDIA_UPLOAD_INTENT_LIFETIME
+    stale_intents = RequestMedia.objects.filter(
+        status__in=(STATUS_RESERVED, STATUS_UPLOADED), reserved_at__lt=intent_cutoff
+    )
+    for item in stale_intents:
+        _mark_rejected(item, failure_code=FAILURE_UPLOAD_EXPIRED)
+        released += 1
+
+    processing_cutoff = now - RULES.media.MEDIA_PROCESSING_TIMEOUT
+    stuck_processing = RequestMedia.objects.filter(
+        status=STATUS_PROCESSING, uploaded_at__lt=processing_cutoff
+    )
+    for item in stuck_processing:
+        _mark_rejected(item, failure_code=FAILURE_PROCESSING_TIMED_OUT)
+        released += 1
+
+    return released
