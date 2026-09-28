@@ -119,3 +119,67 @@ deconstruct/clone cycle re-triggers that same absence).
   at Django startup) keep working for every other test in the session. Because of this, `emit()`
   always creates deliveries for the real subscribers too — assert with set membership /
   `filter(subscriber=...)`, never an exact equality on the full delivery list.
+
+## S2.6 — Intake notification builders (docs/handoff/wave-brief.md, docs/ux/intake.md §7)
+
+Two new files, both registered from their app's own `ready()` (not `IntegrationsConfig`, the
+step-1 email/calendar seam owner — step 2's domain modules resolve their own notification
+content, same carve-out `ham.identity.notifications` already used):
+- `ham/requester_portal/notifications.py` — requester email builders (E2/E2u "request
+  received", E3 "new link", E5 "more photos asked", E6/E7 "closed before a decision"). The
+  verification code email (E1) was already built by S2.3 (`ham.requester_portal.verification`,
+  `send_transactional_email`, not the outbox) — nothing to add there.
+- `ham/requests/notifications.py` — leadership email + in-app builders (L-E1 "waiting for
+  review", L-E2 "urgent, needs a pastor", L-E3 "phone check needed"), plus a `RequestCancelled`
+  in-app-only builder to Director/AD (intake.md §6's "who is notified" table, not itself in
+  docs/ux/intake.md's E-row table).
+
+Both added two `pyproject.toml` `ignore_imports` entries (`ham.requester_portal.notifications
+-> ham.integrations.email.notifications`, `ham.requests.notifications -> `same`) — the
+`ignore_imports` list itself already documented exactly this shape and where to add it
+(intake-contracts.md §6, pyproject.toml's own comment).
+
+**Recipients.** Never read `User`/`RoleAssignment` directly — always through
+`ham.identity.services.notification_recipients(role_set) -> list[(user_id, email,
+notify_email)]` (built by S2.5, already resolves active/non-disabled/non-revoked). Urgent
+overrides (Q-123/Q-133) are implemented as "build the email list without checking
+`notify_email` for the urgent-privileged role (pastors for RequestAwaitingApproval, Director/AD
+for RequestSubmitted-as-NEEDS_PHONE_CHECK), otherwise filter on it" — never a rules-module
+literal (there's no numeric threshold here, just a role-scoped override, so nothing belonged in
+`ham.rules`).
+
+**Coordination note, not silently resolved:** docs/ux/intake.md's E3 ("your link expired",
+R11a) and E4 ("check on your request" result, R11b) are two different-copy emails in the UX
+spec, but intake-contracts.md's route table sends both flows through the same
+`requester_link.regenerate` action and the same `RequesterAccessLinkIssued(kind="regenerated")`
+event — nothing in the payload tells the two origins apart, and adding a field to do so is a
+new contract decision, not something I invented silently. One builder covers both, using E3's
+wording; flagged in the file's own module docstring and in this slice's hand-back for the
+coordinator.
+
+**Decided NOT to build this slice (documented, not a silent gap):**
+- `request.duplicates_flagged` gets no separate notification of its own — it's an audit event
+  only; leaders see it via the request detail page's duplicate panel the moment they open an
+  Awaiting Approval request. Documented in `ham/requests/notifications.py`'s module docstring.
+- `RequestMediaStored` (first item of a reopened batch) → in-app to the batch's reopener (L-E4
+  "New photos", intake-contracts.md's own notification table) was not built — it wasn't in this
+  slice's task list, and it lives more naturally as `ham.media.notifications` (a new file,
+  needing its own `ignore_imports` entry the pyproject.toml comment already anticipates). Left
+  as a gap for whichever slice next touches `ham.media`.
+
+**Test gotcha:** any test file under `tests/requester_portal/` that calls
+`ham.requester_portal.services.issue_link`/`resolve_token`/etc. needs its own `autouse` fixture
+re-registering the real `ham.requests.queries` lookups (see `test_submission_flow.py`'s
+`_real_portal_lookups`, copied into `test_notifications.py`) — sibling test modules
+(`test_links.py` and friends) reset the module-level lookup globals to `None` on teardown
+rather than restoring them, so relying on `RequesterPortalConfig.ready()`'s startup
+registration breaks depending on test run order. Passing in isolation but failing in the full
+suite is the symptom.
+
+**Test gotcha 2:** `ham.jobs.run_due_jobs_now()` only runs jobs that were already `todo` when
+it started (one `SELECT` up front, no loop) — a job whose own `transaction.atomic()` commits
+mid-run and triggers a new `transaction.on_commit` deferral (e.g. the duplicate-check job
+emits `RequestAwaitingApproval`, whose outbox dispatch job is only enqueued once *that*
+transaction commits) needs a second (or third/fourth) call to actually observe the end state
+(e.g. a `Notification` row landing). Call it in a small loop, not once, when chaining more than
+one hop.
