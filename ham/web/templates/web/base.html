@@ -1,0 +1,63 @@
+{% load static web_extras %}<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  {% include "web/_head.html" %}
+  <title>{% block title %}{{ church.short_name }} HAM{% endblock %}</title>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="app-shell">
+    <header class="app-bar">
+      <a class="app-bar__logo-link" href="{% url 'web:home' %}">
+        <img class="app-bar__logo" src="{{ church.logo_on_dark|brand_static }}"
+             alt="{{ church.logo_alt }} — HAM" height="32">
+      </a>
+      <h1 class="app-bar__title">{% block app_bar_title %}{% endblock %}</h1>
+    </header>
+
+    {% comment %}
+    Impersonation banner (navigation.md §6, auth-and-access.md I2): non-dismissable, on every
+    screen. `request.actor` is the real-authenticated-user/impersonation context that S3a/S3b
+    build; this slice only reserves the slot and renders nothing when it isn't present yet.
+    {% endcomment %}
+    {% if request.actor.is_impersonating %}
+      <div class="impersonation-banner" role="alert">
+        <span class="impersonation-banner__text">
+          Acting as <strong>{{ request.actor.target_display_name }}</strong>
+          <span class="impersonation-banner__reason">Reason: {{ request.actor.impersonation_reason }}</span>
+          <span class="impersonation-banner__idle">{{ request.actor.impersonation_idle_minutes_left }} min left if idle</span>
+        </span>
+        <form method="post" action="{% url 'web:impersonation_stop' %}">
+          {% csrf_token %}
+          <button class="btn btn--secondary" type="submit">Return to my account</button>
+        </form>
+      </div>
+    {% endif %}
+
+    <div id="offline-status" class="offline-banner" role="status" hidden>
+      You're offline. Showing what was saved earlier. We'll update when you reconnect.
+    </div>
+
+    <div class="app-shell__body">
+      <nav class="nav nav--rail" aria-label="Primary">
+        {% include "web/_nav_items.html" %}
+      </nav>
+      <nav class="nav nav--sidebar" aria-label="Primary">
+        <div class="sidebar-header">
+          <img src="{{ church.logo_on_light|brand_static }}" alt="{{ church.logo_alt }}" height="28">
+          <span class="sidebar-header__label">HAM</span>
+        </div>
+        {% include "web/_nav_items.html" %}
+      </nav>
+
+      <main id="main-content" class="app-shell__main" tabindex="-1">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    <nav class="nav nav--bottom" aria-label="Primary">
+      {% include "web/_nav_items.html" %}
+    </nav>
+  </div>
+</body>
+</html>

@@ -1,0 +1,403 @@
+/*
+ * HAM app shell: skip link, app bar, impersonation banner, bottom nav / rail / sidebar.
+ * Tokens only (design-system/README.md, CLAUDE.md "Design") — no hard-coded colors or sizes.
+ * Breakpoints per design-system/patterns.md §1: <768 bottom nav, 768-1023 rail, >=1024 sidebar.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--ham-bg-canvas);
+  color: var(--ham-text-primary);
+  font: var(--ham-type-body-weight) var(--ham-type-body-size) / var(--ham-type-body-line-height)
+    var(--ham-font-ui);
+}
+
+h1 {
+  font: var(--ham-type-h1-weight) var(--ham-type-h1-size) / var(--ham-type-h1-line-height)
+    var(--ham-font-display);
+  letter-spacing: var(--ham-type-h1-tracking);
+  margin: 0 0 var(--ham-space-2);
+}
+
+h2 {
+  font: var(--ham-type-h2-weight) var(--ham-type-h2-size) / var(--ham-type-h2-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-2);
+}
+
+h3 {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-1);
+}
+
+a {
+  color: var(--ham-text-link);
+}
+
+a:hover {
+  color: var(--ham-text-link-hover);
+}
+
+:focus-visible {
+  outline: var(--ham-size-focus-ring-width) solid var(--ham-focus-ring);
+  outline-offset: var(--ham-size-focus-ring-offset);
+}
+
+/* --- Skip link (WCAG 2.2 AA 2.4.1) ------------------------------------------------------ */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: var(--ham-z-appbar);
+  background: var(--ham-bg-surface);
+  color: var(--ham-text-primary);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  border-radius: var(--ham-radius-md);
+}
+
+.skip-link:focus {
+  left: var(--ham-space-4);
+  top: var(--ham-space-4);
+}
+
+/* --- App bar ----------------------------------------------------------------------------- */
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--ham-z-appbar);
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-4);
+  height: calc(var(--ham-size-appbar-height) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) var(--ham-space-4) 0;
+  background: var(--ham-bg-appbar);
+  color: var(--ham-text-on-appbar);
+  border-bottom: 3px solid transparent;
+  border-image: linear-gradient(
+      to right,
+      var(--ham-accent-brand-light, transparent),
+      var(--ham-accent-brand-mid, transparent),
+      var(--ham-accent-brand-dark, transparent)
+    )
+    1;
+}
+
+.app-bar__logo-link {
+  display: flex;
+  align-items: center;
+}
+
+.app-bar__logo {
+  height: 32px;
+  width: auto;
+  display: block;
+}
+
+.app-bar__title {
+  font: var(--ham-type-h3-weight) var(--ham-type-h3-size) / var(--ham-type-h3-line-height)
+    var(--ham-font-ui);
+  color: var(--ham-text-on-appbar);
+  margin: 0;
+  flex: 1;
+}
+
+/* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
+.impersonation-banner {
+  background: var(--ham-tone-attention-bg);
+  color: var(--ham-tone-attention-fg);
+  border-bottom: 1px solid var(--ham-tone-attention-border);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ham-space-2) var(--ham-space-4);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+}
+
+.impersonation-banner__text {
+  flex: 1;
+  min-width: 200px;
+}
+
+.impersonation-banner__reason,
+.impersonation-banner__idle {
+  display: block;
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+/* --- Layout shell -------------------------------------------------------------------------*/
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-shell__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--ham-space-4);
+  padding-bottom: calc(var(--ham-size-bottomnav-height) + var(--ham-space-8));
+  max-width: var(--ham-size-content-max, 1200px);
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* --- Nav: one list, repositioned per breakpoint (patterns.md §1) ----------------------- */
+.nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding: var(--ham-space-2) var(--ham-space-3);
+  color: var(--ham-text-secondary);
+  text-decoration: none;
+  border-radius: var(--ham-radius-md);
+}
+
+.nav__link[aria-current="page"] {
+  color: var(--ham-text-brand);
+  background: var(--ham-bg-selected);
+}
+
+.nav__icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+/* Mobile (<768px): bottom nav, icon + label under it (components.md §2) */
+.nav--bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--ham-z-nav);
+  display: flex;
+  background: var(--ham-bg-surface);
+  border-top: 1px solid var(--ham-border-default);
+  box-shadow: var(--ham-shadow-sm);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.nav--bottom .nav__link {
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  min-width: 64px;
+  min-height: var(--ham-size-bottomnav-height);
+  border-radius: 0;
+  font: var(--ham-type-nav-compact-weight) var(--ham-type-nav-compact-size) /
+    var(--ham-type-nav-compact-line-height) var(--ham-font-ui);
+}
+
+.nav--rail,
+.nav--sidebar {
+  display: none;
+}
+
+/* Tablet (768-1023px): icon rail */
+@media (min-width: 768px) {
+  .nav--bottom {
+    display: none;
+  }
+
+  .nav--rail {
+    display: flex;
+    flex-direction: column;
+    width: var(--ham-size-sidebar-collapsed);
+    flex: none;
+    background: var(--ham-bg-surface);
+    border-right: 1px solid var(--ham-border-default);
+    padding: var(--ham-space-4) 0;
+  }
+
+  .nav--rail .nav__link {
+    flex-direction: column;
+    justify-content: center;
+    border-radius: 0;
+  }
+
+  .nav--rail .nav__label {
+    position: absolute;
+    left: -9999px;
+  }
+}
+
+/* Desktop (>=1024px): full sidebar with labels */
+@media (min-width: 1024px) {
+  .nav--rail {
+    display: none;
+  }
+
+  .nav--sidebar {
+    display: flex;
+    flex-direction: column;
+    width: var(--ham-size-sidebar-width);
+    flex: none;
+    background: var(--ham-bg-surface);
+    border-right: 1px solid var(--ham-border-default);
+    padding: var(--ham-space-4);
+  }
+
+  .nav--sidebar .nav__link {
+    justify-content: flex-start;
+  }
+
+  .sidebar-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--ham-space-1);
+    margin-bottom: var(--ham-space-6);
+  }
+
+  .sidebar-header__label {
+    font: var(--ham-type-small-weight) var(--ham-type-small-size) /
+      var(--ham-type-small-line-height) var(--ham-font-ui);
+    color: var(--ham-text-secondary);
+  }
+
+  .app-shell__main {
+    padding: var(--ham-space-8);
+    padding-bottom: var(--ham-space-8);
+  }
+}
+
+/* --- Cards & placeholders (components.md §12 empty states) ------------------------------ */
+.card {
+  background: var(--ham-bg-surface);
+  border: 1px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-lg);
+  padding: var(--ham-space-4);
+}
+
+@media (min-width: 1024px) {
+  .card {
+    padding: var(--ham-space-5);
+  }
+}
+
+.empty-state {
+  max-width: 360px;
+  margin: var(--ham-space-8) auto;
+  text-align: center;
+  color: var(--ham-text-secondary);
+}
+
+/* --- Public / signed-out layout (sign-in etc., patterns.md §1 "no nav") ----------------- */
+.public-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ham-bg-canvas);
+}
+
+.public-shell__bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ham-size-appbar-height);
+  background: var(--ham-bg-appbar);
+}
+
+.public-shell__bar .app-bar__logo {
+  height: 28px;
+}
+
+.public-shell__content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ham-space-6) var(--ham-space-4);
+}
+
+.public-card {
+  background: var(--ham-bg-surface);
+  border-radius: var(--ham-radius-lg);
+  box-shadow: var(--ham-shadow-md);
+  padding: var(--ham-space-6);
+  max-width: var(--ham-size-form-max, 420px);
+  width: 100%;
+  text-align: center;
+}
+
+.public-card__mission {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+/* --- Buttons (components.md §4) --------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ham-space-2);
+  min-height: var(--ham-size-target-min);
+  padding-inline: var(--ham-space-5);
+  border-radius: var(--ham-radius-md);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: var(--ham-action-primary-bg);
+  color: var(--ham-text-on-primary);
+}
+
+.btn--primary:hover {
+  background: var(--ham-action-primary-bg-hover);
+  color: var(--ham-text-on-primary);
+}
+
+.btn--secondary {
+  background: var(--ham-action-secondary-bg);
+  color: var(--ham-action-secondary-fg);
+  border: 1.5px solid var(--ham-action-secondary-border);
+}
+
+/* --- Offline banner (navigation.md §6) --------------------------------------------------- */
+.offline-banner {
+  background: var(--ham-tone-attention-bg);
+  color: var(--ham-tone-attention-fg);
+  border-bottom: 1px solid var(--ham-tone-attention-border);
+  padding: var(--ham-space-2) var(--ham-space-4);
+  text-align: center;
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}
