@@ -92,6 +92,7 @@ EXPECTED = {
     "media.MEDIA_UPLOAD_INTENT_LIFETIME": H(1),  # architecture plan §9
     "media.PRESIGNED_UPLOAD_URL_LIFETIME": M(15),  # architecture plan §9
     "media.PRESIGNED_VIEW_URL_LIFETIME": S(60),  # architecture plan §9
+    "media.MEDIA_PROCESSING_TIMEOUT": H(1),  # fix round FIX-B, security review M3
     # Retention (§41, §42, §56, §58)
     "retention.AUDIT_RETENTION": CalendarYears(1),  # Q-036
     "retention.INCIDENT_RETENTION": CalendarYears(7),

@@ -30,4 +30,14 @@ urlpatterns = [
         views.request_more_photos,
         name="request_more_photos",
     ),
+    path(
+        "requests/<uuid:request_id>/media/<uuid:media_id>/thumb",
+        views.request_media_thumb,
+        name="request_media_thumb",
+    ),
+    path(
+        "requests/<uuid:request_id>/media/<uuid:media_id>/view",
+        views.request_media_view,
+        name="request_media_view",
+    ),
 ]

@@ -39,7 +39,10 @@ def test_presign_put_calls_generate_presigned_url_for_put(mock_client_factory, s
 
     store = R2ObjectStore()
     result = store.presign_put(
-        "abc123", content_type="image/jpeg", max_bytes=1000, expires_in=dt.timedelta(minutes=15)
+        "abc123",
+        content_type="image/jpeg",
+        content_length=1000,
+        expires_in=dt.timedelta(minutes=15),
     )
 
     assert result.url == "https://signed.example/put"
@@ -50,6 +53,8 @@ def test_presign_put_calls_generate_presigned_url_for_put(mock_client_factory, s
     assert kwargs["Params"]["Bucket"] == "ham-media"
     assert kwargs["Params"]["Key"] == "abc123"
     assert kwargs["Params"]["ContentType"] == "image/jpeg"
+    # Security review M2: the exact declared length is part of what SigV4 signs.
+    assert kwargs["Params"]["ContentLength"] == 1000
     assert kwargs["ExpiresIn"] == 900
 
 

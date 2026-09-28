@@ -29,12 +29,13 @@ default.
 from __future__ import annotations
 
 from django.conf import settings
+from django.urls import reverse
 
 from ham.integrations.email.notifications import NotificationEmail, register_notification
 from ham.outbox.models import OutboxEvent
 from ham.platform.church import church_profile
+from ham.platform.clock import now as clock_now
 from ham.platform.crypto import decrypt
-from ham.rules import RULES
 
 from .models import RequesterAccessLink
 
@@ -44,19 +45,27 @@ def _first_name(full_name: str) -> str:
     return full_name.split()[0] if full_name else "there"
 
 
-def _current_link_url(request_id) -> str | None:
-    """The requester's current live link, decrypted (Q-102: "every requester email carries
-    the link"). `None` for a no-email (`NEEDS_PHONE_CHECK`) request, which never has one."""
-    link = (
+def _current_link(request_id) -> RequesterAccessLink | None:
+    """The requester's current live link row. `None` for a no-email (`NEEDS_PHONE_CHECK`)
+    request, which never has one."""
+    return (
         RequesterAccessLink.objects.filter(request_id=request_id, revoked_at__isnull=True)
         .order_by("-issued_at")
         .first()
     )
-    if link is None:
-        return None
+
+
+def _link_url(link: RequesterAccessLink) -> str:
+    """Security review H4: every requester email used to hard-code ``/r/<token>``, but the
+    real secure-page route (`ham.web.urls_requester`) is `/request-help/r/<token>`
+    (`web:request_help_secure_page`) -- every emailed link 404'd. Building it through
+    `reverse()` against the real URLconf, instead of a second hard-coded path guess, means a
+    route rename can't silently break this again without also failing
+    `test_every_emailed_url_resolves` (S2.6/fix-round tests)."""
     token = decrypt(link.token_ciphertext)
     base = str(settings.HAM_BASE_URL).rstrip("/")
-    return f"{base}/r/{token}"
+    path = reverse("web:request_help_secure_page", kwargs={"token": token})
+    return f"{base}{path}"
 
 
 def _request_and_requester(request_id):
@@ -85,9 +94,10 @@ def _build_request_received_email(event: OutboxEvent) -> NotificationEmail | Non
         # (this is also the NEEDS_PHONE_CHECK submission path for the same event type).
         return None
 
-    link_url = _current_link_url(request.id)
-    if link_url is None:  # pragma: no cover - defensive; issue_link always runs first
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive; issue_link always runs first
         return None
+    link_url = _link_url(link)
 
     church = church_profile()
     urgent_line = ""
@@ -125,6 +135,25 @@ def _build_request_received_email(event: OutboxEvent) -> NotificationEmail | Non
 # ---------------------------------------------------------------------------------------
 # E3: "Your new link for HAM request #047" (RequesterAccessLinkIssued, kind="regenerated")
 # ---------------------------------------------------------------------------------------
+def _link_expiry_note(link: RequesterAccessLink, request) -> str:
+    """PRD guardian N3 / Q-149: the new-link email used to always say "This link works for
+    14 days", even when the real link (`RequesterAccessLink.expires_at`, or -- when that's
+    unset -- normal access ending with the request) lasts a different amount of time (e.g. a
+    link regenerated for a request that's still open follows normal access and has no fixed
+    end at all). States the link's actual end instead of the rules-module lifetime."""
+    if link.expires_at is not None:
+        remaining = link.expires_at - clock_now()
+        days = max(1, round(remaining.total_seconds() / 86400))
+        plural = "" if days == 1 else "s"
+        return f"This link works for {days} more day{plural}."
+    from ham.requester_portal.validity import normal_access_ends_at
+
+    ends_at = normal_access_ends_at(status=request.status, closed_at=request.closed_at)
+    if ends_at is not None:
+        return f"This link works until {ends_at.strftime('%B %-d, %Y')}."
+    return "This link works for as long as your request stays open."
+
+
 def _build_new_link_email(event: OutboxEvent) -> NotificationEmail | None:
     if event.payload.get("kind") != RequesterAccessLink.KIND_REGENERATED:
         return None
@@ -133,14 +162,14 @@ def _build_new_link_email(event: OutboxEvent) -> NotificationEmail | None:
     if request is None or requester is None or requester.email is None:
         return None
 
-    link_url = _current_link_url(request.id)
-    if link_url is None:  # pragma: no cover - defensive
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
         return None
+    link_url = _link_url(link)
 
-    days = RULES.requester_access.REGENERATED_REQUESTER_LINK_LIFETIME.days
     text = (
-        f"Here's your new link. Your old link no longer works. This link works for {days} "
-        f"days.\n\nOpen my request page: {link_url}"
+        f"Here's your new link. Your old link no longer works. {_link_expiry_note(link, request)}"
+        f"\n\nOpen my request page: {link_url}"
     )
     return NotificationEmail(
         to=requester.email,
@@ -163,9 +192,10 @@ def _build_more_photos_email(event: OutboxEvent) -> NotificationEmail | None:
     if request is None or requester is None or requester.email is None:
         return None
 
-    link_url = _current_link_url(request.id)
-    if link_url is None:  # pragma: no cover - defensive
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
         return None
+    link_url = _link_url(link)
 
     reason = batch.reason.strip() or "a closer look at the work"
     text = f"We'd like a few more photos: {reason}.\n\nOpen my request page: {link_url}"

@@ -49,10 +49,14 @@ class ObjectStore(Protocol):
     error", intake.md §11 test hook "a storage outage leaves the request intact")."""
 
     def presign_put(
-        self, key: str, *, content_type: str, max_bytes: int, expires_in: dt.timedelta
+        self, key: str, *, content_type: str, content_length: int, expires_in: dt.timedelta
     ) -> PresignedUpload:
-        """A PUT URL valid only for ``expires_in``, that the store itself refuses if the
-        uploaded body isn't exactly ``content_type`` and no larger than ``max_bytes``."""
+        """A PUT URL valid only for ``expires_in``, signed for exactly ``content_type`` and
+        exactly ``content_length`` bytes (security review M2: a simple S3 PUT presign has no
+        native max-size parameter, only an exact one -- ``ContentLength`` is part of what
+        SigV4 signs, so a browser that sends a different ``Content-Length`` header gets a
+        signature mismatch instead of ever reaching the bucket). The caller already validated
+        ``content_length`` against the type's rules-module cap before calling this."""
         ...
 
     def presign_get(self, key: str, *, expires_in: dt.timedelta) -> str:

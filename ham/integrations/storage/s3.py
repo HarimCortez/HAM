@@ -57,7 +57,7 @@ class R2ObjectStore:
         )
 
     def presign_put(
-        self, key: str, *, content_type: str, max_bytes: int, expires_in: dt.timedelta
+        self, key: str, *, content_type: str, content_length: int, expires_in: dt.timedelta
     ) -> PresignedUpload:
         now = dt.datetime.now(dt.UTC)
         url = self._client.generate_presigned_url(
@@ -66,10 +66,12 @@ class R2ObjectStore:
                 "Bucket": self._bucket,
                 "Key": key,
                 "ContentType": content_type,
-                # S3 has no native "max size" presign parameter for a simple PUT (only
-                # POST-policy uploads support content-length-range); the object's actual size
-                # is re-checked server-side on completion (intake.md §9), same as
-                # LocalObjectStore below.
+                # Security review M2: ``ContentLength`` is signed as part of the URL (SigV4
+                # covers every param in ``Params``), so the browser's PUT must send exactly
+                # this ``Content-Length`` header or S3 rejects it with a signature mismatch
+                # before storing anything. The object's actual size is still re-checked
+                # server-side on completion (intake.md §9) as defense in depth.
+                "ContentLength": content_length,
             },
             ExpiresIn=int(expires_in.total_seconds()),
         )

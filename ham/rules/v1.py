@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-5"
+RULES_VERSION = "2026.09.28-6"
 
 
 def rule(
@@ -591,6 +591,13 @@ class MediaRules:
         note="Engineering value (architecture plan §9's rules table), not a Q-numbered open "
         "question.",
     )
+    MEDIA_PROCESSING_TIMEOUT: timedelta = rule(
+        timedelta(hours=1),
+        label="An item stuck in 'processing' (the worker died mid-job) is treated as failed after",
+        sources=("PRD §45",),
+        note="Engineering value, fix-round M3 (security review): without this an item that "
+        "never finishes processing holds its slot forever. Not a Q-numbered open question.",
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -1086,6 +1093,8 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
         p.append("presigned upload URL must not outlive the reservation it belongs to")
     if not timedelta(0) < m.PRESIGNED_VIEW_URL_LIFETIME:
         p.append("presigned view URL lifetime must be positive")
+    if not timedelta(0) < m.MEDIA_PROCESSING_TIMEOUT:
+        p.append("media processing timeout must be positive")
     for name, prefix in (("REQUESTER_PHOTO_TYPES", "image/"), ("REQUESTER_VIDEO_TYPES", "video/")):
         types = getattr(m, name)
         if not types or len(set(types)) != len(types):

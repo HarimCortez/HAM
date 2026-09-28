@@ -55,6 +55,23 @@ if TYPE_CHECKING:
 
 
 # ------------------------------------------------------------------------------------------
+# Media purge hook (security review M4): `ham.media` sits *above* `ham.requests` in the
+# layers contract (`ham.web -> ham.requester_portal -> ham.media -> ham.requests -> ...`), so
+# this module may never import it to delete a spam-purged request's storage objects itself.
+# `ham.media.apps.MediaConfig.ready()` calls `register_media_purge_hook` with `ham.media.
+# services.purge_all_for_request` (it *can* legally import this module, downward) -- the
+# reverse of the lookup pattern `ham.requester_portal` uses for its own cross-app queries.
+# ------------------------------------------------------------------------------------------
+_media_purge_hook: Any = None
+
+
+def register_media_purge_hook(fn: Any) -> None:
+    """Called once from `ham.media.apps.MediaConfig.ready()`."""
+    global _media_purge_hook
+    _media_purge_hook = fn
+
+
+# ------------------------------------------------------------------------------------------
 # Submission payload (see the module docstring's coordination note)
 # ------------------------------------------------------------------------------------------
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -545,6 +562,11 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
 
     if request.cancel_reason_code == CancelReason.SPAM.value:
         reference_number = request.reference_number
+        # Security review M4: delete storage objects (originals/derivatives/thumbnails)
+        # before the row cascade-deletes the RequestMedia rows that point at them, or they'd
+        # be orphaned in the object store forever.
+        if _media_purge_hook is not None:
+            _media_purge_hook(request_id)
         request.delete()
         return CommandResult(
             value=None,

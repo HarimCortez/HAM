@@ -1760,3 +1760,55 @@ input[type="radio"] {
   cursor: pointer;
   font: inherit;
 }
+
+/* ================================================================================================
+   Fix round FIX-B: leadership media gallery (PRD M3 / UX B1). Tokens only, appended so this
+   slice's CSS never interleaves with FIX-C's template/CSS work on the same file. See
+   `ham/web/templates/web/_request_media_gallery.html`.
+   ================================================================================================ */
+.media-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  gap: var(--ham-space-2);
+  list-style: none;
+  padding: 0;
+  margin: var(--ham-space-3) 0;
+}
+
+.media-gallery__item {
+  min-width: 0;
+}
+
+.media-gallery__link {
+  display: block;
+  border-radius: var(--ham-radius-md);
+  overflow: hidden;
+  background: var(--ham-bg-sunken);
+}
+
+.media-gallery__thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.media-gallery__link--video {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ham-space-1);
+  text-decoration: none;
+}
+
+.media-gallery__video-icon {
+  color: var(--ham-text-secondary);
+}
+
+@media (min-width: 768px) {
+  .media-gallery__grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 8rem), 1fr));
+  }
+}

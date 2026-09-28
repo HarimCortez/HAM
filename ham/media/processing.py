@@ -23,7 +23,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:  # HEIC/HEIF (iPhone) support for Pillow.
     import pillow_heif
@@ -85,9 +85,10 @@ def _resized(img: Image.Image, long_edge: int) -> Image.Image:
 
 
 def process_photo(original: bytes) -> ProcessedImage:
-    """Re-encodes to JPEG, long edge capped at `IMAGE_LONG_EDGE`, no EXIF/GPS copied, plus a
-    `THUMBNAIL_LONG_EDGE` thumbnail. Raises `ProcessingError("corrupt")` for an unreadable
-    file, `ProcessingError("unsupported")` for a format Pillow can't decode at all."""
+    """Re-encodes to JPEG, long edge capped at `IMAGE_LONG_EDGE`, no EXIF/GPS/COM comment
+    copied, plus a `THUMBNAIL_LONG_EDGE` thumbnail. Raises `ProcessingError("corrupt")` for an
+    unreadable file, `ProcessingError("unsupported")` for a format Pillow can't decode at
+    all."""
     import io
 
     try:
@@ -97,14 +98,26 @@ def process_photo(original: bytes) -> ProcessedImage:
         raise ProcessingError("corrupt", str(exc)) from exc
 
     img: Image.Image = opened
+    # Security review L1: bake the EXIF orientation into the pixels *before* EXIF is dropped
+    # (otherwise a sideways/upside-down phone photo would look correct to a viewer that reads
+    # EXIF orientation, then look wrong the moment EXIF is gone). `exif_transpose` returns a
+    # new image, or the original unchanged if there was no orientation tag to apply.
+    img = ImageOps.exif_transpose(img) or img
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
 
     full = _resized(img, IMAGE_LONG_EDGE)
+    # Security review L1: `.resize()`/`.convert()` carry the source image's `.info` dict
+    # forward, which can include a JPEG COM comment segment (`info["comment"]`) -- Pillow's
+    # JPEG encoder re-embeds it on save if present, even though `Image.save()` here is never
+    # given `exif=`/`comment=` explicitly. Clearing `.info` strips it (and anything else that
+    # rode along in it) for good, the same way EXIF is stripped by omission.
+    full.info = {}
     full_buf = io.BytesIO()
-    full.save(full_buf, format="JPEG", quality=IMAGE_JPEG_QUALITY)  # no exif= -> stripped
+    full.save(full_buf, format="JPEG", quality=IMAGE_JPEG_QUALITY)
 
     thumb = _resized(img, THUMBNAIL_LONG_EDGE)
+    thumb.info = {}
     thumb_buf = io.BytesIO()
     thumb.save(thumb_buf, format="JPEG", quality=IMAGE_JPEG_QUALITY)
 

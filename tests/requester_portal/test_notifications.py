@@ -209,7 +209,10 @@ class TestNewLinkEmail:
         email = _build_new_link_email(event)
         assert email is not None
         assert issued.token in email.text_body
-        assert "14" in email.text_body
+        # Fix round N3/Q-149: an open (not yet closed) request's regenerated link follows
+        # normal access rather than the rules-module 14-day lifetime, so the email must not
+        # claim a fixed day count it doesn't have.
+        assert "stays open" in email.text_body
         assert "no longer works" in email.text_body
 
 
