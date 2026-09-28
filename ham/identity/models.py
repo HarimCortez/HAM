@@ -64,6 +64,10 @@ class User(AbstractBaseUser):
     last_sign_in_at = models.DateTimeField(null=True, blank=True)
     disabled_at = models.DateTimeField(null=True, blank=True)
     disabled_by_id = models.UUIDField(null=True, blank=True)
+    # Q-037/Q-071/Q-084: baseline for the invitation's 7-day validity window. Null until an
+    # invited person's leader clicks "Resend invitation"; until then the window is measured
+    # from `created_at` (`ham.identity.services.invitation_is_valid`).
+    invitation_resent_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 

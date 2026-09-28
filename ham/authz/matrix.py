@@ -55,7 +55,13 @@ _DIR_AD = frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})  # Q-054: no
 MATRIX: dict[str, ActionRule] = {
     "shell.use": ActionRule(ANY_STANDING_ROLE, prd=("§67",)),
     "me.view": ActionRule(ANY_STANDING_ROLE, scope=Scope.SELF, prd=("§67",)),
-    "me.update": ActionRule(ANY_STANDING_ROLE, scope=Scope.SELF, prd=("§67",)),
+    # Blocked while impersonating (item 6, docs/ux/auth-and-access.md I3's "the target's own
+    # ... consents/decisions" pattern): saving would apply to the *impersonated* identity
+    # (`ctx.user_id`) while an unblocked view would display the real signed-in person's own
+    # record, which is confusing and unsafe to let an Admin change on someone else's behalf.
+    "me.update": ActionRule(
+        ANY_STANDING_ROLE, scope=Scope.SELF, blocked_while_impersonating=True, prd=("§67", "§59")
+    ),
     "me.security.manage": ActionRule(
         ANY_STANDING_ROLE, scope=Scope.SELF, blocked_while_impersonating=True, prd=("§60",)
     ),
@@ -88,15 +94,28 @@ MATRIX: dict[str, ActionRule] = {
     "user.invite": ActionRule(
         _ADM_DIR_AD, blocked_while_impersonating=True, prd=("§4.11", "Q-037")
     ),
+    # UX C5/B3: whoever may invite may also resend (new 7-day window, Q-071) or cancel a
+    # still-Invited person's invitation.
+    "user.invitation_resend": ActionRule(
+        _ADM_DIR_AD, blocked_while_impersonating=True, prd=("§4.11", "Q-037", "Q-071")
+    ),
+    "user.invitation_cancel": ActionRule(
+        _ADM_DIR_AD, blocked_while_impersonating=True, prd=("§4.11", "Q-037", "Q-052")
+    ),
     "user.update_identity": ActionRule(_ADM, prd=("§4.11",)),
-    # PRD-GAP Q-079: foundation.md's step-1 table lists Administrator only for disable/enable;
-    # Q-052 suggests the Director could manage this for roles they may grant, but that isn't
-    # confirmed, so this stays Administrator-only (least privilege) until Q-079 is decided.
+    # Q-079 (closed, answered by Q-052): the Director may disable/enable accounts that don't
+    # hold Administrator — `disable_user`/`enable_user` (ham/identity/services.py) enforce the
+    # finer-grained "not an Administrator" rule the matrix can't express (like
+    # `_check_can_grant` does for role grants).
     # PRD-GAP Q-080: blocked_while_impersonating=True follows docs/ux/auth-and-access.md §4 I3's
     # expanded blocked-action list ("user invites/turn-off"), which is more specific than
     # foundation.md's compressed owner-decisions summary; see Q-080.
-    "user.disable": ActionRule(_ADM, blocked_while_impersonating=True, prd=("§4.11", "Q-035")),
-    "user.enable": ActionRule(_ADM, blocked_while_impersonating=True, prd=("§4.11",)),
+    "user.disable": ActionRule(
+        _ADM_DIR, blocked_while_impersonating=True, prd=("§4.11", "Q-035", "Q-052", "Q-079")
+    ),
+    "user.enable": ActionRule(
+        _ADM_DIR, blocked_while_impersonating=True, prd=("§4.11", "Q-052", "Q-079")
+    ),
     "user.mfa_reset": ActionRule(
         _ADM, step_up=True, blocked_while_impersonating=True, prd=("§60.1", "Q-035")
     ),

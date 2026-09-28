@@ -1,0 +1,31 @@
+{% extends "web/base.html" %}
+
+{% block title %}Turn off {{ detail.display_name }}'s account · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Turn off account{% endblock %}
+
+{% block content %}
+  <h1 id="confirm-title" tabindex="-1">Turn off {{ detail.display_name }}'s account?</h1>
+  <p>
+    {{ detail.display_name }} will be signed out everywhere and can't sign in again until an
+    Administrator turns the account back on. Any upcoming commitments are cancelled and
+    leaders are told; this doesn't affect {{ detail.display_name }}'s reliability score.
+  </p>
+
+  <form method="post" action="{% url 'web:admin_user_disable' user_id=detail.user.id %}" novalidate>
+    {% csrf_token %}
+    <div class="form-field{% if reason_error %} form-field--error{% endif %}">
+      <label for="id_reason">Reason</label>
+      <textarea id="id_reason" name="reason" required
+        {% if reason_error %}aria-invalid="true" aria-describedby="id_reason_error"{% endif %}></textarea>
+      {% if reason_error %}
+        <p id="id_reason_error" class="form-field__error" role="alert">Enter a reason.</p>
+      {% endif %}
+      <p class="form-field__hint">Keep this factual; avoid personal details you wouldn't want
+        kept on record (this note is not included in audit exports).</p>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn--danger" type="submit">Turn off account</button>
+      <a class="btn btn--secondary" href="{% url 'web:admin_user_detail' user_id=detail.user.id %}">Keep account on</a>
+    </div>
+  </form>
+{% endblock %}

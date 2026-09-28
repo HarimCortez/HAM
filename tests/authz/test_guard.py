@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory
@@ -85,6 +87,61 @@ def test_declared_view_allows_with_permission():
         return HttpResponse("ok")
 
     assert mw.process_view(request, admin_users, (), {}) is None
+
+
+def test_privileged_route_denial_is_audited(make_user):
+    """Item 4: a route-guard denial of a privileged action (in commands.py's
+    `_AUDITED_ON_DENIAL` set) writes `authz.denied`, same as a denied `@command` call."""
+    from ham.audit.models import AuditEvent
+
+    volunteer = make_user("kevin@example.org")
+    mw = _middleware()
+    request = _request_for("user_mfa_reset")
+    request.actor = ActorContext(
+        user_id=volunteer.id,
+        real_user_id=None,
+        roles=frozenset({roles.VOLUNTEER}),
+        is_active=True,
+        mfa_satisfied=True,
+    )
+
+    @requires_action("user.mfa_reset")
+    def mfa_reset_view(req):
+        return HttpResponse("ok")
+
+    response = mw.process_view(request, mfa_reset_view, (), {})
+    assert response.status_code == 404
+    event = AuditEvent.objects.filter(action="authz.denied").latest("seq")
+    assert event.target_id == "user.mfa_reset"
+    assert event.actor_user_id == volunteer.id
+
+
+def test_impersonation_blocked_route_is_audited(make_user):
+    from ham.audit.models import AuditEvent
+
+    admin = make_user("nadia@example.org")
+    kevin = make_user("kevin@example.org")
+    mw = _middleware()
+    request = _request_for("admin_user_disable")
+    request.actor = ActorContext(
+        user_id=kevin.id,
+        real_user_id=admin.id,
+        roles=frozenset({roles.ADMINISTRATOR}),
+        is_active=True,
+        mfa_satisfied=True,
+        impersonation_id=uuid.uuid4(),
+    )
+
+    @requires_action("user.disable")
+    def disable_view(req):
+        return HttpResponse("ok")
+
+    response = mw.process_view(request, disable_view, (), {})
+    assert response.status_code == 404
+    event = AuditEvent.objects.filter(action="impersonation.action_blocked").latest("seq")
+    assert event.target_id == "user.disable"
+    assert event.actor_user_id == admin.id
+    assert event.acting_as_user_id == kevin.id
 
 
 def test_missing_actor_defaults_to_anonymous_and_redirects_to_sign_in():

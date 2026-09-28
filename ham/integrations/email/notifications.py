@@ -50,7 +50,7 @@ class NotificationEmail:
         self.category = category
 
 
-Builder = Callable[[OutboxEvent], "NotificationEmail | None"]
+Builder = Callable[[OutboxEvent], "NotificationEmail | list[NotificationEmail] | None"]
 
 _builders: dict[str, Builder] = {}
 
@@ -58,7 +58,9 @@ _builders: dict[str, Builder] = {}
 def register_notification(event_type: str, builder: Builder) -> None:
     """A later module calls this once, from its own `AppConfig.ready()`, to have this
     subscriber send an email whenever `event_type` is emitted. The builder may return
-    `None` to mean "no email for this particular event" (e.g. a preference was off)."""
+    `None` to mean "no email for this particular event" (e.g. a preference was off), one
+    `NotificationEmail`, or a list of them (e.g. Q-055: one role-change event notifies every
+    active Administrator)."""
     _builders[event_type] = builder
 
 
@@ -75,13 +77,16 @@ def handle_email_event(event: OutboxEvent) -> None:
             extra={"event_type": event.event_type, "event_id": str(event.id)},
         )
         return
-    email = builder(event)
-    if email is None:
+    result = builder(event)
+    if result is None:
         return
-    get_default_channel().send(
-        to=email.to,
-        subject=email.subject,
-        text_body=email.text_body,
-        html_body=email.html_body,
-        category=email.category,
-    )
+    emails = result if isinstance(result, list) else [result]
+    channel = get_default_channel()
+    for email in emails:
+        channel.send(
+            to=email.to,
+            subject=email.subject,
+            text_body=email.text_body,
+            html_body=email.html_body,
+            category=email.category,
+        )
