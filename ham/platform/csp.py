@@ -16,9 +16,9 @@ otherwise:
 - `connect-src 'self'` — HTMX requests and the offline queue only ever call same-origin API
   routes (foundation.md §1: "HAM must keep working if any integration is down" — nothing here
   talks to a third party directly from the browser).
-- `frame-ancestors 'self'` in production generally (`X_FRAME_OPTIONS = DENY` already refuses
-  everyone); the public-embed step (Q-005) will widen this for the church's own site only,
-  never for arbitrary hosts.
+- `frame-ancestors 'none'` (matches `X_FRAME_OPTIONS = DENY` — nobody may frame HAM at all
+  today); the public-embed step (Q-005) will widen this to the church's own site only,
+  never to arbitrary hosts, once that screen exists.
 
 Only installed in `config/settings/prod.py`'s `MIDDLEWARE` (dev/test skip it so a local
 `DEBUG=True` run and Playwright/pytest never have to work around a CSP violation while

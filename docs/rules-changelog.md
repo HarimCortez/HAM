@@ -94,3 +94,17 @@ New invariant: both new rules must be at least 1.
 - **`SIGN_IN_CHALLENGE_RETENTION`** = 7 days (security review L5): a background job purges
   `identity_sign_in_challenge` rows older than this — they exist only to rate-limit/lock out
   by address, not as a record worth keeping.
+
+## 2026.09.28-3
+
+Content hash: `sha256:2635dba3e86d2066f3a3069d9191682b4c293e3702b3dccefa6b71dc67ea011e`
+
+Security round-3 re-review (N9, M9): two new rules —
+
+- **`outbox.JOB_PAYLOAD_ENCRYPTION_TTL`** = 1 day: `ham.integrations.email.service`'s
+  encrypted background-job payload (security review C2) is now also time-bounded via Fernet's
+  built-in TTL, not just key-rotatable — a captured/exfiltrated old `procrastinate_jobs` row
+  can't be decrypted forever with a leaked `HAM_FIELD_ENCRYPTION_KEY`.
+- **`operations.RECENT_ACTIVITY_WINDOW`** = 24 hours: replaces a bare `timedelta(hours=24)`
+  literal in `ham.web.views._recent_sign_in_failures` (the Administrator Home "recent sign-in
+  failures" summary).

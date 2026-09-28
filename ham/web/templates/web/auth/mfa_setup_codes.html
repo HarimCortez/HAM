@@ -6,6 +6,9 @@
   <h1>Save your recovery codes</h1>
   <p>If you lose your phone, each of these codes gets you in once. Keep them somewhere safe.</p>
 
+  {% if not codes %}
+    <p>You've already viewed these codes. If you didn't save them, ask an Administrator to reset two-step sign-in and set it up again.</p>
+  {% endif %}
   <ul class="recovery-codes">
     {% for code in codes %}<li>{{ code }}</li>{% endfor %}
   </ul>

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -122,6 +123,15 @@ class SharedIdentityProfile(models.Model):
         if len(parts) == 1:
             return parts[0]
         return f"{parts[0]} {parts[-1][0]}."
+
+
+def neutral_display_name(user_id: uuid.UUID | str) -> str:
+    """Security review round 3, N8: the one fallback every caller must use instead of an
+    email address wherever a display name is needed but the person has no
+    `SharedIdentityProfile`/no `full_name` set yet (`/api/v1/me`, the impersonation banner,
+    `ham.identity.services.display_names_for`) — §68 forbids showing contact info to a viewer
+    who isn't otherwise authorized to see it, and none of those call sites checks that."""
+    return f"Member {str(user_id)[:8]}"
 
 
 class RoleAssignment(models.Model):
@@ -312,11 +322,13 @@ class ImpersonationSession(models.Model):
     END_REASON_IDLE_TIMEOUT = "idle_timeout"
     END_REASON_SIGNED_OUT = "signed_out"
     END_REASON_TARGET_DISABLED = "target_disabled"
+    END_REASON_SESSION_EXPIRED = "session_expired"
     END_REASON_CHOICES = [
         (END_REASON_MANUAL, "Manual"),
         (END_REASON_IDLE_TIMEOUT, "Idle timeout"),
         (END_REASON_SIGNED_OUT, "Signed out"),
         (END_REASON_TARGET_DISABLED, "Target disabled"),
+        (END_REASON_SESSION_EXPIRED, "Session expired"),
     ]
 
     id = UUID7Field()

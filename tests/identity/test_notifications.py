@@ -40,8 +40,9 @@ class TestInvitationEmail:
         event = _event(
             "UserCreated", invitee.id, {"roles": [roles.VOLUNTEER], "invited_by": str(inviter.id)}
         )
-        email = _build_invitation_email(event)
-        assert email is not None
+        emails = _build_invitation_email(event)
+        assert emails is not None and len(emails) == 1
+        email = emails[0]
         assert email.to == "dwayne@example.org"
         assert "Nadia" in email.subject
         assert "/sign-in" in email.text_body

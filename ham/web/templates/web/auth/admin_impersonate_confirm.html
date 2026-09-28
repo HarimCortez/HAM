@@ -26,6 +26,7 @@
       <div class="form-field">
         <label for="id_reason">Reason</label>
         <input type="text" name="reason" id="id_reason" required minlength="5">
+        <p class="form-field__hint">This is emailed to {{ target.profile.full_name|default:"them" }} once troubleshooting ends.</p>
       </div>
       <div class="form-actions">
         <button class="btn btn--primary" type="submit">Start troubleshooting</button>

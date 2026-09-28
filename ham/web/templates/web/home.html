@@ -31,7 +31,7 @@
         <p class="text-secondary">No deliveries recorded yet.</p>
       {% endif %}
       <p>
-        Recent sign-in failures (last 24 hours): {{ recent_sign_in_failures.count }}
+        Recent sign-in failures (last {{ recent_sign_in_failures.window_hours }} hours): {{ recent_sign_in_failures.count }}
         {% if recent_sign_in_failures.latest_at %}
           &middot; most recent {{ recent_sign_in_failures.latest_at }}
         {% endif %}

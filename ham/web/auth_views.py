@@ -27,12 +27,19 @@ from ham.rules import RULES
 
 
 def _client_ip(request: HttpRequest) -> str:
-    """Best-effort client IP for the sign-in rate limit (security review M3). Render (and any
-    other reverse proxy) sets `X-Forwarded-For`; only its first hop is trusted here since this
-    is a throttle, not an authorization decision."""
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Best-effort client IP for the sign-in rate limit (security review M3, round 3 N5).
+
+    A client can send its own, entirely fake `X-Forwarded-For` prefix — only the right-most
+    `settings.HAM_TRUSTED_PROXY_COUNT` hops were actually appended by proxies HAM controls
+    (Render's edge proxy adds exactly one). Trusting the *first* hop (as this used to) let
+    anyone bypass the per-IP throttle just by sending a made-up header. `HAM_TRUSTED_PROXY_COUNT
+    = 0` (no proxy in front, e.g. local dev/tests) means "ignore the header entirely"."""
+    trusted = settings.HAM_TRUSTED_PROXY_COUNT
+    if trusted > 0:
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if len(hops) >= trusted:
+            return hops[-trusted]
     return request.META.get("REMOTE_ADDR", "")
 
 
@@ -277,6 +284,17 @@ def sign_in_mfa(request: HttpRequest) -> HttpResponse:
             request.session.pop(SESSION_PENDING_MFA_USER_ID, None)
             request.session.pop(SESSION_MFA_ATTEMPTS, None)
             authn.complete_sign_in(request, user=user)
+            # PRD round 3 review: "Continue without two-step" (Q-045) leaves MFA-role
+            # permissions inactive for the rest of this session, which is exactly the kind of
+            # fact CLAUDE.md priority 3 says needs an audit event, not just a flash message.
+            audit_record(
+                ctx=None,
+                actor_type="user",
+                actor_user_id=user.id,
+                action="auth.mfa.setup_deferred",
+                target_type="user",
+                target_id=str(user.id),
+            )
             messages.info(
                 request,
                 "Signed in without two-step sign-in for now. Your other access still works; "
@@ -422,6 +440,16 @@ def mfa_setup(request: HttpRequest) -> HttpResponse:
             request.session.pop(SESSION_MFA_ATTEMPTS, None)
             request.session.pop(SESSION_ENROLL_SECRET, None)
             authn.complete_sign_in(request, user=pending_user)
+            # PRD round 3 review: same audited fact as `sign_in_mfa`'s "continue without
+            # two-step" — deferring enrollment leaves MFA-role permissions inactive.
+            audit_record(
+                ctx=None,
+                actor_type="user",
+                actor_user_id=pending_user.id,
+                action="auth.mfa.setup_deferred",
+                target_type="user",
+                target_id=str(pending_user.id),
+            )
             messages.info(
                 request,
                 "Signed in for now. Set up two-step sign-in when you can to unlock the rest "
@@ -448,6 +476,17 @@ def mfa_setup(request: HttpRequest) -> HttpResponse:
                 )
             request.session.pop(SESSION_ENROLL_SECRET, None)
             request.session["ham_recovery_codes_once"] = codes
+            if replacing:
+                # Security review round 3, N3: `mfa.confirm_enrollment(replace=True)` bumps
+                # `User.session_epoch` (H3 — every *other* open session for this person must
+                # re-satisfy MFA) and refreshes `user` in place, so `user.session_epoch` here
+                # is already the new value. Without updating *this* session's own epoch
+                # snapshot too, the very next request (redirecting to the recovery-codes
+                # page) would fail `SessionLifetimeMiddleware`'s epoch check and sign this
+                # session out before the one-time codes were ever shown.
+                from ham.identity.middleware import SESSION_KEY_EPOCH
+
+                request.session[SESSION_KEY_EPOCH] = user.session_epoch
             return redirect(reverse("web:mfa_setup_codes"))
         return redirect(reverse("web:mfa_setup"))
 
@@ -465,13 +504,18 @@ def mfa_setup(request: HttpRequest) -> HttpResponse:
     )
 
 
+_RECOVERY_CODES_SHOWN_SESSION_KEY = "ham_recovery_codes_shown"
+
+
 @require_http_methods(["GET", "POST"])
 def mfa_setup_codes(request: HttpRequest) -> HttpResponse:
     codes = request.session.get("ham_recovery_codes_once")
-    if not codes:
+    shown = request.session.get(_RECOVERY_CODES_SHOWN_SESSION_KEY, False)
+    if not codes and not shown:
         return redirect(reverse("web:mfa_setup"))
     if request.method == "POST":
         request.session.pop("ham_recovery_codes_once", None)
+        request.session.pop(_RECOVERY_CODES_SHOWN_SESSION_KEY, None)
         pending_user = _pending_mfa_user(request)
         if pending_user is not None:
             next_url = request.session.pop(SESSION_PENDING_NEXT, "") or reverse("web:home")
@@ -482,6 +526,14 @@ def mfa_setup_codes(request: HttpRequest) -> HttpResponse:
         # Already-signed-in person completing enrollment later (Q-045): mark satisfied now.
         request.session[SESSION_KEY_MFA_SATISFIED] = True
         return redirect(reverse("web:me_security"))
+    if codes:
+        # Security review L5: clear the plaintext one-time codes from the session right after
+        # this one render, whether or not "Continue"/"Finish" ever gets pressed — otherwise
+        # they sit in the session (and so in a shared computer's cookie store) indefinitely.
+        # `_RECOVERY_CODES_SHOWN_SESSION_KEY` lets a resubmission of *this* page's own POST
+        # still complete the flow after the codes themselves are gone.
+        request.session.pop("ham_recovery_codes_once", None)
+        request.session[_RECOVERY_CODES_SHOWN_SESSION_KEY] = True
     return render(request, "web/auth/mfa_setup_codes.html", {"codes": codes})
 
 
@@ -524,8 +576,16 @@ def step_up(request: HttpRequest) -> HttpResponse:
     next_url = safe_next_url(request)
     cancel_url = _cancel_url(request)
     kind = request.GET.get("kind") or request.POST.get("kind") or ""
-    label = _STEP_UP_ACTION_LABELS.get(kind, "confirming it's you")
     actor = actor_of(request)
+
+    if kind not in _STEP_UP_ACTION_LABELS:
+        # Security review round 3, N6/M7 (Q-072): `kind` used to be trusted free text, so
+        # each made-up value got its own fresh 5-guess budget in `_STEP_UP_ATTEMPTS_SESSION_KEY`
+        # below — refuse anything that isn't one of the fixed, known step-up purposes before
+        # even rendering the challenge.
+        messages.error(request, "That confirmation link isn't valid. Start again.")
+        return redirect(cancel_url)
+    label = _STEP_UP_ACTION_LABELS[kind]
 
     if actor.is_impersonating:
         # Security review L2: step-up always checks the *real* actor's own TOTP/recovery
@@ -537,39 +597,45 @@ def step_up(request: HttpRequest) -> HttpResponse:
         return redirect(reverse("web:home"))
 
     if request.method == "POST" and request.POST.get("cancel"):
+        # Security review round 3, N7: this used to pop "ham_step_up_stash" (the *generic*
+        # `ham.identity.web` stash-and-replay key), never the audit-export screen's own
+        # "ham_audit_export_stash" — Cancelling a step-up that was reached from "Export audit
+        # log" left that filter stash sitting in the session indefinitely.
         request.session.pop("ham_pending_role_change", None)
         request.session.pop("ham_step_up_stash", None)
+        request.session.pop("ham_audit_export_stash", None)
         messages.info(request, "Nothing changed.")
         return redirect(cancel_url)
 
     if request.method == "POST":
-        # Security review H1: unlimited guesses at a fresh authenticator/recovery code. Same
-        # shape as the sign-in MFA challenge's lockout (Q-072's rules value), scoped to this
-        # session + step-up kind so a lockout on one kind doesn't affect another.
-        attempts_by_kind = dict(request.session.get(_STEP_UP_ATTEMPTS_SESSION_KEY, {}))
-        if attempts_by_kind.get(kind, 0) >= RULES.auth.MFA_CODE_MAX_ATTEMPTS:
-            # Audit the lockout once (the moment it happens), not on every further attempt —
-            # but keep refusing every further attempt (never reset the counter here; only a
-            # successful step-up, elsewhere below, clears it).
-            if attempts_by_kind.get(kind) == RULES.auth.MFA_CODE_MAX_ATTEMPTS:
-                audit_record(
-                    ctx=actor,
-                    action="auth.step_up.locked",
-                    target_type="user",
-                    target_id=str(actor.user_id),
-                )
-            attempts_by_kind[kind] = RULES.auth.MFA_CODE_MAX_ATTEMPTS + 1
-            request.session[_STEP_UP_ATTEMPTS_SESSION_KEY] = attempts_by_kind
-            messages.error(
-                request, "Too many tries. Start again when you're ready to confirm it's you."
+        # Security review H1/N6: unlimited guesses at a fresh authenticator/recovery code.
+        # Same shape as the sign-in MFA challenge's lockout (Q-072's rules value) — ONE
+        # counter for the whole session, not one per `kind` (a free-text-shaped budget that
+        # let each new made-up kind reset the count to zero).
+        attempts = request.session.get(_STEP_UP_ATTEMPTS_SESSION_KEY, 0)
+        if attempts >= RULES.auth.MFA_CODE_MAX_ATTEMPTS:
+            # Security review round 3, N6: too many step-up guesses ends the whole session,
+            # the same way too many sign-in MFA guesses does (`_restart_sign_in`) — not just
+            # this one confirmation. Audit the lockout once, then sign all the way out
+            # (ending any active impersonation first) and send the person back to email
+            # sign-in.
+            audit_record(
+                ctx=actor,
+                action="auth.step_up.locked",
+                target_type="user",
+                target_id=str(actor.user_id),
             )
-            return redirect(cancel_url)
+            _end_session_fully(request)
+            messages.error(
+                request,
+                "Too many tries, so for your safety we signed you out. Please sign in again.",
+            )
+            return redirect(reverse("web:sign_in"))
 
         code = request.POST.get("code", "")
         ok = mfa.verify_step_up(actor, code=code)
         if not ok:
-            attempts_by_kind[kind] = attempts_by_kind.get(kind, 0) + 1
-            request.session[_STEP_UP_ATTEMPTS_SESSION_KEY] = attempts_by_kind
+            request.session[_STEP_UP_ATTEMPTS_SESSION_KEY] = attempts + 1
             return render(
                 request,
                 "web/auth/step_up.html",
@@ -581,8 +647,7 @@ def step_up(request: HttpRequest) -> HttpResponse:
                     "cancel_url": cancel_url,
                 },
             )
-        attempts_by_kind.pop(kind, None)
-        request.session[_STEP_UP_ATTEMPTS_SESSION_KEY] = attempts_by_kind
+        request.session.pop(_STEP_UP_ATTEMPTS_SESSION_KEY, None)
         step_up_at = dict(request.session.get(SESSION_KEY_STEP_UP, {}))
         step_up_at[kind] = clock_now().isoformat()
         request.session[SESSION_KEY_STEP_UP] = step_up_at
@@ -602,7 +667,33 @@ _PENDING_SESSION_KEYS = (
     SESSION_MFA_ATTEMPTS,
     SESSION_ENROLL_SECRET,
     "ham_recovery_codes_once",
+    _RECOVERY_CODES_SHOWN_SESSION_KEY,
 )
+
+
+def _end_session_fully(request: HttpRequest) -> None:
+    """The one place both "Sign out" (`sign_out`) and "Cancel and sign out" from a pending
+    sign-in/MFA screen (`sign_in_cancel`) share (security review round 3, N1): ends any active
+    impersonation for this browser session (auditing `ImpersonationEnded`, Q-049) *before*
+    `django_logout`, and records `auth.sign_out` if the person was fully signed in. Previously
+    `sign_in_cancel` called `django_logout` directly and neither ended impersonation nor
+    audited the sign-out, so a fully signed-in Administrator using "Cancel" from a pending
+    screen (reachable while already authenticated, e.g. a stale tab) could leave an active
+    impersonation session open with no record of the sign-out at all."""
+    from ham.identity.impersonation import end_impersonation_for_session
+    from ham.identity.models import ImpersonationSession
+
+    end_impersonation_for_session(request, reason=ImpersonationSession.END_REASON_SIGNED_OUT)
+    if request.user.is_authenticated:
+        audit_record(
+            ctx=None,
+            actor_type="user",
+            actor_user_id=request.user.id,
+            action="auth.sign_out",
+            target_type="user",
+            target_id=str(request.user.id),
+        )
+    django_logout(request)
 
 
 @require_http_methods(["POST"])
@@ -615,8 +706,7 @@ def sign_in_cancel(request: HttpRequest) -> HttpResponse:
     pending sign-in/enrollment session key, not just log the person out."""
     for key in _PENDING_SESSION_KEYS:
         request.session.pop(key, None)
-    if request.user.is_authenticated:
-        django_logout(request)
+    _end_session_fully(request)
     return render(request, "web/auth/signed_out.html", {})
 
 
@@ -626,34 +716,7 @@ def sign_in_cancel(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["POST"])
 @requires_action("shell.use")
 def sign_out(request: HttpRequest) -> HttpResponse:
-    from ham.identity.impersonation import end_impersonation
-    from ham.identity.models import ImpersonationSession
-
-    actor = actor_of(request)
-    if actor.is_impersonating:
-        assert actor.impersonation_id is not None
-        try:
-            # `end_impersonation` (not the `stop_impersonation` command) is the one funnel
-            # every non-manual end path uses, so `ImpersonationEnded`/the after-the-fact email
-            # (Q-049) fire from exactly one place.
-            end_impersonation(
-                actor.impersonation_id, reason=ImpersonationSession.END_REASON_SIGNED_OUT
-            )
-        except Exception:  # noqa: BLE001 - never block sign-out on a cleanup failure
-            pass
-        request.session.pop("ham_impersonation_id", None)
-    if request.user.is_authenticated:
-        from ham.audit.services import record as audit_record
-
-        audit_record(
-            ctx=None,
-            actor_type="user",
-            actor_user_id=request.user.id,
-            action="auth.sign_out",
-            target_type="user",
-            target_id=str(request.user.id),
-        )
-    django_logout(request)
+    _end_session_fully(request)
     for key in _PENDING_SESSION_KEYS:
         request.session.pop(key, None)
     return render(request, "web/auth/signed_out.html", {})

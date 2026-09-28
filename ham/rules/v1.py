@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-2"
+RULES_VERSION = "2026.09.28-3"
 
 
 def rule(
@@ -595,6 +595,15 @@ class OutboxRules:
         label="Longest retry delay",
         sources=("PRD §70.3", "foundation.md §5"),
     )
+    JOB_PAYLOAD_ENCRYPTION_TTL: timedelta = rule(
+        timedelta(days=1),
+        label="An encrypted background-job payload (e.g. a queued transactional email) may "
+        "be decrypted for",
+        sources=("PRD §70.3", "foundation.md §5"),
+        note="Defense in depth: bounds how long a payload stays decryptable if a "
+        "`procrastinate_jobs` row (or a backup of it) is ever exfiltrated, on top of "
+        "`HAM_FIELD_ENCRYPTION_KEY` rotation.",
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -612,6 +621,13 @@ class OperationsRules:
             "A generous margin so a busy worker is not mistaken for a stuck one.",
         ),
         provisional=("Q-056",),
+    )
+    RECENT_ACTIVITY_WINDOW: timedelta = rule(
+        timedelta(hours=24),
+        label="The Administrator Home summary (e.g. recent sign-in failures) covers the last",
+        sources=("PRD §70.2", "foundation.md §10"),
+        note="Security review round 3, M9: was a bare `timedelta(hours=24)` literal in "
+        "`ham.web.views._recent_sign_in_failures`.",
     )
 
 

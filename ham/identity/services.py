@@ -25,7 +25,14 @@ from ham.platform.clock import now as clock_now
 from ham.rules import RULES
 
 from .impersonation import end_impersonations_for_target
-from .models import ImpersonationSession, RoleAssignment, SharedIdentityProfile, TOTPDevice, User
+from .models import (
+    ImpersonationSession,
+    RoleAssignment,
+    SharedIdentityProfile,
+    TOTPDevice,
+    User,
+    neutral_display_name,
+)
 
 
 def mfa_enrolled(user_id: uuid.UUID) -> bool:
@@ -233,6 +240,26 @@ def invite_user(
     )
 
 
+def _check_can_manage_invitation(ctx: ActorContext, user: User) -> None:
+    """PRD-GAP Q-098 (proposed default in use): an Assistant Director may only *send* a
+    Volunteer-only invitation (Q-082) — they must not be able to Resend/Cancel someone else's
+    invitation that carries a role they couldn't have granted themselves (e.g. an Administrator's
+    Pastor invitation). Administrator/HAM Director may manage any invitation, matching their
+    full `role.grant_global` reach."""
+    if roles.ADMINISTRATOR in ctx.effective_roles or roles.HAM_DIRECTOR in ctx.effective_roles:
+        return
+    invited_roles = set(
+        RoleAssignment.objects.filter(user=user, revoked_at__isnull=True).values_list(
+            "role", flat=True
+        )
+    )
+    if invited_roles - {roles.VOLUNTEER}:
+        raise PermissionDenied(
+            "user.invitation_resend: an Assistant Director may only manage a Volunteer-only "
+            "invitation (PRD-GAP Q-098)"
+        )
+
+
 @command("user.invitation_resend")
 def resend_invitation(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = "") -> CommandResult:
     """UX C5/B3: a leader can resend a still-Invited person's invitation, restarting the
@@ -242,6 +269,7 @@ def resend_invitation(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = ""
         raise ValueError("user.invitation_resend: this person has already signed in")
     if user.is_disabled:
         raise ValueError("user.invitation_resend: this invitation was cancelled")
+    _check_can_manage_invitation(ctx, user)
     user.invitation_resent_at = clock_now()
     user.save(update_fields=["invitation_resent_at"])
     role_list = tuple(
@@ -271,6 +299,7 @@ def cancel_invitation(ctx: ActorContext, *, user_id: uuid.UUID, reason: str = ""
     user = User.objects.select_for_update().get(pk=user_id)
     if not user.is_invited:
         raise ValueError("user.invitation_cancel: this person has already signed in")
+    _check_can_manage_invitation(ctx, user)
     user.is_active = False
     user.disabled_at = clock_now()
     user.disabled_by_id = ctx.user_id
@@ -849,7 +878,9 @@ class UserRow:
 
     @property
     def display_name(self) -> str:
-        return (self.profile.full_name if self.profile else "") or self.user.email
+        return (self.profile.full_name if self.profile else "") or neutral_display_name(
+            self.user.id
+        )
 
     @property
     def two_step(self) -> str:
@@ -905,7 +936,9 @@ class UserDetail:
 
     @property
     def display_name(self) -> str:
-        return (self.profile.full_name if self.profile else "") or self.user.email
+        return (self.profile.full_name if self.profile else "") or neutral_display_name(
+            self.user.id
+        )
 
     @property
     def active_global_roles(self) -> tuple[str, ...]:
@@ -969,5 +1002,5 @@ def display_names_for(user_ids) -> dict[uuid.UUID, str]:
     profiles = SharedIdentityProfile.objects.filter(user_id__in=ids).select_related("user")
     out: dict[uuid.UUID, str] = {}
     for profile in profiles:
-        out[profile.user_id] = profile.display_name or profile.user.email
+        out[profile.user_id] = profile.display_name or neutral_display_name(profile.user_id)
     return out

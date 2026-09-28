@@ -26,14 +26,26 @@ if not _field_key:
     )
 from cryptography.fernet import Fernet as _Fernet  # noqa: E402
 
-try:
-    # MultiFernet-style rotation: a comma-separated list, newest key first, all still
-    # decryptable. A single key is the common case and still validates as exactly one Fernet.
-    _Fernet(_field_key.split(",")[0].encode())
-except (ValueError, TypeError) as exc:  # pragma: no cover - misconfiguration, not a code path
-    raise RuntimeError(
-        "HAM_FIELD_ENCRYPTION_KEY is not a valid Fernet key (base64 urlsafe, 32 bytes)."
-    ) from exc
+# Security review M5: validate *every* comma-separated key, not just the first — a bad key
+# anywhere later in a MultiFernet rotation list only fails at decrypt time, for whichever old
+# record happens to need it, which is a much worse time to discover a typo than deploy time.
+for _key in _field_key.split(","):
+    try:
+        _Fernet(_key.strip().encode())
+    except (ValueError, TypeError) as exc:  # pragma: no cover - misconfiguration, not a code path
+        raise RuntimeError(
+            "HAM_FIELD_ENCRYPTION_KEY is not a valid Fernet key (base64 urlsafe, 32 bytes)."
+        ) from exc
+
+# Security review round 3, N4: sign-in/invitation/role-change/impersonation-ended emails all
+# build an absolute link from `HAM_BASE_URL` (`ham.identity.notifications`) — a missing value
+# used to silently fall back to whatever `ham.platform` defaulted to (localhost), which is
+# harmless in dev but sends a real invitee/Administrator a broken link in production.
+_base_url = env("HAM_BASE_URL", default="")
+if not _base_url:
+    raise RuntimeError("HAM_BASE_URL must be set in production (used in emailed links).")
+if "localhost" in _base_url or "127.0.0.1" in _base_url:
+    raise RuntimeError("HAM_BASE_URL must not point at localhost in production.")
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])

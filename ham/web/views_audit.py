@@ -20,6 +20,7 @@ from ham.authz.commands import ImpersonationBlocked, PermissionDenied, StepUpReq
 from ham.authz.guard import requires_action
 from ham.identity.services import display_names_for
 from ham.platform.church import church_profile
+from ham.platform.clock import now as clock_now
 from ham.rules import RULES
 
 from .stepup import redirect_to_step_up
@@ -122,7 +123,10 @@ def audit_export(request):
         # UX C1: stash the filters (not the file itself — the export is re-run with the
         # *current* data once step-up succeeds) so the person doesn't have to re-pick their
         # filters and doesn't land back on this POST-only URL as a bare GET (a 405).
-        request.session[_EXPORT_STASH_SESSION_KEY] = dict(request.POST)
+        request.session[_EXPORT_STASH_SESSION_KEY] = {
+            "data": dict(request.POST),
+            "created_at": clock_now().isoformat(),
+        }
         return redirect_to_step_up(
             request,
             reverse("web:audit_export_download"),
@@ -159,10 +163,26 @@ def audit_export_download(request):
         # plain truthiness check (an empty dict is falsy but still means "replay with no
         # filters").
         return redirect("web:audit_log")
+
+    # Security review round 3, N7: a stash with no expiry could sit in the session for hours
+    # (abandoned mid step-up) and still be replayed the moment the person eventually finishes
+    # a step-up for something else entirely. Give it the same "a fresh confirmation, not a
+    # permanent bookmark" freshness window as the role-change resume stash
+    # (`ham.web.views_admin_users.admin_user_roles_resume`).
+    created_at = stashed.get("created_at")
+    if created_at:
+        try:
+            age = clock_now() - dt.datetime.fromisoformat(created_at)
+        except ValueError:  # pragma: no cover - defensive against a malformed stash
+            age = None
+        if age is not None and age > RULES.auth.STEP_UP_WINDOW:
+            messages.error(request, "That confirmation expired. Please export again.")
+            return redirect("web:audit_log")
+
     from django.http import QueryDict
 
     post = QueryDict(mutable=True)
-    for key, values in stashed.items():
+    for key, values in stashed.get("data", {}).items():
         post.setlist(key, values)
     filters = _parse_filters(post)
     try:

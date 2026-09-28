@@ -123,7 +123,12 @@ def admin_users_invite_sent(request):
     """ "Invitation sent" confirmation reachable by anyone who may invite, even without
     `user.view` (Q-082, item 7: give the Assistant Director a path in)."""
     return render(
-        request, "web/admin_users_invite_sent.html", {"email": request.GET.get("email", "")}
+        request,
+        "web/admin_users_invite_sent.html",
+        {
+            "email": request.GET.get("email", ""),
+            "invitation_days": RULES.auth.ACCOUNT_INVITATION_LIFETIME.days,
+        },
     )
 
 
@@ -178,7 +183,13 @@ def admin_user_detail(request, user_id: uuid.UUID):
             pending = {
                 "add": to_add,
                 "remove": to_remove,
-                "reason_required": bool(set(to_add) & {roles.PASTOR, roles.BOARD_REPRESENTATIVE})
+                # Q-055's reason requirement applies to a Pastor/Board *removal* too, not just
+                # a grant (`ham.identity.services._check_can_grant` is called for both) — the
+                # confirm screen must show the reason field either way, or the Director hits a
+                # generic error only after submitting (PRD round 3 review).
+                "reason_required": bool(
+                    (set(to_add) | set(to_remove)) & {roles.PASTOR, roles.BOARD_REPRESENTATIVE}
+                )
                 and roles.ADMINISTRATOR not in ctx.effective_roles,
             }
 
@@ -323,23 +334,45 @@ def admin_user_roles_resume(request, user_id: uuid.UUID):
 def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
     ctx = request.actor
     user = get_object_or_404(User, pk=user_id)
-    try:
-        # Item 4: multiple role changes in one confirm apply atomically (one transaction, all
-        # or nothing). Each `grant_global_role`/`revoke_global_role` call is itself a
-        # `@command` with its own `transaction.atomic()`; wrapping them in one more outer
-        # atomic block makes a savepoint around the whole batch, so a failure partway (a
-        # `StepUpRequired` on the third of three changes, say) rolls every change in this
-        # confirm back, not just the one that failed.
-        with transaction.atomic():
+    step_up_exc: StepUpRequired | None = None
+    denial_exc: PermissionDenied | ImpersonationBlocked | ValueError | None = None
+    denial_action = ""
+    # Item 4: multiple role changes in one confirm apply atomically (one transaction, all or
+    # nothing). Each `grant_global_role`/`revoke_global_role` call is itself a `@command` with
+    # its own `transaction.atomic()`; wrapping them in one more outer atomic block makes a
+    # savepoint around the whole batch, so a failure partway (a `StepUpRequired` on the third
+    # of three changes, say) rolls every change in this confirm back, not just the one that
+    # failed.
+    #
+    # Security review round 3, N2: a `PermissionDenied` raised from *inside* one of those
+    # calls (e.g. `_check_can_grant` refusing a Director granting Administrator) is audited by
+    # `ham.authz.commands.command()`'s own exception handler — but that write happens while
+    # still nested inside *this* outer atomic block. Letting the exception simply propagate
+    # out through the `with` below would abort this whole outer transaction and roll that
+    # audit row back too, silently losing the one record CLAUDE.md requires for every denied
+    # privileged action. Instead: catch it *inside* the block, call `transaction.set_rollback`
+    # so the block still discards any partial grants/revokes but exits *without* raising, and
+    # only record/re-raise the denial once we're safely outside the (now-clean) transaction.
+    with transaction.atomic():
+        try:
             for role in to_add:
+                denial_action = "role.grant_global"
                 grant_global_role(ctx, user_id=user.id, role=role, reason=reason)
             for role in to_remove:
+                denial_action = "role.revoke_global"
                 assignment = RoleAssignment.objects.filter(
                     user=user, role=role, revoked_at__isnull=True, scope_type__isnull=True
                 ).first()
                 if assignment is not None:
                     revoke_global_role(ctx, assignment_id=assignment.id, reason=reason)
-    except StepUpRequired:
+        except StepUpRequired as exc:
+            step_up_exc = exc
+            transaction.set_rollback(True)
+        except (PermissionDenied, ImpersonationBlocked, ValueError) as exc:
+            denial_exc = exc
+            transaction.set_rollback(True)
+
+    if step_up_exc is not None:
         from ham.platform.clock import now as clock_now
 
         request.session[_PENDING_SESSION_KEY] = {
@@ -354,15 +387,26 @@ def _apply_role_changes(request, user_id: uuid.UUID, to_add, to_remove, reason):
         return None, redirect_to_step_up(
             request, next_url, _ROLE_CHANGE_KIND, cancel_url=cancel_url
         )
-    except ImpersonationBlocked:
+
+    if isinstance(denial_exc, PermissionDenied):
+        from ham.audit.services import record as audit_record
+
+        audit_record(
+            ctx=ctx,
+            action="authz.denied",
+            target_type="action",
+            target_id=denial_action,
+            reason=str(denial_exc),
+        )
+    if isinstance(denial_exc, ImpersonationBlocked):
         messages.error(
             request,
             "Role and permission changes aren't allowed while acting as someone else. "
             "Return to your account to do this.",
         )
         return redirect("web:admin_user_detail", user_id=user_id), None
-    except (PermissionDenied, ValueError) as exc:
-        messages.error(request, str(exc))
+    if denial_exc is not None:
+        messages.error(request, str(denial_exc))
         return redirect("web:admin_user_detail", user_id=user_id), None
 
     messages.success(request, "Roles updated.")

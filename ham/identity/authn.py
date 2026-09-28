@@ -270,15 +270,12 @@ def link_is_valid(*, token: str) -> bool:
 from ham import jobs as _jobs  # noqa: E402 - kept near the job it defines, not the top imports
 
 
-@_jobs.job(name="identity.purge_sign_in_challenges")
-def purge_expired_sign_in_challenges() -> int:
+@_jobs.periodic_job(name="identity.purge_sign_in_challenges", cron="0 * * * *")
+def purge_expired_sign_in_challenges(timestamp: int) -> int:
     """Security review L5: `identity_sign_in_challenge` rows are rate-limit/lockout
     bookkeeping, not a record worth keeping — deletes rows older than
-    `RULES.auth.SIGN_IN_CHALLENGE_RETENTION`. Nothing schedules this periodically yet (no
-    periodic-task convention exists in `ham.jobs` as of this slice); until one does, run it
-    manually (`manage.py shell -c "from ham.identity.authn import
-    purge_expired_sign_in_challenges as f; f.defer()"`) or wire a cron-triggered management
-    command alongside it."""
+    `RULES.auth.SIGN_IN_CHALLENGE_RETENTION`. Runs hourly via `ham.jobs.periodic_job`
+    (the worker itself defers this on schedule; no separate cron process needed)."""
     cutoff = clock_now() - RULES.auth.SIGN_IN_CHALLENGE_RETENTION
     deleted, _ = SignInChallenge.objects.filter(created_at__lt=cutoff).delete()
     return deleted
