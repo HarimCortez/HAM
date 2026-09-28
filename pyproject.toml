@@ -16,6 +16,8 @@ dependencies = [
   "gunicorn>=23.0",
   "django-environ>=0.11",
   "uuid6>=2024.7.10",
+  # Duplicate matching phone keys (ham/requests/matching.py, Q-115). Pure library, no I/O.
+  "phonenumbers>=8.13",
 ]
 
 [project.optional-dependencies]

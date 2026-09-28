@@ -108,3 +108,50 @@ Security round-3 re-review (N9, M9): two new rules —
 - **`operations.RECENT_ACTIVITY_WINDOW`** = 24 hours: replaces a bare `timedelta(hours=24)`
   literal in `ham.web.views._recent_sign_in_failures` (the Administrator Home "recent sign-in
   failures" summary).
+
+## 2026.09.28-4 — step 2 (Intake)
+
+Content hash: `sha256:77c70f3c4751ab55b2fb106b369f6f34bb6e74bc5ed41374de8cc06aad4d4068`
+
+New group `intake` ("Public request form and requester codes") and new rules in
+`requester_access`, `media` and `retention`. Decided values are plain; the rest are proposed
+defaults in use (`provisional`, "PRD-GAP Q-NNN: proposed default in use; owner may change").
+
+Decided (owner, 2026-09-28):
+- **Q-127 retention:** `retention.REQUEST_RECORD_RETENTION_AFTER_CLOSE` = 7 calendar years,
+  then name, email, phone and street are erased (ZIP, category, outcome kept);
+  `retention.SPAM_REQUEST_RETENTION` = 90 days after a spam/test close;
+  `intake.INTAKE_DRAFT_LIFETIME` = 24 hours for unfinished (unverified) forms.
+- **Q-100 requester code:** `intake.REQUESTER_CODE_LENGTH` = 6 digits,
+  `intake.REQUESTER_CODE_LIFETIME` = 15 minutes (as sign-in, Q-032).
+
+Proposed defaults in use:
+- **Q-116:** `requester_access.REQUESTER_ACCESS_AFTER_CLOSE` = 7 days: normal link access
+  for a request closed without completing (Cancelled, Not Executable, final Rejected).
+- **Q-117:** `requester_access.EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS` = Yes: a link
+  regenerated before normal access ends lasts as long as the normal link; the 14-day
+  lifetime applies only to links regenerated after normal access ended.
+- **Q-121 abuse limits:** 10 forms per IP per rolling hour; 3 submitted requests per email
+  per rolling 24 h; 20 "find my request" tries per IP per rolling hour; minimum fill time
+  3 seconds (Q-121 names the check without a number; 3 s is from the architecture plan §9).
+  Requester code limits "as sign-in": 5 wrong tries per code, 5 code emails per address per
+  hour, 30 s resend cooldown, 20 wrong codes per address per 24 h, records erased after
+  7 days. Separate names from `auth.*` so staff sign-in and requester codes can diverge
+  later; a test pins them equal today.
+- **Q-119 uploads:** photos ≤ 25 MB (JPEG, PNG, HEIC/HEIF, WebP), videos ≤ 500 MB (MP4,
+  MOV); MB = 1,048,576 bytes (the generous reading). Stored as bytes and MIME types.
+- **Q-128:** `media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION` = Yes: media on Cancelled
+  requests/projects follows the §47 photo (90 d) / video (30 d) clock from cancellation.
+  New pure helper `media_retention_period(kind, closing_status)`; statuses without a rule
+  (e.g. Not Executable) raise instead of guessing.
+
+Not added (deliberately):
+- **Q-112** "days HAM serves" is a church-profile setting (default Sunday–Friday), not a fixed
+  business rule, so it does not belong here.
+- **PRD §5** "no fixed limit": there is no per-household or per-address request limit.
+
+New invariants: access after close positive; draft lifetime > requester code lifetime;
+requester resend cooldown in (0, 1 h); minimum fill time positive and < draft lifetime;
+intake limits ≥ 1; daily wrong-code cap ≥ per-code tries; challenge retention > 24 h; upload
+sizes positive, photo ≤ video; media type lists non-empty, unique, lower-case, right family;
+spam retention positive; request retention ≥ 1 year.

@@ -10,7 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from ham.rules import RULES, Pending, check_invariants
+from ham.rules import RULES, CalendarYears, Pending, check_invariants
 from ham.rules.types import contains_pending, pending_questions
 from ham.rules.v1 import iter_rules
 
@@ -100,6 +100,23 @@ class SourcesAndLabelsTest(unittest.TestCase):
                 "auth.ACCOUNT_INVITATION_LIFETIME": ("Q-071",),
                 "auth.MFA_CODE_MAX_ATTEMPTS": ("Q-072",),
                 "operations.HEALTH_MAX_QUEUE_LAG": ("Q-056",),
+                # Step 2 (intake), owner 2026-09-28: proposed defaults in use.
+                "requester_access.REQUESTER_ACCESS_AFTER_CLOSE": ("Q-116",),
+                "requester_access.EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS": ("Q-117",),
+                "intake.REQUESTER_CODE_MAX_ATTEMPTS": ("Q-121",),
+                "intake.REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR": ("Q-121",),
+                "intake.REQUESTER_CODE_RESEND_COOLDOWN": ("Q-121",),
+                "intake.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY": ("Q-121",),
+                "intake.REQUESTER_CHALLENGE_RETENTION": ("Q-121",),
+                "intake.INTAKE_FORMS_PER_IP_PER_HOUR": ("Q-121",),
+                "intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY": ("Q-121",),
+                "intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR": ("Q-121",),
+                "intake.INTAKE_MIN_FILL_TIME": ("Q-121",),
+                "media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION": ("Q-128",),
+                "media.REQUESTER_PHOTO_MAX_BYTES": ("Q-119",),
+                "media.REQUESTER_VIDEO_MAX_BYTES": ("Q-119",),
+                "media.REQUESTER_PHOTO_TYPES": ("Q-119",),
+                "media.REQUESTER_VIDEO_TYPES": ("Q-119",),
             },
         )
 
@@ -260,6 +277,68 @@ class InvariantsTest(unittest.TestCase):
                 self.assertTrue(
                     any(expected_fragment in p for p in problems), (expected_fragment, problems)
                 )
+
+    def test_intake_media_and_retention_invariants(self) -> None:
+        it, m = RULES.intake, RULES.media
+        cases: list[tuple[str, dict[str, Any], str]] = [
+            ("requester_access", {"REQUESTER_ACCESS_AFTER_CLOSE": timedelta(0)}, "after close"),
+            ("intake", {"INTAKE_DRAFT_LIFETIME": it.REQUESTER_CODE_LIFETIME}, "unfinished form"),
+            ("intake", {"REQUESTER_CODE_RESEND_COOLDOWN": timedelta(0)}, "requester resend"),
+            ("intake", {"REQUESTER_CODE_RESEND_COOLDOWN": timedelta(hours=1)}, "requester resend"),
+            ("intake", {"INTAKE_MIN_FILL_TIME": timedelta(0)}, "fill time"),
+            ("intake", {"REQUESTER_CODE_LENGTH": 0}, "REQUESTER_CODE_LENGTH"),
+            ("intake", {"INTAKE_FORMS_PER_IP_PER_HOUR": 0}, "INTAKE_FORMS_PER_IP"),
+            ("intake", {"INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY": 0}, "SUBMISSIONS_PER_EMAIL"),
+            ("intake", {"FIND_REQUEST_TRIES_PER_IP_PER_HOUR": 0}, "FIND_REQUEST"),
+            ("intake", {"REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY": 4}, "daily"),
+            ("intake", {"REQUESTER_CHALLENGE_RETENTION": timedelta(hours=24)}, "24-hour"),
+            ("media", {"REQUESTER_PHOTO_MAX_BYTES": 0}, "upload size"),
+            ("media", {"REQUESTER_PHOTO_MAX_BYTES": m.REQUESTER_VIDEO_MAX_BYTES + 1}, "upload"),
+            ("media", {"REQUESTER_PHOTO_TYPES": ()}, "REQUESTER_PHOTO_TYPES"),
+            ("media", {"REQUESTER_PHOTO_TYPES": ("image/png", "image/png")}, "unique"),
+            ("media", {"REQUESTER_VIDEO_TYPES": ("image/png",)}, "video/*"),
+            ("media", {"REQUESTER_PHOTO_TYPES": ("image/PNG",)}, "lower-case"),
+            ("retention", {"SPAM_REQUEST_RETENTION": timedelta(0)}, "spam"),
+            (
+                "retention",
+                {"REQUEST_RECORD_RETENTION_AFTER_CLOSE": CalendarYears(0)},
+                "record retention",
+            ),
+        ]
+        for group, changes, expected_fragment in cases:
+            with self.subTest(group=group, changes=changes):
+                problems = check_invariants(self._with(group, **changes))
+                self.assertTrue(
+                    any(expected_fragment in p for p in problems), (expected_fragment, problems)
+                )
+
+    def test_requester_codes_match_sign_in_values(self) -> None:
+        """Q-121: requester code limits are 'as sign-in' -- separate names, same numbers."""
+        it, a = RULES.intake, RULES.auth
+        self.assertEqual(it.REQUESTER_CODE_LENGTH, a.SIGN_IN_CODE_LENGTH)
+        self.assertEqual(it.REQUESTER_CODE_LIFETIME, a.SIGN_IN_CODE_LIFETIME)
+        self.assertEqual(it.REQUESTER_CODE_MAX_ATTEMPTS, a.SIGN_IN_CODE_MAX_ATTEMPTS)
+        self.assertEqual(
+            it.REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR, a.SIGN_IN_EMAILS_PER_ADDRESS_PER_HOUR
+        )
+        self.assertEqual(it.REQUESTER_CODE_RESEND_COOLDOWN, a.SIGN_IN_RESEND_COOLDOWN)
+        self.assertEqual(
+            it.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY,
+            a.SIGN_IN_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY,
+        )
+        self.assertEqual(it.REQUESTER_CHALLENGE_RETENTION, a.SIGN_IN_CHALLENGE_RETENTION)
+
+    def test_no_per_household_request_limit(self) -> None:
+        """PRD §5 'no fixed limit': no rule may cap requests per household or address."""
+        for gf, rf, _v in iter_rules(RULES):
+            with self.subTest(rule=f"{gf.name}.{rf.name}"):
+                self.assertNotRegex(rf.name, r"HOUSEHOLD|REQUESTS_PER_ADDRESS|PER_PROPERTY")
+
+    def test_days_ham_serves_is_not_a_rule(self) -> None:
+        """Q-112: the days offered on the form are a church-profile setting, not a rule."""
+        for gf, rf, _v in iter_rules(RULES):
+            with self.subTest(rule=f"{gf.name}.{rf.name}"):
+                self.assertNotIn("SERVE", rf.name)
 
     def test_decided_reliability_numbers_are_validated_once_filled_in(self) -> None:
         good = self._with(

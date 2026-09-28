@@ -38,3 +38,37 @@
   recent-on-detail 5 (`ham/authz/audit_access.py`), outbox `recent_failures(20)`.
 - `ham/outbox/dispatch.py` `_MAX_ERROR_LENGTH = 2000` (storage truncation).
 - Model `max_length`s; `SECURE_HSTS_SECONDS`; `CONN_MAX_AGE`.
+
+## 2026.09.28-4 — step 2 intake (S2.1, branch s21)
+Q-numbers: use docs/prd-open-questions.md Q-099–Q-132 (intake.md body numbers are stale drafts).
+- New group `intake` (label "Public request form and requester codes"). Requester codes have
+  their OWN names (REQUESTER_CODE_*, REQUESTER_CHALLENGE_RETENTION) with sign-in values;
+  `test_requester_codes_match_sign_in_values` pins them equal. Decided: length 6, lifetime
+  15 min (Q-100/Q-032), INTAKE_DRAFT_LIFETIME 24 h (Q-127). Provisional Q-121: 5 tries,
+  5 emails/addr/h, 30 s cooldown, 20 wrong/addr/24 h, retention 7 d, 10 forms/IP/h,
+  3 submissions/email/24 h, 20 find-my-request/IP/h, min fill time 3 s (number from plan §9).
+- requester_access: REQUESTER_ACCESS_AFTER_CLOSE 7 d (Q-116); bool
+  EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS True (Q-117). Bool rules are allowed now; the
+  values test keeps an explicit BOOL_RULES set.
+- media: REQUESTER_PHOTO/VIDEO_MAX_BYTES 25/500 MiB (binary = generous reading), *_TYPES as
+  lower-case MIME tuples (HEIF with HEIC) (Q-119); MEDIA_RETENTION_CLOCK_ON_CANCELLATION
+  True (Q-128). Helper `media_retention_period(kind, closing_status)` raises for statuses
+  without a rule (NOT_EXECUTABLE: open gap, never guess). view.py formats *_BYTES as "N MB"
+  and *_TYPES via MEDIA_TYPE_LABELS.
+- retention (decided Q-127): REQUEST_RECORD_RETENTION_AFTER_CLOSE CalendarYears(7) (then
+  erase name/email/phone/street), SPAM_REQUEST_RETENTION 90 d.
+- NOT rules: Q-112 days HAM serves (church profile setting); PRD §5 no per-household limit
+  (test forbids such a rule name).
+- `ham/requests/states.py`: NEEDS_PHONE_CHECK is a STATE (Q-025), entered by
+  SUBMIT_WITHOUT_EMAIL, left only by VERIFY_BY_PHONE (DIR/AD, IB) -> SUBMITTED, or CANCEL.
+  CANCEL reasons exactly spam / requester_withdrew / duplicate_submission (Q-107; no
+  "other"); no requester email for spam. TERMINAL = {CANCELLED} in step 2; "closed" is
+  `closed_at`, not status (reconsiderable REJECTED is open). VERIFY_BY_PHONE has no outbox
+  event (audit request.contact_verified). check_transition returns Refusal codes, never raises.
+- `ham/requests/matching.py`: keys address(+unit)|ZIP5, E.164 phone (is_valid_number, else
+  None), email (lower; Gmail dots/+tag only), sorted-name-words|ZIP5 (drops initials,
+  titles, Jr/Sr/III; >= 2 words). Unit designators APT/UNIT/STE/#/LOT/SPACE/TRLR/RM/PH/NO
+  collapse to "#"; BLDG/FL kept. MATCH_KEY_VERSION=1 -> bump when normalization changes.
+- `ham/requester_portal/validity.py`: valid while now < valid_until; regenerated at exactly
+  the access end counts as "after" (14 d). completed_at beats closed_at. Naive datetimes and
+  inconsistent status/timestamps raise ValueError. NEEDS_PHONE_CHECK -> NO_ACCESS.

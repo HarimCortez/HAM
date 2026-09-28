@@ -13,6 +13,8 @@ from .fingerprint import content_hash
 from .types import CalendarYears, Pending, RuleNotDecidedError
 from .v1 import (
     CANCELLATION_BAND_CODES,
+    MEDIA_KINDS,
+    MEDIA_RETENTION_CLOSING_STATUSES,
     RULES,
     RULES_VERSION,
     Rules,
@@ -20,6 +22,7 @@ from .v1 import (
     check_invariants,
     check_reliability_penalties,
     iter_rules,
+    media_retention_period,
 )
 from .view import RuleRow, RulesView, rules_view
 
@@ -27,6 +30,8 @@ RULES_HASH = content_hash(RULES)
 
 __all__ = [
     "CANCELLATION_BAND_CODES",
+    "MEDIA_KINDS",
+    "MEDIA_RETENTION_CLOSING_STATUSES",
     "RULES",
     "RULES_HASH",
     "RULES_VERSION",
@@ -41,5 +46,6 @@ __all__ = [
     "check_reliability_penalties",
     "content_hash",
     "iter_rules",
+    "media_retention_period",
     "rules_view",
 ]

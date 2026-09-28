@@ -55,17 +55,46 @@ EXPECTED = {
     "requester_access.SURVEY_REMINDER_COUNT": 1,
     "requester_access.SURVEY_RATING_MIN": 1,
     "requester_access.SURVEY_RATING_MAX": 5,
+    "requester_access.REQUESTER_ACCESS_AFTER_CLOSE": D(7),  # Q-116 proposed default
+    "requester_access.EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS": True,  # Q-117
+    # Public form and requester codes (§6, §7.1; Q-100, Q-121, Q-127)
+    "intake.INTAKE_DRAFT_LIFETIME": H(24),  # Q-127 decided
+    "intake.REQUESTER_CODE_LENGTH": 6,  # Q-100 "6-digit code"
+    "intake.REQUESTER_CODE_LIFETIME": M(15),  # as sign-in (Q-032)
+    "intake.REQUESTER_CODE_MAX_ATTEMPTS": 5,  # Q-121 = sign-in
+    "intake.REQUESTER_CODE_EMAILS_PER_ADDRESS_PER_HOUR": 5,  # Q-121 = Q-070
+    "intake.REQUESTER_CODE_RESEND_COOLDOWN": timedelta(seconds=30),  # Q-121 = Q-070
+    "intake.REQUESTER_CODE_FAILED_ATTEMPTS_PER_ADDRESS_PER_DAY": 20,  # Q-121 = Q-070
+    "intake.REQUESTER_CHALLENGE_RETENTION": D(7),  # Q-121 = sign-in
+    "intake.INTAKE_FORMS_PER_IP_PER_HOUR": 10,  # Q-121
+    "intake.INTAKE_SUBMISSIONS_PER_EMAIL_PER_DAY": 3,  # Q-121
+    "intake.FIND_REQUEST_TRIES_PER_IP_PER_HOUR": 20,  # Q-121
+    "intake.INTAKE_MIN_FILL_TIME": timedelta(seconds=3),  # Q-121 (number from plan §9)
     # Media (§45–§47)
     "media.REQUESTER_MEDIA_BATCH_MAX_PHOTOS": 10,
     "media.REQUESTER_MEDIA_BATCH_MAX_VIDEOS": 3,
     "media.REQUESTER_MEDIA_MAX_VIDEO_DURATION": M(2),
     "media.VIDEO_RETENTION_AFTER_CLOSE": D(30),
     "media.PHOTO_RETENTION_AFTER_CLOSE": D(90),
+    "media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION": True,  # Q-128
+    # Q-119: photos <= 25 MB, videos <= 500 MB (binary MB, the generous reading)
+    "media.REQUESTER_PHOTO_MAX_BYTES": 25 * 1_048_576,
+    "media.REQUESTER_VIDEO_MAX_BYTES": 500 * 1_048_576,
+    "media.REQUESTER_PHOTO_TYPES": (
+        "image/jpeg",
+        "image/png",
+        "image/heic",
+        "image/heif",
+        "image/webp",
+    ),
+    "media.REQUESTER_VIDEO_TYPES": ("video/mp4", "video/quicktime"),
     # Retention (§41, §42, §56, §58)
     "retention.AUDIT_RETENTION": CalendarYears(1),  # Q-036
     "retention.INCIDENT_RETENTION": CalendarYears(7),
     "retention.HOMEOWNER_AGREEMENT_RETENTION": CalendarYears(7),
     "retention.VOLUNTEER_AGREEMENT_RETENTION_AFTER_INACTIVE": CalendarYears(7),
+    "retention.REQUEST_RECORD_RETENTION_AFTER_CLOSE": CalendarYears(7),  # Q-127 decided
+    "retention.SPAM_REQUEST_RETENTION": D(90),  # Q-127 decided
     # Auth (§59, §60, Q-010, Q-032, Q-035, Q-046)
     "auth.MFA_REQUIRED_ROLES": (
         "ADMINISTRATOR",
@@ -113,6 +142,11 @@ EXPECTED = {
     "operations.RECENT_ACTIVITY_WINDOW": H(24),  # security review round 3 M9
 }
 
+BOOL_RULES = {
+    "requester_access.EARLY_REGENERATED_LINK_FOLLOWS_NORMAL_ACCESS",
+    "media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION",
+}
+
 
 def _actual() -> dict[str, object]:
     return {f"{g.name}.{r.name}": v for g, r, v in iter_rules(RULES)}
@@ -136,8 +170,14 @@ class PinnedValuesTest(unittest.TestCase):
 
     def test_int_rules_are_not_bools(self) -> None:
         for key, value in _actual().items():
+            if key in BOOL_RULES:
+                continue
             with self.subTest(rule=key):
                 self.assertNotIsInstance(value, bool)
+
+    def test_bool_rules_are_exactly_these(self) -> None:
+        actual = {k for k, v in _actual().items() if isinstance(v, bool)}
+        self.assertEqual(actual, BOOL_RULES)
 
 
 if __name__ == "__main__":
