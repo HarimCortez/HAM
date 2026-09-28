@@ -687,3 +687,62 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   `draft_id`/`verification_id` (kept for traceability only, not dereferenced by this module —
   see the layering note above for why). Check this dataclass's field list before S2.3 builds
   its draft-to-payload mapping; it's additive, not a replacement contract.
+## S2.5 additions: notifications module (Notification, inapp subscriber, attention registry)
+- **`ham.notifications.inapp.register_inapp`/`handle_inapp_event`** is an exact mirror of
+  `ham.integrations.email.notifications.register_notification`/`handle_email_event` (list of
+  builders per event type, builder returns `None`/one/`list[InAppNotice]`), but it is
+  registered as the `"inapp"` outbox subscriber from **`NotificationsConfig.ready()` itself**,
+  not from `IntegrationsConfig` — intake.md §2 calls this "internal, not a third party": since
+  `ham.notifications` sits at the bottom of the domain-module stack (just above
+  `ham.identity`), it can own its own outbox integration without triggering the "domain
+  modules never import `ham.integrations` directly" contract at all (no `ignore_imports` entry
+  needed, unlike every other domain module's `.notifications.py`).
+- **`Notification.title` gets its own PII guard** (`ham.notifications.validation.check_title`,
+  reusing `ham.platform.logging.EMAIL_RE`/`PHONE_RE`), called from `handle_inapp_event` before
+  every `Notification.objects.create(...)` — mirrors `ham.outbox.validation.validate_payload`
+  but is a separate, smaller check (title is one free-text field, not an arbitrary payload
+  dict) rather than reusing the outbox validator directly.
+- **"Needs response" has no table.** `ham.notifications.attention` is a second, independent
+  registry (`register_attention_provider(fn)`, `fn(ctx) -> list[AttentionItem]`,
+  `attention_items_for(ctx)` concatenates every provider) — completely separate from
+  `register_inapp`. A provider returns already-aggregated, PII-free rows (e.g. "Waiting for a
+  decision (3)"); nothing is stored, so resolving the underlying thing (e.g. a request leaving
+  Awaiting Approval) clears the card everywhere for free. `AttentionItem.muted` (Director/AD
+  see pastors'/Board's rows, de-emphasized, **not hidden**, and **excluded from the badge
+  count** — intake.md §6) is a per-item flag the *provider* sets based on the actor's role, not
+  something the registry computes; `needs_response_count(ctx)` sums `count` for non-muted items
+  only, `needs_response_for(ctx)` returns everything (view renders muted differently).
+- **Read vs. acknowledge, two very different authorization shapes for the same table.** Marking
+  an Update read is scoped by plain ownership-filter-in-the-query
+  (`Notification.objects.filter(pk=..., recipient_user_id=ctx.user_id)`), gated only by the
+  route's `shell.use`, and is **not** a `@command`/not audited — same rationale as "page views
+  ... are not audited" (intake.md §9.8): it changes nothing another party can observe.
+  Acknowledging (`notification.acknowledge`, `Scope.SELF`, `blocked_while_impersonating=True`,
+  already declared in the matrix by S2.0) *is* a `@command`, because it is what makes the
+  urgent banner (§10/§35) disappear. Wiring pattern for a `Scope.SELF` action keyed by a
+  specific row (not "always yourself" like `me.update`'s `_resource_self` returning `ctx`
+  outright): `resource_from` loads the row and returns `SimpleNamespace(user_id=row.
+  recipient_user_id)` if found, or `None` if not — `Scope._self_scope_ok` treats a `None`
+  resource as "nothing to check yet, let the service body raise" (same escape hatch role-grant
+  finer-grained checks use), so a bad id gets a plain `ValueError` from inside the service
+  rather than a scope denial that would otherwise require a second DB read just to build the
+  `Decision`.
+- **`identity.services.notification_recipients(roles: Iterable[str]) ->
+  list[tuple[UUID, str, bool]]`** (user_id, email, notify_email) is the one function this slice
+  added to `ham.identity` (intake-contracts.md §7's "only ham.identity reads auth tables"
+  rule) — filters `role_assignments__role__in=role_set, revoked_at__isnull=True,
+  is_active=True, disabled_at__isnull=True`, de-dupes with a manual `seen: set[UUID]` (not
+  `.distinct()`) because a JOIN against `role_assignments__role__in={A, B}` returns one row per
+  matching assignment, so a user holding *both* roles in the set would otherwise appear twice;
+  `user.profile.notify_email` is wrapped in `except ObjectDoesNotExist: notify_email = True`
+  since `SharedIdentityProfile` is only reliably created via `get_or_create` at bootstrap/
+  invite time, not guaranteed for every row a test or edge case might create.
+- **New `tests/notifications/` package** (`__init__.py`, `test_inapp.py`, `test_attention.py`,
+  `test_services.py`) — first backend slice to add a whole new top-level `tests/<app>/`
+  directory outside the ones S1/S2.0 already scaffolded; nothing extra was needed (pytest
+  picks it up via `testpaths = ["tests", "ham"]`, no per-directory conftest required beyond the
+  shared `tests/conftest.py`'s `make_user`/`_reset_clock`).
+- **Retention for `Notification` rows is an explicit, intentional gap** (task brief: "note the
+  gap; don't invent a value") — intake.md's D4/Q-116 retention decision covers
+  `AssistanceRequest`/`Requester`/`Property`, not this table; no `ham.rules` constant exists or
+  was added for it. Don't backfill one without an owner decision.

@@ -64,7 +64,6 @@ PLACEHOLDER_ACTIONS = frozenset(
         "request_media.reopen",
         "request.create_assisted",
         "intake_source.manage",
-        "notification.acknowledge",
         "system.media.process",
         "system.media.purge",
     }

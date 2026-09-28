@@ -114,6 +114,11 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "Church-issued intake links",
         ("intake_source.created", "intake_source.deactivated"),
     ),
+    # S2.5 (intake.md §5 notification.acknowledge, §10 "Urgent banner data").
+    ActionGroup(
+        "Notifications",
+        ("notification.acknowledged",),
+    ),
     ActionGroup(
         "Access denied",
         ("authz.denied",),
@@ -170,6 +175,7 @@ ACTION_LABELS: dict[str, str] = {
     # S2.2 (Q-127 retention sweep).
     "request.pii_purged": "Requester personal details erased (retention)",
     "request.purged": "Request erased (spam retention)",
+    "notification.acknowledged": "Acknowledged an urgent notification",
 }
 
 
