@@ -338,6 +338,9 @@ a:hover {
 .nav--bottom > .nav > li {
   /* Minor 1: items were left-aligned instead of sharing the row's width. */
   flex: 1;
+  /* Visual QA NM3: without this the items keep their min-content width at 200% text, so the
+     last tab ("More") was clipped by `overflow: hidden` and unreachable. */
+  min-width: 0;
 }
 
 .nav--bottom .nav__link {
@@ -349,6 +352,35 @@ a:hover {
   border-radius: 0;
   font: var(--ham-type-nav-compact-weight) var(--ham-type-nav-compact-size) /
     var(--ham-type-nav-compact-line-height) var(--ham-font-ui);
+}
+
+/* Visual QA NM3: at 200% text or ~195px the 64px-minimum tabs no longer fit, and the last tab
+   ("More") was clipped off-screen. When the bar itself is narrow, keep every tab reachable:
+   drop the minimum, keep each label as the link's accessible name (visually hidden), and
+   enlarge the icon so the tab still reads clearly. */
+.nav--bottom {
+  container-type: inline-size;
+}
+
+@container (max-width: 20em) {
+  .nav--bottom .nav__link {
+    min-width: 0;
+    padding-inline: var(--ham-space-1);
+  }
+
+  .nav--bottom .nav__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .nav--bottom .nav__icon {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 /* Minor 1: the selected tab gets a 32x4px pill above the icon, not just the fill
@@ -1317,6 +1349,11 @@ input[type="radio"] {
   gap: var(--ham-space-6);
 }
 
+.home-grid > * {
+  /* Visual QA NM3: grid items default to min-width:auto and pushed the page wide at 200% text. */
+  min-width: 0;
+}
+
 .home-grid > div > .card,
 .home-grid > div > .empty-state {
   margin-bottom: var(--ham-space-4);
@@ -1424,7 +1461,8 @@ input[type="radio"] {
 
 .attention-card__title {
   flex: 1;
-  min-width: 12em;
+  /* Visual QA NM3: a bare 12em pushed Pastor Home to 551px wide at 390 + 200% text. */
+  min-width: min(12em, 100%);
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
 }
@@ -1706,6 +1744,8 @@ input[type="radio"] {
 /* --- Choice card / choice chip (C19) ------------------------------------------------------ */
 .choice-grid {
   display: grid;
+  /* Visual QA NM1: lets narrow grids (200% text, 195px) drop the decorative icon below. */
+  container-type: inline-size;
   /* B3: 11em (176px) needed 360px for 2 columns (2 * 176 + gap), but the content box at 390
      is 358px -- one pixel short, so it fell back to 1 column. 10.5em (168px) fits. */
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5em), 1fr));
@@ -1771,6 +1811,20 @@ label.choice-card + label.choice-card {
 
 .choice-card:has(:checked) .choice-card__icon {
   color: var(--ham-text-brand);
+}
+
+/* Visual QA NM1: at 200% text / 195px the icon + radio + gaps left too little room and labels
+   broke mid-word ("Plumbin/g"). The icon is decorative (aria-hidden), so drop it and tighten
+   the card when the grid itself is narrow. */
+@container (max-width: 22em) {
+  .choice-card__icon {
+    display: none;
+  }
+
+  .choice-card {
+    gap: var(--ham-space-2);
+    padding-inline: var(--ham-space-3);
+  }
 }
 
 .choice-card input {
@@ -2271,11 +2325,12 @@ form:has(> .action-bar) {
    file's hashed URL. */
 .disclosure summary::after {
   content: "";
-  width: 7px;
-  height: 7px;
+  /* Visual QA: at 7px the chevron read as a stray tick; size it with the text. */
+  width: 0.5em;
+  height: 0.5em;
   flex: none;
-  border-right: 1.75px solid currentColor;
-  border-bottom: 1.75px solid currentColor;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
   transform: rotate(-45deg);
   transition: transform var(--ham-duration-fast, 120ms);
 }
@@ -2510,4 +2565,15 @@ fieldset:has(
     gap: var(--ham-space-3);
     align-items: start;
   }
+}
+
+/* --- Leadership media viewer (FIX-G page; visual QA NM2) ---------------------------------- */
+.media-viewer__media {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 14rem);
+  object-fit: contain;
+  margin-inline: auto;
+  border-radius: var(--ham-radius-md);
 }

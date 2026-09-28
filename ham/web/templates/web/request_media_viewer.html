@@ -6,6 +6,7 @@
 {% block content %}
   <div class="sheet media-viewer">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1 class="type-h3">{{ item.media_kind|capfirst }} {{ item.index }} &middot; {{ request_row.display_number }}</h1>
     {% if item.media_kind == "video" %}
       <video class="media-viewer__media" src="{{ view_url }}" controls playsinline></video>
     {% else %}

@@ -489,3 +489,61 @@ ham-ui-designer · 2026-09-28 · report only.
 5. The 1280 split pane cuts content mid-heading with no fade or scroll affordance. Consider a bottom fade mask on `.split-detail` when it overflows.
 
 **axe:** 0 violations across 58 requester runs (390 and 1280, over two passes) and 32 leadership runs (390 and 1280).
+
+## Confirmation at 5f3f64e
+ham-ui-designer · 2026-09-28 · report only (no app, template, CSS or test edits).
+- **Setup:** port 8043, `HAM_BASE_URL=http://127.0.0.1:8043`, DB `ham_qa` dropped, migrated and seeded (`seed_dev` + `seed_dev_requests`). Between flows, the per-IP intake limits for 127.0.0.1 were reset by re-keying the QA rows' `ip_address`. Chromium 141, axe-core 4.10. Screenshots are in the session scratchpad (`step2-qa-confirm/`).
+- **Modes:** 390, 768, 1280, 390 + 200% text (root measured at 32px), and 195. Each capture measured bar height, `scrollWidth`, mid-word breaks (per-word Range `getClientRects`, more than one line top) and axe.
+
+| ID | Status | Evidence |
+|---|---|---|
+| N6 | **Fixed** | Under 22em the bar holds only the primary, and `.wizard-back-link` shows in the flow (visible at 195 and at 390 + 200% text on R2–R6, hidden at 390/768/1280). The bar is **77px of 422 (18%) at 195** (was 141, 33%) and **101px of 844 (12%) at 390 + 200% text** (was 177, 21%). At 390, 768 and 1280 both buttons stay in the bar. |
+| N7 | **Fixed at default text; not fixed at 200% text or 195** | 0 mid-word breaks at 390, 768 and 1280 on R2–R6. At 390 + 200% text, breaks with no hyphen: "Plumbin/g", "Electrica/l", "Somethi/ng" (R2), "Townhouse", "Apartment", "manufactured" (R3), "Something" (R4). `hyphens:auto` doesn't produce a hyphen here. Cause: at 32px root the card spends 64px padding, 24px radio, 40px icon and 2×24px gaps, leaving a 140px label box. See NM1. |
+| M2 | **Fixed** (polish remains) | The aside now comes before the bar in DOM order on R1–R6 and R9 at every width; `afterBar` is empty everywhere. The R3 aside is hidden below 1280. Short pages pin the bar at the bottom: R11b, R12, R8 and the confirm link are at top 743 of 844 (was 308). Polish: the bar sits 24px above the viewport edge on short pages (see minors). |
+| M3 | **Fixed** | R2 category cards have icons (house, droplet, plug-zap…). "Something else" is full width. At 390 the icon grid is now 1 column (15em). |
+| R7N phone | Fixed | "(305) 555-0177" is on one line (`.u-nowrap`). Done is full width at 390. |
+| L9 chevron | **Not fixed** | No change to `.disclosure summary::after`. The 7px border chevron still reads as a small tick glyph beside "What to say" (`l9-summary-open-390.png`). |
+| Pastor "waiting under 1 h" | Fixed | NBSP in `attention.py`: "waiting 6 h" and "oldest waiting 1 day" stay on one line. |
+| L2 section gaps | Fixed | Gallery to next section is 32px (`space-8`). |
+| Upload tile × | Fixed | The visible circle is 32px, and `::before` inset -8px restores a 48px target. |
+
+### New Major
+- **NM1. The icon choice card leaves too little label width at 200% text and 195 (N7 remainder).** At 390 + 200% text the label box is 140px; at 195 it is 49px. Every longer word breaks raw.
+  - **Fix (shell.css ~1765/1728):** give `.choice-grid` `container-type:inline-size`. Then add `@container (max-width: 22em) { .choice-card__icon { display:none } .choice-card { gap: var(--ham-space-2); padding-inline: var(--ham-space-3) } }`. The icon is decorative (`aria-hidden`), so hiding it loses no information.
+  - **Result:** about 230px of label at 200% text and about 100px at 195.
+  - **Keep** `overflow-wrap:break-word` only as a last resort.
+- **NM2. The leader media viewer overflows horizontally and has no h1.**
+  - `img.media-viewer__media` renders at its natural 800px: `scrollWidth` is 840 at 390, 1004 at 768 and 1356 at 1280. `.media-viewer*` has no CSS rule.
+  - axe reports `page-has-heading-one` at 390 and 1280.
+  - **Where:** `ham/web/templates/web/request_media_viewer.html:12`; `shell.css` has no rule.
+  - **Fix:**
+    - CSS: `.media-viewer__media{display:block;max-width:100%;height:auto;max-height:calc(100dvh - 14rem);object-fit:contain;margin-inline:auto;border-radius:var(--ham-radius-md);background:var(--ham-bg-subtle)}`.
+    - Template: add `<h1 class="type-h3">Photo {{ item.index }} · {{ request_row.display_number }}</h1>`, or make it `visually-hidden` if the app bar title is kept.
+- **NM3. Leadership screens don't reflow at 200% text.** This was first measured in this pass and predates FIX-H.
+  - **Pastor Home:** `scrollWidth` is 551 at 390 + 200% text, because `.attention-card__title{min-width:12em}` (shell.css:1427) is 384px. Fix: `min-width:min(12em,100%)`, plus `.home-grid > *{min-width:0}`.
+  - **Bottom nav:** at 200% text and at 195 the 4th item ("More") is clipped by `.nav--bottom > .nav{overflow:hidden}` (li right edge at 494 and 270), so it can't be reached. Fix: `.nav--bottom > .nav > li{min-width:0}`. Under `@container (max-width: 26em)` on the nav, visually hide `.nav__label` (keep it as the accessible name) and enlarge the icons to 28px. Alternatively, reduce `.nav__link` padding and let labels wrap onto two lines.
+
+### New minors
+1. Short public pages at <1024 leave a 24px gap below the pinned bar (`.public-shell__content` padding-bottom `space-6`). Fix: `.public-shell__content:has(.action-bar){padding-bottom:0}` inside the same media query.
+2. Already-received pages:
+   - The page title doesn't match the h1. R8 is titled "Check your email" over the h1 "We already received your request", and the confirm link is titled "Confirm your request" over the h1 "Already received".
+   - The reveal variant has no next step. Add a quiet "Check on your request" link to R11b.
+   - The eyebrow shows on the confirm-link variant but not on R8.
+3. At 390 + 200% text, R12's "Check on your request" wraps to 2 lines, making the bar 147px (17%). Shorten it to "Check my request", or let the bar go static below 22em on non-form pages.
+4. At 390 + 200% text, the R2 and R8 bars aren't visible on first paint, because the form starts below the fold now that the aside moved above it. This is acceptable because the bar appears on scroll. Consider dropping the R2 aside under 22em.
+5. The Administrator (masked) viewer URL returns a bare `HttpResponseForbidden()` with no document, so axe reports no title or lang. Nothing links there. Render `web/forbidden.html` for consistency.
+
+**axe:** requester, 0 violations at 390 and 1280 across every captured state, including the already-received and confirm-link pages. Leadership, 0 except the viewer (`page-has-heading-one`) and the admin 403 (bare response).
+
+### Fixes applied after the confirmation (orchestrator)
+**Covered by the always-on `tests/e2e/test_final_visual_confirm.py`** (8 tests; 7 failed before these changes, and all pass after):
+- **NM1:** `.choice-grid` is a size container, and under 22em the decorative icon is dropped and the card tightened. There are no mid-word breaks on R2 or R3 at 390 + 200% text. At 195px, "manufactured" is wider than the card's text box, so wrapping it is the only alternative to sideways scrolling. The test holds R3 to "no sideways scroll" at 195px.
+- **NM2:** the media viewer image and video are constrained to the screen (`.media-viewer__media`), and the page has an h1.
+- **NM3:**
+  - `.home-grid > *` and `.attention-card__title` can shrink.
+  - The bottom-nav items can shrink.
+  - When the bar is narrower than 20em, tab labels become visually hidden accessible names and the icons grow to 28px, so every tab, including More, stays reachable. Labels stay visible on a normal 390px phone, which the test asserts.
+
+**Not covered by a test:** the L9 disclosure chevron is now sized with the text (0.5em, 2px stroke) instead of 7px.
+
+**Still open (Minor):** the pinned bar sits 24px above the screen edge on short pages; the already-received page title and wording polish; the R12 button wraps at 200% text; the Administrator gets a bare 403 on the viewer URL (nothing links to it).
