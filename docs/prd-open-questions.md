@@ -124,6 +124,9 @@ Code that depends on an open item is marked `// PRD-GAP Q-NNN`.
 | Q-137 | Q-101, §68 | What does "contact details masked" on the secure page cover? | Various | Email, phone and street line masked; city and ZIP shown. | Open — proposed default in use (step 2) |
 | Q-138 | Q-124, §45 | Does the Administrator (view only) see request photos? | Yes / count only | Photo count only. | Open — proposed default in use (step 2) |
 | Q-139 | §68, Q-100 | "Continue my request" resume prompt on shared computers | Show details / no details, same browser only | Resume only in the same browser; the prompt shows no details; draft erased after 24 h. | Open — proposed default in use (step 2) |
+| Q-140 | Q-025, Q-107, §52 | A "Needs a phone check" requester can't be reached. How does the request close? | Stays open / close as "couldn't reach" after attempts | Director/AD may close with reason "couldn't reach them" (not an eligibility judgement; no email possible; they may apply again). Added as a 4th pre-decision close reason. | Open — proposed default in use (step 2) |
+| Q-141 | §47, Q-128 | Media retention clock for Not Executable requests | Photos 90 d / videos 30 d from close / keep until project decision | Same §47 clock from the Not Executable decision (decided in step 4/10). | Open — proposed default in use (step 2) |
+| Q-142 | §7.3, §52 | Does "Completed – Follow-Up Required" count as completion for the 7-day link window? | Yes / no, only final Completed | No: the 7 days start at final completion (decided in step 10). | Open — proposed default in use (step 2) |
 
 ## UX backlog (not PRD gaps — implementation/framework choices, not open product questions)
 - **Q-086–Q-089**: never allocated (no row was ever drafted for these ids in any slice) — the id sequence skips straight from Q-085 to Q-090. Noting this here so the gap isn't mistaken for a lost row later.

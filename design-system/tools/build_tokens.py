@@ -499,13 +499,19 @@ def required_pairs(doc):
                  ("action.secondary.fg", "action.secondary.bg-hover"), ("text.on-appbar", "bg.appbar"),
                  ("text.on-inverse", "bg.inverse"), ("appbar.text-muted", "bg.appbar"),
                  ("appbar.text-muted", "appbar.field-bg"), ("text.on-appbar", "appbar.field-bg"),
-                 ("badge.fg", "badge.bg")]:
+                 ("badge.fg", "badge.bg"),
+                 # v1.3 (intake): hint text inside a selected choice card
+                 ("text.secondary", "bg.selected")]:
         pairs.append((t, s, 4.5, "text"))
     for t, s in [("action.primary.bg", "bg.canvas"), ("action.primary.bg", "bg.surface"),
                  ("action.danger.bg", "bg.surface"), ("action.secondary.border", "bg.surface"),
                  ("border.strong", "bg.surface"), ("border.strong", "bg.canvas"), ("border.selected", "bg.surface"),
                  ("focus.ring", "bg.canvas"), ("focus.ring", "bg.surface"),
-                 ("appbar.status-ok", "bg.appbar"), ("appbar.field-border", "bg.appbar")]:
+                 ("appbar.status-ok", "bg.appbar"), ("appbar.field-border", "bg.appbar"),
+                 # v1.3 (intake): selected choice card edge + focus ring on it; progress fill on its track;
+                 # input/drop-zone border on a sunken panel
+                 ("border.selected", "bg.selected"), ("focus.ring", "bg.selected"),
+                 ("action.primary.bg", "bg.sunken"), ("border.strong", "bg.sunken")]:
         pairs.append((t, s, 3.0, "UI"))
     for tone in doc["semantic"]["color"]["tone"]:
         if tone.startswith("$"):

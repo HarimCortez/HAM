@@ -17,6 +17,7 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 - **Mobile:** list screen → push detail screen (back button in app bar). Keep scroll position on return.
 - **Tablet:** same as mobile, lists as 2-column cards where cards are used.
 - **Desktop (≥ 1280): split view.** List pane 400px (resizable 360–520) + detail pane fills the rest. Selecting a row updates the URL. Detail pane has its own header (h1 + chips + primary action). At 1024–1279 open detail as full page (split view too cramped).
+- **Split-view widths (v1.3, from intake):** with the 264px sidebar, 1280 leaves ~950px of content. At 1280–1535 the list pane is `--ham-size-split-list-min` and the detail pane is **one column** (key facts as a compact strip under the header). At ≥1536 the list pane is `--ham-size-split-list` and the detail pane splits into main + side columns (2fr / 1fr). The list pane scrolls independently (`position: sticky`, `max-height: calc(100vh - appbar)`), the detail pane is a labelled region (`aria-labelledby` its h1).
 - Detail layout (desktop): main column (2/3: tasks, timeline, comments) + side column (1/3: key facts, people, budget summary, attention items). Mobile: side column content moves *above* main content as a compact "Key facts" card.
 
 ## 3. Cards vs tables
@@ -35,7 +36,8 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 ## 5. Wizards (intake, site assessment, project planning)
 - Steps: 3–7. Header: "Step 2 of 5 · Property" (text, not dots alone) + thin progress bar (`action.primary.bg` on `bg.sunken`).
 - One topic per step; mobile shows Back (ghost) + Continue (primary, full width, `control-lg`) in the sticky action bar.
-- Desktop (≥ 1024): left step list (clickable for completed steps) + form column + optional right help/AI panel.
+- Desktop: at 1024–1279 left step list (`--ham-size-step-rail`) + form card; the help panel moves below the form. At ≥ 1280 step list + form card (`--ham-size-form-max`) + right help panel (`--ham-size-aside`), in a `--ham-size-wizard-max` container. Components: step indicator (components §21), sticky action bar (§22), choice cards (§19), review summary cards (§23).
+- **Large text (requester):** see the large-text contract at the top of components.md "Additions for step 2". Test every requester screen at 390px with 200% text and at 200% zoom: no horizontal scroll, the primary always reachable.
 - Final step = review summary with "Edit" links per section, then submit. Save & exit available on every step.
 - Requester intake uses `body-lg` + `control-lg` everywhere and plain-language helper text; hazard disclosure step (PRD §39) uses large checkbox cards with icons.
 

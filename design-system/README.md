@@ -1,6 +1,6 @@
 # HAM Design System
 
-Version 1.2.0 · Build-order step 0 · Owner: ham-ui-designer
+Version 1.3.0 · Build-order step 0 (+ step 2 intake additions) · Owner: ham-ui-designer
 HAM should feel like a well-made consumer app, warm and trustworthy, not like church admin software. For Miami Temple Seventh-day Adventist Church it looks like part of the church: the logo's three greens, a heavy condensed heading face that echoes the wordmark, and calm neutrals.
 
 ## Two layers: HAM core + church brand
@@ -189,6 +189,7 @@ WCAG 2.x relative-luminance ratios for every text and background pair the system
 | `appbar.text-muted` on `appbar.field-bg` | text | 4.5:1 | 7.56 | 7.56 | Pass |
 | `text.on-appbar` on `appbar.field-bg` | text | 4.5:1 | 14.14 | 14.14 | Pass |
 | `badge.fg` on `badge.bg` | text | 4.5:1 | 6.57 | 6.57 | Pass |
+| `text.secondary` on `bg.selected` | text | 4.5:1 | 6.57 | 7.84 | Pass |
 | `action.primary.bg` on `bg.canvas` | UI | 3.0:1 | 4.79 | 6.73 | Pass |
 | `action.primary.bg` on `bg.surface` | UI | 3.0:1 | 5.11 | 6.02 | Pass |
 | `action.danger.bg` on `bg.surface` | UI | 3.0:1 | 6.57 | 3.63 | Pass |
@@ -200,6 +201,10 @@ WCAG 2.x relative-luminance ratios for every text and background pair the system
 | `focus.ring` on `bg.surface` | UI | 3.0:1 | 6.65 | 8.26 | Pass |
 | `appbar.status-ok` on `bg.appbar` | UI | 3.0:1 | 11.42 | 11.42 | Pass |
 | `appbar.field-border` on `bg.appbar` | UI | 3.0:1 | 4.89 | 4.89 | Pass |
+| `border.selected` on `bg.selected` | UI | 3.0:1 | 4.65 | 5.14 | Pass |
+| `focus.ring` on `bg.selected` | UI | 3.0:1 | 6.04 | 7.06 | Pass |
+| `action.primary.bg` on `bg.sunken` | UI | 3.0:1 | 4.49 | 6.32 | Pass |
+| `border.strong` on `bg.sunken` | UI | 3.0:1 | 3.24 | 4.89 | Pass |
 | `tone.neutral.fg` on `tone.neutral.bg` | chip text | 4.5:1 | 8.90 | 9.94 | Pass |
 | `tone.neutral.fg` on `bg.surface` | text on card | 4.5:1 | 10.12 | 12.06 | Pass |
 | `tone.neutral.icon` on `tone.neutral.bg` | chip icon | 3.0:1 | 6.35 | 7.56 | Pass |
