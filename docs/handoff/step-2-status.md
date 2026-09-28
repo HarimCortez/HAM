@@ -1,6 +1,10 @@
 # Step 2 (Intake): handoff status
 
-Branch: `feature/step-2-intake`. Waves 1 and 2 are merged. The suite is green: 2010 passed, 34 skipped, and ruff, mypy, lint-imports, makemigrations --check, build_permission_matrix --check and build_tokens --check all pass.
+Branch: `feature/step-2-intake`. **Step 2 is complete** (all waves, test pass, four reviews and fix rounds); PR opened to `main`. The notes below describe the state before wave 3 and are kept for history.
+
+Follow-ups left (Low/Minor): security N-L1–N-L3 + find-path timing (see `docs/ux/reviews/step2-privacy-security.md`); "Change category" (step 3, Q-109); Q-150 new-photos notice; Q-114 manage screen; privacy-statement link (Q-131, waiting on owner text); visual/wording minors at the end of each `docs/ux/reviews/step2-*.md`.
+
+Waves 1 and 2 are merged. The suite is green: 2010 passed, 34 skipped, and ruff, mypy, lint-imports, makemigrations --check, build_permission_matrix --check and build_tokens --check all pass.
 
 ## Read first
 - The owner decisions box at the top of `docs/architecture/intake.md`. The body is the architect's plan, and the box overrides it.
