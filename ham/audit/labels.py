@@ -112,6 +112,11 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "Church-issued intake links",
         ("intake_source.created", "intake_source.deactivated"),
     ),
+    # S2.5 (intake.md §5 notification.acknowledge, §10 "Urgent banner data").
+    ActionGroup(
+        "Notifications",
+        ("notification.acknowledged",),
+    ),
     ActionGroup(
         "Access denied",
         ("authz.denied",),
@@ -165,6 +170,7 @@ ACTION_LABELS: dict[str, str] = {
     "request_media.purged": "Photo/video purged",
     "intake_source.created": "Church-issued link created",
     "intake_source.deactivated": "Church-issued link deactivated",
+    "notification.acknowledged": "Acknowledged an urgent notification",
 }
 
 

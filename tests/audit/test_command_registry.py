@@ -65,7 +65,6 @@ PLACEHOLDER_ACTIONS = frozenset(
         "request.create_assisted",
         "request.contact_verify_phone",
         "intake_source.manage",
-        "notification.acknowledge",
         "system.request.complete_intake_checks",
         "system.media.process",
         "system.media.purge",
