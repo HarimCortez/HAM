@@ -7,6 +7,7 @@ Pure lookups only -- no DB, no I/O -- so templates and tests can import this fre
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import phonenumbers
@@ -192,22 +193,43 @@ def reconsideration_preview_deadline_text(now) -> str:
     return deadline.astimezone(zone).strftime("%a, %b %-d")
 
 
+@dataclass(frozen=True, slots=True)
+class DeclineOutcomeParts:
+    """Fix 3E / UX M6, PRD guardian minor 1: the three pieces of E10/E13's body -- `opening`
+    (before the reason), `message` (Q-154's kind message, own trailing period stripped so
+    `render_decline_outcome_text`'s own closing quote-and-period never doubles up), and
+    `closing` (the sympathy line, the "once" reconsideration offer with its real deadline, and
+    the church phone line, all folded into one sentence group). Both the email builder
+    (`ham.requester_portal.notifications._build_rejected_email`) and the A3 leadership preview
+    (`request_reject.html`) render from these SAME three parts -- one source, so the preview
+    can never again promise a sentence ("We know this isn't the answer you hoped for.") the
+    email doesn't actually send."""
+
+    opening: str
+    message: str
+    closing: str
+
+
 def decline_outcome_text(
     message: str,
     *,
     final: bool,
     deadline_text: str = "",
     church_phone: str = "",
-) -> str:
-    """The body of E10 (still reconsiderable) or E13 (final) -- Q-154's kind message plus the
-    sympathy line, the "once" reconsideration offer with its real deadline, and the church
-    phone line when one is on file."""
+) -> DeclineOutcomeParts:
+    """Builds the three `DeclineOutcomeParts` for E10 (still reconsiderable) or E13 (final)."""
+    clean_message = (message or "").strip().rstrip(".")
     if final:
-        return (
+        opening = (
             "we looked at your request again, and we're sorry, we're still not able to "
-            f"help with this one. Here's why: \"{message}\". You're welcome to send a new "
-            "request in the future if things change."
+            "help with this one."
         )
+        closing = "You're welcome to send a new request in the future if things change."
+        return DeclineOutcomeParts(opening=opening, message=clean_message, closing=closing)
+    opening = (
+        "we're sorry. After looking carefully at your request, we aren't able to help with "
+        "this one."
+    )
     reconsider_clause = (
         f" If you think we've missed something, you can ask us to reconsider, once, "
         f"until {deadline_text}."
@@ -217,10 +239,16 @@ def decline_outcome_text(
     phone_clause = (
         f" Or call us at {church_phone} -- we're glad to talk it through." if church_phone else ""
     )
-    return (
-        "we're sorry. After looking carefully at your request, we aren't able to help with "
-        f'this one. Here\'s why: "{message}".{reconsider_clause}{phone_clause}'
-    )
+    closing = f"We know this isn't the answer you hoped for.{reconsider_clause}{phone_clause}"
+    return DeclineOutcomeParts(opening=opening, message=clean_message, closing=closing)
+
+
+def render_decline_outcome_text(parts: DeclineOutcomeParts) -> str:
+    """Fix 3E: the exact plain-text sentence `decline_outcome_text`'s parts render to -- used
+    by the email body. The preview renders the same parts into separate HTML blocks instead
+    (opening paragraph, quoted message, closing paragraph) so the visual layout can differ
+    from the email while the words stay identical."""
+    return f'{parts.opening} Here\'s why: "{parts.message}." {parts.closing}'.strip()
 
 
 def rejection_reason_label(value: str) -> str:

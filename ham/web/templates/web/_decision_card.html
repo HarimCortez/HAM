@@ -27,6 +27,19 @@ of hiding a duplicate copy from assistive tech.
       <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Decisions and questions can't be recorded while acting as someone else.</p>
     {% endif %}
 
+    {% if decision.review_undo %}
+      {% comment %}Fix 3E: a standalone urgency review (certify/not-urgent) still inside its
+      own undo window -- reachable from the Decision card regardless of whether the request's
+      own approve/reject decision is still pending.{% endcomment %}
+      <div class="inline-alert inline-alert--info" role="status">
+        <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
+        <div>
+          <p class="type-label">Can be undone until <time datetime="{{ decision.review_undo.undo_deadline|date:'c' }}">{{ decision.review_undo.undo_deadline|church_time }}</time></p>
+          <a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?review_id={{ decision.review_undo.review_id }}">{% if decision.review_undo.action == "decline_urgency" %}Undo not urgent&hellip;{% else %}Undo certification&hellip;{% endif %}</a>
+        </div>
+      </div>
+    {% endif %}
+
     {% if decision.state == "awaiting" %}
       {% if decision.urgent_awaiting_cert %}
         <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg>
@@ -148,7 +161,9 @@ of hiding a duplicate copy from assistive tech.
 
       {% if decision.message %}
         <figure class="quote-block">
-          <figcaption>What we told the requester</figcaption>
+          {% comment %}UX M2: during the decider's own undo window nothing has gone to the
+          requester yet -- "told" is wrong tense until the window actually closes.{% endcomment %}
+          <figcaption>{% if decision.pending %}What we'll tell the requester{% else %}What we told the requester{% endif %}</figcaption>
           <blockquote>{{ decision.message }}</blockquote>
         </figure>
       {% endif %}

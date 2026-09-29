@@ -899,6 +899,7 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
             # landed) between load and submit -- an info notice, never an error.
             "withdrawn_question_id": request.GET.get("withdrawn_question", ""),
             "answer_failed_question_id": request.GET.get("answer_failed", ""),
+            "answer_failed_reason": request.GET.get("answer_failed_reason", ""),
             "just_answered_question_id": request.GET.get("answered", ""),
             "row": row,
             "token": token,
@@ -1133,9 +1134,18 @@ def request_help_question_answer(
         if message == "requester.question.answer: already answered":
             # Another tab already sent one -- the card already shows the answer; no error.
             return redirect(f"{secure_url}#q-{question_id}")
-        # Empty or over ANSWER_MAX_LENGTH: R19 "Answer send failed", text kept client-side
-        # (the card's own textarea still holds what she typed; this is a fresh GET).
-        return redirect(f"{secure_url}?answer_failed={question_id}#q-{question_id}")
+        # Fix 3E / security L7, UX M8: empty and too-long each get their own message -- an
+        # empty answer never reached the server with anything worth "still here"-ing, so the
+        # generic "It's still here" wording was actively misleading for that case.
+        reason = (
+            "empty"
+            if message == "requester.question.answer: answer is required"
+            else "too_long"
+        )
+        return redirect(
+            f"{secure_url}?answer_failed={question_id}&answer_failed_reason={reason}"
+            f"#q-{question_id}"
+        )
     return redirect(f"{secure_url}?answered={question_id}#q-{question_id}")
 
 

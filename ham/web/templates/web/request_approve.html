@@ -88,6 +88,10 @@
         </p>
       </div>
 
+      {% if has_open_question %}
+        <p class="text-secondary type-small">The open question will be withdrawn.</p>
+      {% endif %}
+
       {% if urgent_mode %}
         <p><a class="link-button" href="?mode=normal">Approve, but not as urgent</a></p>
       {% endif %}

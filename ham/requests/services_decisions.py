@@ -93,7 +93,12 @@ def _resource_requester_ctx(ctx: RequesterContext, *_: Any, **__: Any) -> Reques
     return ctx
 
 
-def _church_today(now: dt.datetime) -> dt.date:
+def church_today(now: dt.datetime) -> dt.date:
+    """Fix 3E / PRD re-check small items: the church-LOCAL calendar date for a "Board date
+    can't be in the future" check -- `now` is always stored/passed as UTC (§70.5), so a bare
+    `.date()` on it is wrong near local midnight. Exported (no leading underscore) because
+    `ham.web.views_requests`'s own inline pre-checks (A3/A9) need the exact same date the
+    service itself will validate against, not a second, independently-computed one."""
     zone = ZoneInfo(church_profile().time_zone)
     return now.astimezone(zone).date()
 
@@ -125,8 +130,8 @@ def approve_request(
     now = clock_now()
 
     if route == ApprovalRoute.BOARD.value and board_decided_on is None:
-        board_decided_on = _church_today(now)  # Q-163: prefilled today
-    if board_decided_on is not None and board_decided_on > _church_today(now):
+        board_decided_on = church_today(now)  # Q-163: prefilled today
+    if board_decided_on is not None and board_decided_on > church_today(now):
         raise ValueError("request.approve: board_decided_on cannot be in the future")
     if len(approval_note) > APPROVAL_NOTE_MAX_CHARS:
         raise ValueError(
@@ -287,8 +292,8 @@ def reject_request(
     now = clock_now()
 
     if route == ApprovalRoute.BOARD.value and board_decided_on is None:
-        board_decided_on = _church_today(now)
-    if board_decided_on is not None and board_decided_on > _church_today(now):
+        board_decided_on = church_today(now)
+    if board_decided_on is not None and board_decided_on > church_today(now):
         raise ValueError("request.reject: board_decided_on cannot be in the future")
     if len(message) > DECLINE_MESSAGE_MAX_CHARS:
         raise ValueError(f"request.reject: message exceeds {DECLINE_MESSAGE_MAX_CHARS} characters")
@@ -641,8 +646,8 @@ def decide_reconsideration(
 
     if recon.route == ApprovalRoute.BOARD.value:
         if board_decided_on is None:
-            board_decided_on = _church_today(now)  # Q-180: prefilled today
-        if board_decided_on > _church_today(now):
+            board_decided_on = church_today(now)  # Q-180: prefilled today
+        if board_decided_on > church_today(now):
             raise ValueError(
                 "request.reconsideration.decide: board_decided_on cannot be in the future"
             )
@@ -1055,9 +1060,16 @@ def run_held_decision_effects(approval_id: UUID) -> None:
             # Security L1: a job run before the window has actually closed (a misfired retry,
             # a clock skew) must never release the held effects early -- re-defer to the
             # correct instant instead of running now.
+            # Security L-a: floor the re-defer at `now + 1s` -- `effective_at` is already
+            # known to be in the future here, but a misfired retry landing only a few
+            # milliseconds early would otherwise re-defer to an instant so close to `now`
+            # that the worker could pick it straight back up and spin in a tight retry loop
+            # instead of actually waiting out the rest of the window.
             from .jobs import defer_held_decision_effects
 
-            defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
+            defer_held_decision_effects(
+                approval.id, effective_at=max(approval.effective_at, now + dt.timedelta(seconds=1))
+            )
             return
         if approval.undone_at is not None:
             # Undone before the window closed: none of the held effects ever run, but the

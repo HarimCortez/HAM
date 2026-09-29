@@ -14,12 +14,18 @@
 
     {% if not window_open %}
       <div class="inline-alert inline-alert--attention" role="alert">
-        <p>The 30 minutes to undo ended at {{ undo_deadline|church_time }}. The decision stands.</p>
+        <p>The {{ undo_minutes }} minutes to undo ended at {{ undo_deadline|church_time }}. The decision stands.</p>
       </div>
       <p><a class="btn btn--secondary" href="{% url 'web:request_detail' request_id=request_row.id %}">Close</a></p>
     {% else %}
       <ul>
-        <li>Nothing has been sent to the requester. Their email is cancelled.</li>
+        {% if requester_phoned_at %}
+          <li>You told them by phone at {{ requester_phoned_at|church_time }}{% if requester_phoned_by %} ({{ requester_phoned_by }}){% endif %}. Please call them back to say the decision is being looked at again.</li>
+        {% elif not has_email %}
+          <li>They don't use email, so nothing was sent.</li>
+        {% else %}
+          <li>Nothing has been sent to the requester. Their email is cancelled.</li>
+        {% endif %}
         <li>{{ request_row.display_number }} goes back to its previous state, and anyone who can decide may decide it again.</li>
         {% if urgent_approval %}<li>The Director and Assistant Director were already alerted. They'll get a note that it was undone.</li>{% endif %}
         <li>The decision and the undo both stay in the history.</li>
@@ -35,7 +41,7 @@
           <div class="action-bar__inner">
             <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Keep my decision</a>
             <button class="btn btn--primary" type="submit">
-              {% if is_urgency_review %}Undo certification{% else %}Undo decision{% endif %}
+              {% if is_urgency_review %}{% if review_action == "decline_urgency" %}Undo not urgent{% else %}Undo certification{% endif %}{% else %}Undo decision{% endif %}
             </button>
           </div>
         </div>

@@ -26,7 +26,7 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
-from .models import ApprovalRoute, AssistanceRequest, Reconsideration
+from .models import Approval, ApprovalRoute, AssistanceRequest, Reconsideration
 from .presentation import need_category_label
 from .queries import (
     RequestListRow,
@@ -135,7 +135,7 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
                 count=len(other_rows),
                 urgent=False,
                 actionable=True,
-                href="/requests?tab=awaiting",
+                href=_single_or(other_rows, "/requests?tab=awaiting"),
             )
         )
     return cards
@@ -183,8 +183,24 @@ def _oldest_waiting_words(hours: float | None) -> str:
     return f"oldest waiting {days} day" if days == 1 else f"oldest waiting {days} days"
 
 
+def _single_or(ids_or_rows: list, tab_href: str) -> str:
+    """Fix 3E / UX M1: a Home card whose count has settled to exactly one goes straight to
+    that request instead of the whole tab -- `ids_or_rows` is whatever the caller already has
+    on hand (a list of `RequestListRow`/`Reconsideration` objects, or plain UUIDs)."""
+    if len(ids_or_rows) != 1:
+        return tab_href
+    only = ids_or_rows[0]
+    request_id = only if not hasattr(only, "id") else only.id
+    if hasattr(only, "request_id"):
+        request_id = only.request_id
+    return f"/requests/{request_id}"
+
+
 def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
-    """Q-025: "{n} requests need a phone check · oldest waiting {age}", Director/AD only."""
+    """Q-025: "{n} requests need a phone check · oldest waiting {age}", Director/AD only.
+    Always links to the "new by phone" intake action (not a single request's own page --
+    there's nothing to "open" per request here), so UX M1's single-count deep-link doesn't
+    apply to this card."""
     if not can_see_needs_phone_check(ctx):
         return None
     rows = needs_phone_check_list(ctx)
@@ -239,7 +255,7 @@ def reconsideration_cards(ctx: ActorContext) -> list[AttentionCard]:
             count=len(mine),
             urgent=False,
             actionable=True,
-            href="/requests?tab=reconsideration",
+            href=_single_or(mine, "/requests?tab=reconsideration"),
         )
     ]
 
@@ -257,16 +273,16 @@ def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
     )
     # Fix 3C / security L-c: one bulk `Subquery`-based lookup instead of a per-request query,
     # for the same "settled decision" fact the phone-script view reads.
-    count = len(requests_with_settled_decision(candidate_ids, now, only_unphoned=True))
-    if not count:
+    ids = requests_with_settled_decision(candidate_ids, now, only_unphoned=True)
+    if not ids:
         return None
     return AttentionCard(
         key="requests.decision_phone",
-        title=f"Call to share a decision ({count})",
-        count=count,
+        title=f"Call to share a decision ({len(ids)})",
+        count=len(ids),
         urgent=False,
         actionable=True,
-        href="/requests?tab=decided",
+        href=_single_or(list(ids), "/requests?tab=decided"),
     )
 
 
@@ -281,16 +297,16 @@ def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
         status=RequestStatus.APPROVED.value,
         urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value,
     ).values_list("id", flat=True)
-    count = len(requests_with_settled_decision(candidate_ids, now))
-    if not count:
+    ids = requests_with_settled_decision(candidate_ids, now)
+    if not ids:
         return None
     return AttentionCard(
         key="requests.awaiting_certification",
-        title=f"Certify urgent · approved ({count})",
-        count=count,
+        title=f"Certify urgent · approved ({len(ids)})",
+        count=len(ids),
         urgent=True,
         actionable=True,
-        href="/requests?tab=decided",
+        href=_single_or(list(ids), "/requests?tab=decided"),
     )
 
 
@@ -308,16 +324,50 @@ def awaiting_site_visit_card(ctx: ActorContext) -> AttentionCard | None:
         .exclude(urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value)
         .values_list("id", flat=True)
     )
-    count = len(requests_with_settled_decision(candidate_ids, now))
-    if not count:
+    ids = requests_with_settled_decision(candidate_ids, now)
+    if not ids:
         return None
     return AttentionCard(
         key="requests.awaiting_site_visit",
-        title=f"Approved, waiting for a site visit ({count})",
-        count=count,
+        title=f"Approved, waiting for a site visit ({len(ids)})",
+        count=len(ids),
         urgent=False,
         actionable=False,
-        href="/requests?tab=decided",
+        href=_single_or(list(ids), "/requests?tab=decided"),
+    )
+
+
+def phone_callback_card(ctx: ActorContext) -> AttentionCard | None:
+    """Fix 3E / UX M11: undoing a decision that had already been told to the requester by
+    phone leaves them holding stale news until someone calls back -- Director/AD get a
+    "call back" nudge for any undone-and-phoned `Approval` that hasn't since been superseded
+    by a later phone call on the same request. PII-free: HAM # + category only (Q-132)."""
+    if not (ctx.effective_roles & _DIR_AD):
+        return None
+    undone_phoned = Approval.objects.filter(
+        requester_phoned_at__isnull=False, undone_at__isnull=False
+    ).values("request_id", "undone_at")
+    needs_callback: set = set()
+    checked: set = set()
+    for row in undone_phoned:
+        request_id = row["request_id"]
+        if request_id in checked:
+            continue
+        checked.add(request_id)
+        later_call = Approval.objects.filter(
+            request_id=request_id, requester_phoned_at__gte=row["undone_at"]
+        ).exists()
+        if not later_call:
+            needs_callback.add(request_id)
+    if not needs_callback:
+        return None
+    return AttentionCard(
+        key="requests.phone_callback",
+        title=f"Call them back · decision changed ({len(needs_callback)})",
+        count=len(needs_callback),
+        urgent=False,
+        actionable=True,
+        href=_single_or(list(needs_callback), "/requests?tab=decided"),
     )
 
 
@@ -337,6 +387,9 @@ def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     site_visit = awaiting_site_visit_card(ctx)
     if site_visit is not None:
         cards.append(site_visit)
+    callback = phone_callback_card(ctx)
+    if callback is not None:
+        cards.append(callback)
     return cards
 
 

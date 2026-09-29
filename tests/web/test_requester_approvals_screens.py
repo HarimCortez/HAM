@@ -380,7 +380,9 @@ def test_answer_question_over_limit_is_rejected_and_kept_open():
         follow=True,
     )
     content = resp.content.decode()
-    assert "We couldn&#x27;t send your answer" in content or "couldn't send your answer" in content
+    # Fix 3E / security L7, UX M8: too-long gets its own distinct message, not the generic
+    # "couldn't send" wording (that's now reserved for a genuinely unrecognized failure).
+    assert "too long to send" in content
     question.refresh_from_db()
     assert question.answer == ""
 
