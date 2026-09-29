@@ -21,10 +21,19 @@ from django.db.models import QuerySet
 from ham.authz import roles
 from ham.authz.matrix import authorize
 from ham.platform import otp
+from ham.platform.clock import now as clock_now
 
 from .matching import normalize_email
-from .models import AssistanceRequest, Requester
-from .states import RequestStatus, VerificationMethod
+from .models import (
+    Approval,
+    ApprovalOutcome,
+    ApprovalStage,
+    AssistanceRequest,
+    Reconsideration,
+    RejectionReason,
+    Requester,
+)
+from .states import RequestStatus, VerificationMethod, decision_is_undoable
 
 if TYPE_CHECKING:
     from ham.authz.context import ActorContext
@@ -94,6 +103,29 @@ class RequestListRow:
     status: str
     submitted_at: dt.datetime
     has_possible_duplicate: bool
+    # S3.2 (docs/ux/approvals.md L1 status chips): a plain word, never more than the status
+    # already implies -- "" for a status with no decision chip of its own.
+    decision_chip: str = ""
+
+
+# S3.2 (approvals.md §6 L1 "New status chips Approved / Not approved / Taking another look").
+_DECISION_CHIPS: dict[str, str] = {
+    RequestStatus.APPROVED.value: "Approved",
+    RequestStatus.REJECTED.value: "Not approved",
+    RequestStatus.RECONSIDERATION_PENDING.value: "Taking another look",
+}
+
+# S3.2 (approvals.md §6 L1 "views Awaiting approval, Waiting on requester, Reconsideration,
+# Decided" -- "Waiting on requester" is S3.3's own query, not duplicated here).
+VIEW_STATUS_FILTERS: dict[str, tuple[str, ...]] = {
+    "awaiting_approval": (RequestStatus.AWAITING_APPROVAL.value,),
+    "reconsideration": (RequestStatus.RECONSIDERATION_PENDING.value,),
+    "decided": (
+        RequestStatus.APPROVED.value,
+        RequestStatus.REJECTED.value,
+        RequestStatus.CANCELLED.value,
+    ),
+}
 
 
 def _visible_statuses(ctx: ActorContext) -> list[str]:
@@ -116,6 +148,7 @@ def list_requests(
     status: str | None = None,
     urgent: bool | None = None,
     reference_number: int | None = None,
+    view: str | None = None,
 ) -> list[RequestListRow]:
     qs: QuerySet[AssistanceRequest] = AssistanceRequest.objects.all().order_by(
         "-urgent_requested", "-submitted_at"
@@ -123,6 +156,8 @@ def list_requests(
     qs = scope_queryset_for_requests(ctx, qs)
     if status:
         qs = qs.filter(status=status)
+    if view is not None:
+        qs = qs.filter(status__in=VIEW_STATUS_FILTERS.get(view, ()))
     if urgent is not None:
         qs = qs.filter(urgent_requested=urgent)
     if reference_number is not None:
@@ -145,6 +180,7 @@ def list_requests(
             status=r.status,
             submitted_at=r.submitted_at,
             has_possible_duplicate=r.id in duplicate_ids,
+            decision_chip=_DECISION_CHIPS.get(r.status, ""),
         )
         for r in qs
     ]
@@ -203,6 +239,19 @@ class RequestDetailRow:
     can_reveal_contact: bool
     is_masked_view: bool
     photo_count_only: bool  # Q-138: the Administrator sees a count, never the gallery
+    # S3.2 (approvals-contracts.md §4, Q-156/Q-176): non-None only when ``ctx`` is the person
+    # who recorded the request's latest live decision and that decision is still inside its
+    # undo window -- "pending, can be undone until {pending_undo_deadline}".
+    pending_undo_approval_id: UUID | None = None
+    pending_undo_deadline: dt.datetime | None = None
+
+
+def _latest_live_approval(request_id: UUID) -> Approval | None:
+    return (
+        Approval.objects.filter(request_id=request_id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
 
 
 def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow | None:
@@ -211,6 +260,17 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
     except AssistanceRequest.DoesNotExist:
         return None
     masked = is_masked_view(ctx)
+    pending_undo_approval_id: UUID | None = None
+    pending_undo_deadline: dt.datetime | None = None
+    latest_approval = _latest_live_approval(r.id)
+    if (
+        latest_approval is not None
+        and ctx.user_id is not None
+        and ctx.user_id == latest_approval.decided_by_user_id
+        and decision_is_undoable(latest_approval.decided_at, clock_now(), latest_approval.undone_at)
+    ):
+        pending_undo_approval_id = latest_approval.id
+        pending_undo_deadline = latest_approval.effective_at
     return RequestDetailRow(
         id=r.id,
         reference_number=r.reference_number,
@@ -245,6 +305,8 @@ def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow 
         # above) already encodes "Administrator AND no leadership role also grants access",
         # matching `ham.media.services.media_gallery_for`'s identical fix.
         photo_count_only=masked,
+        pending_undo_approval_id=pending_undo_approval_id,
+        pending_undo_deadline=pending_undo_deadline,
     )
 
 
@@ -261,26 +323,57 @@ class PriorRequestOutcome:
     cancel_reason_code: str
     submitted_at: dt.datetime
     reasons: tuple[str, ...]
+    # S3.2 (approvals-contracts.md §6, Q-167): the prior request's latest live decision, if
+    # any -- outcome, reason label/code, and the rejection message. Callers must gate this
+    # dataclass on `can_view_history(ctx)` (already true at both call sites) -- never shown to
+    # the Administrator (Q-167).
+    decision_outcome: str = ""
+    decision_reason_code: str = ""
+    decision_reason_label: str = ""
+    decision_message: str = ""
+
+
+_REJECTION_REASON_LABELS: dict[str, str] = dict(RejectionReason.choices)
 
 
 def outcome_summary(request: AssistanceRequest) -> list[PriorRequestOutcome]:
     """Every earlier request flagged as a possible match for ``request`` (PRD §9), newest
-    match first -- step 3 will add the approval/rejection reason automatically once those
-    decisions exist (intake.md §2: "Approval/rejection reason appears in the panel
-    automatically")."""
+    match first, with the prior request's own latest live decision outcome/reason/message
+    (Q-167) -- gated by the caller on `can_view_history(ctx)`, never the Administrator."""
     matches = request.matches.select_related("prior_request").order_by("-detected_at")
-    return [
-        PriorRequestOutcome(
-            request_id=m.prior_request.id,
-            display_number=m.prior_request.display_number,
-            need_category=m.prior_request.need_category,
-            status=m.prior_request.status,
-            cancel_reason_code=m.prior_request.cancel_reason_code,
-            submitted_at=m.prior_request.submitted_at,
-            reasons=tuple(m.reasons),
+    prior_ids = [m.prior_request_id for m in matches]
+    latest_by_request: dict[UUID, Approval] = {}
+    for a in Approval.objects.filter(request_id__in=prior_ids, undone_at__isnull=True).order_by(
+        "decided_at"
+    ):
+        latest_by_request[a.request_id] = a  # last write (by decided_at ASC) wins: latest
+    result = []
+    for m in matches:
+        decision = latest_by_request.get(m.prior_request_id)
+        result.append(
+            PriorRequestOutcome(
+                request_id=m.prior_request.id,
+                display_number=m.prior_request.display_number,
+                need_category=m.prior_request.need_category,
+                status=m.prior_request.status,
+                cancel_reason_code=m.prior_request.cancel_reason_code,
+                submitted_at=m.prior_request.submitted_at,
+                reasons=tuple(m.reasons),
+                decision_outcome=decision.outcome if decision else "",
+                decision_reason_code=decision.reason_code if decision else "",
+                decision_reason_label=(
+                    _REJECTION_REASON_LABELS.get(decision.reason_code, "")
+                    if decision and decision.reason_code
+                    else ""
+                ),
+                decision_message=(
+                    decision.reason
+                    if decision and decision.outcome == ApprovalOutcome.REJECTED.value
+                    else ""
+                ),
+            )
         )
-        for m in matches
-    ]
+    return result
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -497,6 +590,51 @@ def request_history(request: AssistanceRequest) -> list[HistoryEntry]:
                 title=request.attestation_version,
             )
         )
+    # S3.2 (approvals-contracts.md §5, §6): decisions, undo and reconsideration requests on
+    # the same PII-free timeline, entries never carry the message/note/reason text.
+    approvals = list(Approval.objects.filter(request_id=request.id).order_by("decided_at"))
+    for a in approvals:
+        if a.stage == ApprovalStage.RECONSIDERATION.value:
+            label = (
+                "Approved after reconsideration"
+                if a.outcome == "approved"
+                else "Reconsideration decided: not approved"
+            )
+        else:
+            label = "Approved" if a.outcome == "approved" else "Not approved"
+        entries.append(
+            HistoryEntry(label=label, occurred_at=a.decided_at, actor_user_id=a.decided_by_user_id)
+        )
+        if a.undone_at is not None:
+            entries.append(
+                HistoryEntry(
+                    label="Decision undone",
+                    occurred_at=a.undone_at,
+                    actor_user_id=a.undone_by_user_id,
+                )
+            )
+    try:
+        recon = request.reconsideration
+    except Reconsideration.DoesNotExist:
+        recon = None
+    if recon is not None:
+        via = "phone" if recon.requested_via == "phone" else "secure page"
+        entries.append(
+            HistoryEntry(
+                label=f"Asked us to take another look ({via})",
+                occurred_at=recon.requested_at,
+                actor_user_id=recon.recorded_by_user_id,
+            )
+        )
+    if (
+        request.status == RequestStatus.REJECTED.value
+        and request.closed_at is not None
+        and not any(a.stage == ApprovalStage.RECONSIDERATION.value for a in approvals)
+    ):
+        entries.append(
+            HistoryEntry(label="Rejection made final (automatic)", occurred_at=request.closed_at)
+        )
+
     entries.sort(key=lambda e: e.occurred_at)
     return entries
 

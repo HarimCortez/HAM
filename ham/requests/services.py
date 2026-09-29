@@ -33,11 +33,14 @@ from ham.platform.clock import now as clock_now
 from ham.requests import certifications
 from ham.requests.matching import MatchKeys, find_matches, match_keys
 from ham.requests.models import (
+    Approval,
     AssistanceRequest,
     Property,
+    Reconsideration,
     RequestContactVerification,
     Requester,
     RequestMatch,
+    RequestQuestion,
     UrgencyReason,
     next_reference_number,
 )
@@ -725,6 +728,13 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
     # `save()` refuses any update) -- `erase_value_keys_for_retention` is the one named,
     # centralized escape hatch for a genuine system-level erasure (see its own docstring).
     RequestContactVerification.objects.erase_value_keys_for_retention(request)
+
+    # S3.2 (approvals-contracts.md §1.2-§1.4, Q-127/Q-145): the same 7-year purge also blanks
+    # decision messages/notes, the reconsideration note and question text/answers -- codes
+    # (`reason_code`, `outcome`, `route`), dates and ids are kept (outcome reporting).
+    Approval.objects.erase_text_for_retention(request)
+    Reconsideration.objects.erase_text_for_retention(request)
+    RequestQuestion.objects.erase_text_for_retention(request)
 
     return CommandResult(
         value=request,

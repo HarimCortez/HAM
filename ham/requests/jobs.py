@@ -1,14 +1,21 @@
-"""Background jobs for `ham.requests` (PRD §78; intake.md §4, §9, D4/Q-127).
+"""Background jobs for `ham.requests` (PRD §78; intake.md §4, §9, D4/Q-127; approvals.md §2.4,
+approvals-contracts.md §4).
 
 - The duplicate-check job (`complete_intake_checks`, SUBMITTED -> AWAITING_APPROVAL) runs a
   few seconds after every submission and every "verified by phone call".
 - The retention sweep (Q-127, decided) erases requester personal details 7 years after a
-  request closes, and erases a spam-closed request entirely after 90 days. Both use
-  `ham.jobs.periodic_job` (foundation.md §5's "no separate scheduler process").
+  request closes, and erases a spam-closed request entirely after 90 days.
+- The held-effects job (Q-156/Q-176): one deferred (not periodic) job per decision, scheduled
+  for `Approval.effective_at`.
+- The finalize-rejections job (Q-155/Q-174): hourly, closes any rejection past its
+  reconsideration deadline with none filed.
+  All use `ham.jobs.periodic_job`/`defer_later` (foundation.md §5's "no separate scheduler
+  process").
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from uuid import UUID
 
 from ham import jobs
@@ -81,3 +88,57 @@ def run_retention_sweep_now() -> None:
     `ham.jobs.run_due_jobs_now`'s spirit for a periodic task, which isn't itself deferred as
     a plain job row)."""
     retention_sweep(0)
+
+
+# --------------------------------------------------------------------------------------
+# Held effects (Q-156/Q-176; approvals-contracts.md §4): one deferred job per decision,
+# scheduled for exactly `Approval.effective_at` -- not periodic (mirrors
+# `defer_complete_intake_checks`'s "defer a job for later, from inside the same transaction as
+# the row write" shape).
+# --------------------------------------------------------------------------------------
+@jobs.job(name="requests.run_held_decision_effects")
+def _run_held_decision_effects_job(approval_id: str) -> None:
+    from .services_decisions import run_held_decision_effects
+
+    run_held_decision_effects(UUID(approval_id))
+
+
+def defer_held_decision_effects(approval_id: UUID, *, effective_at: dt.datetime) -> None:
+    """Called by `approve_request`/`reject_request`/`decide_reconsideration` right after
+    creating their `Approval` row, inside the same transaction."""
+    jobs.defer_later(
+        "requests.run_held_decision_effects",
+        schedule_at=effective_at,
+        approval_id=str(approval_id),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Finalize rejections (Q-155/Q-174): hourly -- REJECTED, still open, past its
+# `reconsideration_deadline_at`, with no `Reconsideration` ever filed.
+# --------------------------------------------------------------------------------------
+def _eligible_for_rejection_finalization() -> list[UUID]:
+    now = clock_now()
+    return list(
+        AssistanceRequest.objects.filter(
+            status=RequestStatus.REJECTED.value,
+            closed_at__isnull=True,
+            reconsideration_deadline_at__isnull=False,
+            reconsideration_deadline_at__lte=now,
+            reconsideration__isnull=True,
+        ).values_list("id", flat=True)
+    )
+
+
+@jobs.periodic_job(name="requests.finalize_rejections", cron="0 * * * *")
+def finalize_rejections(timestamp: int) -> None:  # noqa: ARG001 - Procrastinate periodic contract
+    from .services_decisions import finalize_rejection
+
+    ctx = SystemContext()
+    for request_id in _eligible_for_rejection_finalization():
+        finalize_rejection(ctx, request_id=request_id)
+
+
+def run_finalize_rejections_now() -> None:
+    """Dev/test helper, same shape as `run_retention_sweep_now`."""
+    finalize_rejections(0)
