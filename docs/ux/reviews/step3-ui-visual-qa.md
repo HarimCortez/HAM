@@ -418,3 +418,84 @@ Screenshots are in the session scratchpad (`…/step3-qa-recheck/`), not in the 
 - The banner's `@container (min-width: 22em) { position: sticky }` never sticks, because its containing block is the slot, which wraps it exactly. It scrolls away at every width.
   - **Fix:** make `.urgent-banner-slot` the sticky element, gated by `@media (min-width: 22em) and (min-height: 30em)`. Alternatively, accept static everywhere and update C§40.
 - B2's un-pinned bar: move `<form>` to wrap the whole sheet body (as A2/A3 do), or give the sheet `min-height: calc(100dvh - appbar)` with the form as `flex: 1`.
+
+---
+
+## Final re-check at 810210a
+ham-ui-designer · 2026-09-29 · after FIX-3D (screens) and FIX-3E (logic). This is a report only: no app code changed.
+
+**Method:** the same as before.
+- **Server and data:** server on port 8047. Database `ham_qa3` was recreated, then `seed_dev` + `seed_dev_requests` were run. The same 14 step-3 states were staged: past decisions under a `FixedClock` with `run_held_decision_effects`, and #010/#011 inside the live 30-minute window. The outbox was drained in event order before capture, so a banner is live in every mode.
+- **Captures:** 62 screens at 390, 768, 1024, 1280, 1440, 390 + 200% text and 195, plus a scrolled pass of every A1 page.
+- **New this round:** a keyboard pass that tabs forward and backward on A1, A3, A2u, A2n and A9 at 390, 390t200, 195 and 1280, checking whether each focused element is fully hidden (`elementFromPoint` at three points).
+- **axe-core 4.10.2:** 1 violation on 124 runs (see Minor).
+
+Screenshots are in the session scratchpad (`…/step3-qa-final/`), not in the repo.
+
+| ID | Verdict | Evidence |
+|---|---|---|
+| B2 | **Partially** | Every sheet now pins its one-button bar at 390, 390t200 and 195, except **A2n** (390t200: bar top 1464 of 844; 195: 760 of 422) and **R16** (1128 of 844). In both, `<form>` opens after the header and quote (`request_decline_urgency.html:20`, `r16_reconsider.html:18`), so the form box starts below the fold. Bars are still 23% (195px) at 390t200 and 99px at 195 on A12, A2n, A9 take-over approve and R16, because the primary wraps. All other sheets are 17–18%. |
+| B3 | **Fixed** | "Undo decision…" at 195: button x50–145, text x58–138, no spill. At 390t200: button 98–292, text 114–276. The alert icon is `display: none` and "request/er" no longer breaks. |
+| M3 | **Fixed** | "· Final" follows the Rejected chip on #017 and #019. Tones and icons are unchanged and correct. |
+| M4 | **Partially** | Markers now render ("Can still be undone", "Can ask to reconsider", "Question open", "Call to share a decision"), and Decided has 10 rows. Still open: (a) rows with `line2_text` **lose their status chip** and repeat the markers as line 2, so #011 reads "Can still be undone · Can ask to reconsider" twice with no chip (`requests_list.html:72–89`, chip only in the `{% else %}`). (b) Labels and icons differ from A§0.4 (no "Undo until 2:11 AM", no "Can ask until Oct 12", no Yours / Goes to…). (c) No All / Approved / Rejected / Final filter chips. (d) Decided and Reconsideration line 2 is still the submission age ("2 h", "5 h"). |
+| M6 | **Partially** | The preview stays WYSIWYG ("until Tue, Oct 13"). With no reason picked it still shows "Here's why:" followed by nothing; there's no "Your message will appear here." The consequence line is still relative only ("The email goes after your 30 minutes to undo."), with no absolute send time. |
+| M7 | **Fixed** | A9 decline (decider and take-over): picking a reason prefills `textarea[name=reason]`, and `.message-preview` shows the R18b final wording ("We looked at your request again, and we're sorry, we're still not able to help… You're welcome to send a new request…"). |
+| M9 | **Fixed** | No "30 minutes", "14 days", "Elder", "Marcus" or "Andre" literals remain in the sheet or card templates. The undo-ended line uses `{{ undo_minutes }}` (`request_decision_undo.html:17`). |
+| M10 | **Fixed** (sheets) | No mid-word breaks on any sheet at 390t200 or 195 (A9 "available", A12 "reconsider" and A6 "Something" are gone). Residue outside sheets: the step-2 L5 panel at 195 (Minor 21) now also breaks the new Q-167 reason line "Appr/oved", because its text column is 63px. |
+| M12 | **Partially** | Fixed: per-request Home cards (Urgent · HAM #013, Reconsideration · HAM #009, Certify urgent · HAM #014, Call to share · HAM #015), and the banner count and "Got it". Still open: (a) Pastor Home order: "Certify urgent · HAM #014" sits **last**, after the "3 requests are waiting" summary; A§4.1 puts it in group 1, Urgent. (b) Card copy isn't the spec's ("Asked to reconsider · … · you declined it Sep 28"; "Urgent · HAM #014 · Approved by the Board · not yet certified"). (c) Director Home has no Reconsideration (1) or Waiting on requester (2) awareness rows, and the call card has no "decided" date. (d) The Director `--approved` banner has no "Arrange the site visit.". (e) The Director Inbox still lists "Urgent request awaiting a pastor · HAM #0xx" updates. They're retitled, but A§4.3 has no such update for the Director. |
+| M14 | **Fixed** | h1s: "Approve HAM #009 after reconsideration?", "Take over and approve HAM #009?". Primaries: Approve / Take over and approve / Decline (final). But see new Major F3. |
+| N1 | **Fixed** (overflow) | `scrollWidth` equals the viewport on every sheet at 390t200 and 195. The fix causes F3 below. |
+| N2 | **Fixed** | No chip breaks on any page or mode. |
+| N3 | **Fixed** | At 1024–1440, Open and Got it are content-sized and right-aligned (`a1-urgent-1280.png`). |
+
+### New Blocker
+- **F1. B1 is back: the sticky banner covers up to 64% of the screen at large text.**
+  - **What changed:** FIX-3D moved `position: sticky` to `.urgent-banner-slot` and gated it with `@media (min-width: 22em) and (min-height: 30em)` (`shell.css:190–196`). Media-query `em` uses the *initial* font size, not the user's text size. So at 390 + 200% text the slot sticks: it is 485px tall under the 56px app bar, and stays over the page while scrolling (`sticky-slot-a1-urgent-390t200-scrolled.png`).
+  - **Impact:** it hides "Approve as urgent…". On A1 at 390t200, 42 of 56 and 53 of 57 keyboard focus stops land fully under the banner. At 390 + 150% it's 253px (37% with the app bar). At 768 + 200% it's 31%.
+  - **Why it's a Blocker:** WCAG 2.4.11 and 1.4.10, and this is the exact B1 failure again.
+  - **Fix:** make the query font-relative again. Put `container: shell / inline-size` on the element that contains `.urgent-banner-slot` (`.app-shell`), then use `@container shell (min-width: 22em) { @media (min-height: 30em) { .urgent-banner-slot { position: sticky; … } } }`. Container-query `em` uses the container's computed font size, so 390 at 32px root = 12em, which is static. Add a Playwright assertion at 390 with root `font-size: 200%`: slot `position` is `static`.
+
+### New Major
+- **F2. Focus is hidden behind the pinned bar and the sticky banner (WCAG 2.4.11).**
+  - **Where:** nothing sets `scroll-padding`, so the browser scrolls a focused control to the viewport edge, under sticky chrome. Examples:
+    - A2u at 390, normal text: the in-flow **Cancel** lands at y802–822, fully under the bar (`focus-a2u-cancel-390.png`).
+    - A9 take-over decline at 390: `reason_code` at y785.
+    - A3 at 390t200: `reason_code` at y810.
+    - At 1280, backward tabbing on A1 hides controls under the banner and app bar.
+  - **Fix:**
+    - In `shell.css`: `html { scroll-padding-block: calc(var(--ham-size-appbar-height) + var(--ham-space-4)) calc(var(--ham-size-bottomnav-height) + var(--ham-space-4)); }`.
+    - Add `html:has(.urgent-banner-slot) { scroll-padding-block-start: calc(var(--ham-size-appbar-height) + 5rem); }`.
+    - Add `html:has(.sheet--fullscreen .action-bar) { scroll-padding-block-end: calc(var(--ham-size-control-md) + 2 * var(--ham-space-3) + var(--ham-space-4)); }`. That's rem-based, so it scales with text.
+- **F3. The N1 fix shrinks every sheet h1 below body text.**
+  - **What:** `.sheet--fullscreen h1 { font-size: min(var(--ham-type-h1-size), 9cqi) }` (`shell.css:1280–1281`) is width-only, and the line height stays at the fixed token:
+    - 195: 11.8px h1 on a 40px line, against 16px body (`a9-recon-approve-decider-195.png`).
+    - 390 + 200% text: 23.6px h1 against 32px body.
+    - 390, normal text: 29.3px instead of 32px.
+  - **Impact:** the heading shrinks as the user enlarges text (1.4.4), and hierarchy inverts on every sheet. My N1 recommendation had no floor; that's corrected here.
+  - **Fix:** replace it with `@container (max-width: 22em) { .sheet--fullscreen h1 { font-size: var(--ham-type-h2-size); line-height: 1.2; } }`. Container `em` is font-relative, so this scales with text. Keep `overflow-wrap: break-word; hyphens: auto` for the one long word.
+- **F4. The sticky Decision card slides under the sticky banner at ≥1024.**
+  - **What:** `.request-detail__side .decision-card { top: calc(appbar + space-6) }` = 80px (`shell.css:3021–3024`), but the banner slot now occupies 56–129. When scrolled, the card's top 49px ("Decision" h2, age and the status chip) is hidden (`a1-declined-1280-scrolled.png`).
+  - **Fix:** `body:has(.urgent-banner-slot) .request-detail__side .decision-card { top: calc(var(--ham-size-appbar-height) + var(--ham-space-6) + 4.5rem); }`, or set a `--ham-sticky-offset` custom property on `.app-shell` that the banner adds to. Make sure the card fits: `max-height: calc(100dvh - offset); overflow: auto`.
+- **F5. The skip link is invisible when focused (app-wide; 2.4.7 and 2.4.11).**
+  - **What:** `.skip-link` has `z-index: var(--ham-z-appbar)` (`shell.css:102`). That's the same layer as the sticky app bar, which comes later in the DOM and paints over it. On focus at 1280, the element at its centre is `.app-bar__logo` (`skiplink-1280.png`).
+  - **Fix:** `.skip-link:focus { z-index: var(--ham-z-toast); }`.
+
+### New Minor
+- **axe `target-size`:** A9 take-over decline at 390, the 18×18 `take_over` checkbox. The whole 294×56 statement card is its label, so this is near-false-positive. Give the input `inline-size/block-size: 1.5rem`, or add `margin` so 24px spacing holds.
+- **Banner copy:** "2 urgent requests need you · Urgent request needs a pastor · HAM #014 Electrical" says "urgent" and "need" twice, and makes the 390 banner 3 lines + actions (153px, 25% with the app bar). Consider "2 urgent requests need a pastor · newest HAM #014 Electrical".
+- **Unchanged from earlier rounds:** Minors 15–19 and 21: row line 1 still splits "HAM #020 / · Plumbing or water"; R13 has two Primaries; R18c "respon/sible" breaks at 390t200.
+
+### Coverage caveats
+- **Banner count:** seed request #003 is urgent but has no notification (it was seeded directly), so the banner says 2 while Home shows 3 urgent cards. This is a data artifact, not a bug.
+- **Not tested:** dark mode, offline, the concurrency alert and impersonation were not re-tested this round.
+
+### Checklist for ham-frontend-engineer (priority order)
+- [ ] **F1:** container-query gate for the sticky banner slot, plus a 200%-text test.
+- [ ] **F2:** `scroll-padding-block` for the app bar, banner, bottom nav and sheet bar.
+- [ ] **F3:** replace the `9cqi` h1 rule with the 22em container step to `type-h2`.
+- [ ] **F4:** the Decision card's sticky offset includes the banner.
+- [ ] **F5:** skip link above the app bar on focus.
+- [ ] **B2 residue:** `<form>` wraps the whole sheet body on A2n and R16. Shorter A12, A2n and A9 take-over primaries so the bar is ≤ 18% at 390t200.
+- [ ] **M4 residue:** always render the status chip, no duplicate line-2/markers, A§0.4 marker labels, filter chips, per-tab line 2.
+- [ ] **M6 residue:** preview empty state; absolute send time in the consequence line.
+- [ ] **M12 residue:** Home group order, card copy, Director awareness rows, `--approved` copy, Director Inbox audience.
