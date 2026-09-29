@@ -302,6 +302,54 @@ def test_administrator_denied_approve_route(client, make_user):
     assert response.status_code == 404
 
 
+def test_administrator_does_not_see_approval_note_or_decline_message(client, make_user):
+    """A1 spec (docs/ux/approvals.md §5, G3-19) + Q-124/Q-151: the Administrator's masked
+    view hides the decider's own words -- the optional "Why approved (leaders only)" note
+    (Q-169) and the rejection's "what we'll tell Doris" message -- even though it does show
+    who decided, the route and the outcome chip (that much is operational status, not the
+    decider's own free text)."""
+    approved_req = _make_request()
+    pastor = _login(
+        client, make_user, email="ruth-a1@example.org", full_name="Ruth Alvarez", role="PASTOR"
+    )
+    distinctive_note = "Distinctive leaders-only note about the widow next door."
+    approve_request(
+        _ctx_for(pastor, "PASTOR"),
+        request_id=approved_req.id,
+        route="pastoral",
+        approval_note=distinctive_note,
+    )
+
+    declined_req = _make_request()
+    distinctive_message = "Distinctive kind decline sentence nobody else should read."
+    reject_request(
+        _ctx_for(pastor, "PASTOR"),
+        request_id=declined_req.id,
+        route="pastoral",
+        reason_code="couldnt_confirm",
+        message=distinctive_message,
+    )
+
+    _login(
+        client,
+        make_user,
+        email="nadia-a1@example.org",
+        full_name="Nadia Pierre",
+        role="ADMINISTRATOR",
+    )
+
+    resp = client.get(reverse("web:request_detail", args=[approved_req.id]))
+    content = resp.content.decode()
+    assert distinctive_note not in content
+    assert "Approved" in content  # the outcome itself still shows
+    assert "Ruth A." in content  # who decided still shows, as a display name (§5)
+
+    resp = client.get(reverse("web:request_detail", args=[declined_req.id]))
+    content = resp.content.decode()
+    assert distinctive_message not in content
+    assert "Not approved" in content or "Rejected" in content
+
+
 def test_administrator_does_not_see_answer_text(client, make_user):
     req = _make_request()
     asker = make_user("andre-asker@example.org")

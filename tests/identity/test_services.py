@@ -16,6 +16,17 @@ from ham.platform.clock import now as clock_now
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def _pin_ham_base_url(settings):
+    """Robustness (test-engineer pass, step 3): `test_invite_sends_an_email_with_a_sign_in_
+    link` below asserts a literal `http://localhost:8000` link in the email body. That link is
+    built from `settings.HAM_BASE_URL` (`ham.identity.authn.build_sign_in_link`), so the
+    assertion silently breaks whenever `HAM_BASE_URL` differs from the code default in the
+    ambient environment (e.g. a shell that exports it for local Playwright/manual testing).
+    Pin it here so this module's expectations never depend on that env var."""
+    settings.HAM_BASE_URL = "http://localhost:8000"
+
+
 def _ctx(user: User, *, roles_: frozenset[str] | None = None, **overrides) -> ActorContext:
     active_roles = roles_
     if active_roles is None:

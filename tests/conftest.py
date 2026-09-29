@@ -43,6 +43,37 @@ def _terminate_stray_backends_before_db_teardown(request, django_db_setup, djang
         connection.close()
 
 
+@pytest.fixture(autouse=True)
+def _sweep_leaked_procrastinate_todo_jobs(request):
+    """Order-dependence fix (test-engineer pass, step 3), generalizing `tests/e2e/conftest.py`'s
+    identically-named, `tests/e2e/`-only fixture to every test in the suite: a
+    `django_db(transaction=True)` test commits real rows with no per-test rollback, and
+    Procrastinate's own `procrastinate_jobs` table survives pytest-django's usual
+    truncate-between-tests flush (it isn't reset the way an ordinary app table is) -- so a
+    job left in `status='todo'` (e.g. an outbox dispatch deferred by a real `transaction.
+    on_commit` that the test itself never drained with `run_due_jobs_now()`) leaks into
+    whichever *later* test, in the same file or a different one entirely, happens to call
+    `run_due_jobs_now()` next. That test then either double-executes a stale effect (e.g.
+    `tests/web/test_fix_f2_minors.py`'s repeated `outbox.dispatch_delivery: delivery not
+    found` warnings leaking into `tests/web/test_fix_f2_already_received.py`'s mailbox count,
+    confirmed by running the suite in reverse file order) or fails outright trying to act on
+    a target that has already moved on (`states.py`'s `WRONG_STATE`). A raw sweep, not
+    `run_due_jobs_now()` (which would try to *execute* stale jobs, including any genuinely
+    left over from an earlier interrupted run, rather than just discard them).
+
+    Only runs for tests that actually touched the DB (`django_db` marker present) -- several
+    files mark individual test *functions*, not the whole module, and pytest-django refuses
+    DB access from an unmarked test."""
+    yield
+    if request.node.get_closest_marker("django_db") is None:
+        return
+
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE status = 'todo'")
+
+
 @pytest.fixture
 def make_user(db):
     """Shared across tests/identity, tests/authz, tests/audit: a plain, no-password User."""
