@@ -115,6 +115,9 @@ class SourcesAndLabelsTest(unittest.TestCase):
                 "intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR": ("Q-121",),
                 "intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY": ("Q-146",),
                 "intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY": ("Q-121",),
+                # Step 3 (approvals): 14 days is decided (Q-155); the end-of-church-day
+                # reading of it is Q-174's proposed default.
+                "approvals.RECONSIDERATION_REQUEST_WINDOW": ("Q-174",),
                 "media.MEDIA_RETENTION_CLOCK_ON_CANCELLATION": ("Q-128",),
                 "media.REQUESTER_PHOTO_MAX_BYTES": ("Q-119",),
                 "media.REQUESTER_VIDEO_MAX_BYTES": ("Q-119",),
@@ -314,6 +317,34 @@ class InvariantsTest(unittest.TestCase):
                 self.assertTrue(
                     any(expected_fragment in p for p in problems), (expected_fragment, problems)
                 )
+
+    def test_approval_invariants(self) -> None:
+        """Undo window < 1 day <= reconsideration window (Q-155, Q-156, Q-174, Q-176)."""
+        ap = RULES.approvals
+        self.assertLess(ap.DECISION_UNDO_WINDOW, timedelta(days=1))
+        self.assertLessEqual(timedelta(days=1), timedelta(days=ap.RECONSIDERATION_REQUEST_WINDOW))
+        cases: list[tuple[dict[str, Any], str]] = [
+            ({"RECONSIDERATION_REQUEST_WINDOW": 0}, "reconsideration window"),
+            ({"RECONSIDERATION_REQUEST_WINDOW": -14}, "reconsideration window"),
+            ({"RECONSIDERATION_REQUEST_WINDOW": True}, "reconsideration window"),
+            ({"RECONSIDERATION_REQUEST_WINDOW": timedelta(days=14)}, "whole number of days"),
+            ({"DECISION_UNDO_WINDOW": timedelta(0)}, "undo window"),
+            ({"DECISION_UNDO_WINDOW": timedelta(days=1)}, "undo window"),
+            ({"DECISION_UNDO_WINDOW": timedelta(days=20)}, "undo window"),
+        ]
+        for changes, expected_fragment in cases:
+            with self.subTest(changes=changes):
+                problems = check_invariants(self._with("approvals", **changes))
+                self.assertTrue(
+                    any(expected_fragment in p for p in problems), (expected_fragment, problems)
+                )
+        # The smallest consistent set still passes: a 1-day window, a just-under-a-day undo.
+        ok = self._with(
+            "approvals",
+            RECONSIDERATION_REQUEST_WINDOW=1,
+            DECISION_UNDO_WINDOW=timedelta(days=1) - timedelta(seconds=1),
+        )
+        self.assertEqual(check_invariants(ok), ())
 
     def test_requester_codes_match_sign_in_values(self) -> None:
         """Q-121: requester code limits are 'as sign-in' -- separate names, same numbers."""

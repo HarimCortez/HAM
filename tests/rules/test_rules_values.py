@@ -74,6 +74,9 @@ EXPECTED = {
     "intake.REQUESTER_CODE_EMAILS_PER_IP_PER_HOUR": 20,  # Q-121
     "intake.NO_EMAIL_SUBMISSIONS_PER_PHONE_PER_DAY": 3,  # Q-146
     "intake.FIND_REQUEST_EMAILS_PER_ADDRESS_PER_DAY": 3,  # FIX-G NM1/Q-121
+    # Approvals and reconsideration (§8.3, §8.4; step 3)
+    "approvals.RECONSIDERATION_REQUEST_WINDOW": 14,  # Q-155 decided; church-local days, Q-174
+    "approvals.DECISION_UNDO_WINDOW": M(30),  # Q-156 decided
     # Media (§45–§47)
     "media.REQUESTER_MEDIA_BATCH_MAX_PHOTOS": 10,
     "media.REQUESTER_MEDIA_BATCH_MAX_VIDEOS": 3,

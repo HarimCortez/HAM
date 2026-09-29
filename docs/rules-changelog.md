@@ -215,3 +215,30 @@ once that link is clicked and confirmed.
   per-address daily cap on these verification emails, independent of the existing per-request
   resend cooldown (`REQUESTER_CODE_RESEND_COOLDOWN`, reused as-is for the "1 per request"
   limit) and of link-regeneration's own budgets.
+
+## 2026.09.28-9 — step 3 (S3.1: approvals and reconsideration)
+
+Content hash: `sha256:4d782eeafd8e307d3a1e4e61c92226c2c9adbd7c6849aaa496b7001da28eb880`
+
+New group `approvals` ("Approvals and reconsideration") with two values:
+- `approvals.RECONSIDERATION_REQUEST_WINDOW` = 14 **church-local calendar days** (Q-155,
+  decided by the owner 2026-09-28; the architecture plan's 30-day draft was superseded). The
+  window ends at the end (23:59:59.999999) of the church-local day 14 days after the
+  decision's church-local day, stored in UTC (Q-174, proposed default in use, so the rule
+  is marked provisional for Q-174). It is an `int` of days, not a `timedelta`, on purpose:
+  `decided_at + timedelta(days=14)` would be the wrong cutoff. Compute it only with
+  `ham.requests.states.reconsideration_deadline`. After the cutoff HAM finalizes the decline
+  automatically; that final close starts the 7-day link clock (Q-116) and the §47 photo and
+  video clocks.
+- `approvals.DECISION_UNDO_WINDOW` = 30 minutes, elapsed time (Q-156, decided). Only the
+  decider may undo; the requester email and other held effects wait out the window; the
+  urgent-approval alert is not held (Q-176, proposed default in use).
+
+Metadata only (no value change): `requester_access.REQUESTER_ACCESS_AFTER_CLOSE` and
+`media.PHOTO_/VIDEO_RETENTION_AFTER_CLOSE` now cite Q-155 ("for a declined request the clock
+starts when the decline becomes final").
+
+New invariants: the reconsideration window is a whole number of days, at least 1; the undo
+window is positive and shorter than a day, and a day is no longer than the reconsideration
+window (undo window < 1 day <= reconsideration window), so an undo can never race a
+reconsideration request or the automatic finalization.
