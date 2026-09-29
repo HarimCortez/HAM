@@ -62,10 +62,10 @@ def _make_request(
         urgent_requested=urgent_requested,
         preferred_contact_method=AssistanceRequest._meta.get_field(
             "preferred_contact_method"
-        ).choices[0][0],
+        ).choices[0][0],  # type: ignore[index]
         relationship_to_property=AssistanceRequest._meta.get_field(
             "relationship_to_property"
-        ).choices[0][0],
+        ).choices[0][0],  # type: ignore[index]
         attestation_version="test",
         submitted_at=now,
         status_changed_at=now,
@@ -80,7 +80,7 @@ def _make_request(
         city="Miami",
         state="FL",
         postal_code="33125",
-        property_type=Property._meta.get_field("property_type").choices[0][0],
+        property_type=Property._meta.get_field("property_type").choices[0][0],  # type: ignore[index]
     )
     return request
 
@@ -562,13 +562,6 @@ def test_reconsider_page_post_note_over_limit_is_rejected():
     assert not Reconsideration.objects.filter(request=request).exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "needs S3.2: ham.requests.services_decisions.request_reconsideration is still a "
-        "NotImplementedError stub on this branch (approvals-contracts.md §2)."
-    ),
-)
 def test_reconsider_page_post_success_redirects_to_confirmation():
     now = clock_now()
     decided_at = now - RULES.approvals.DECISION_UNDO_WINDOW * 2

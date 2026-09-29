@@ -27,7 +27,13 @@ VIEWPORTS = {
 
 def _make_request(*, status, closed_at=None, reconsideration_deadline_at=None):
     from ham.platform.clock import now as clock_now
-    from ham.requests.models import AssistanceRequest, NeedCategory, Property, Requester, next_reference_number
+    from ham.requests.models import (
+        AssistanceRequest,
+        NeedCategory,
+        Property,
+        Requester,
+        next_reference_number,
+    )
 
     now = clock_now()
     request = AssistanceRequest.objects.create(
@@ -62,7 +68,7 @@ def _make_request(*, status, closed_at=None, reconsideration_deadline_at=None):
 def _approval(request, *, outcome, decided_at, reason="", reason_code=""):
     from ham.platform.ids import uuid7
     from ham.requests.models import Approval as ApprovalModel
-    from ham.requests.models import ApprovalOutcome, ApprovalRoute, ApprovalStage
+    from ham.requests.models import ApprovalRoute, ApprovalStage
     from ham.rules import RULES
 
     return ApprovalModel.objects.create(
@@ -111,11 +117,12 @@ def _assert_reachable(page, selector: str):
 
 @pytest.mark.parametrize("label", list(VIEWPORTS))
 def test_answer_a_question_screen(live_server, label):
+    from playwright.sync_api import sync_playwright
+
     from ham.platform.clock import now as clock_now
     from ham.platform.ids import uuid7
     from ham.requests.models import RequestQuestion
     from ham.requests.states import RequestStatus
-    from playwright.sync_api import sync_playwright
 
     request = _make_request(status=RequestStatus.AWAITING_APPROVAL.value)
     RequestQuestion.objects.create(
@@ -167,10 +174,11 @@ def test_answer_a_question_screen(live_server, label):
 
 @pytest.mark.parametrize("label", list(VIEWPORTS))
 def test_not_approved_screen(live_server, label):
+    from playwright.sync_api import sync_playwright
+
     from ham.platform.clock import now as clock_now
     from ham.requests.states import RequestStatus
     from ham.rules import RULES
-    from playwright.sync_api import sync_playwright
 
     now = clock_now()
     decided_at = now - RULES.approvals.DECISION_UNDO_WINDOW * 2
@@ -209,10 +217,11 @@ def test_not_approved_screen(live_server, label):
 
 @pytest.mark.parametrize("label", list(VIEWPORTS))
 def test_reconsider_screen(live_server, label):
+    from playwright.sync_api import sync_playwright
+
     from ham.platform.clock import now as clock_now
     from ham.requests.states import RequestStatus
     from ham.rules import RULES
-    from playwright.sync_api import sync_playwright
 
     now = clock_now()
     decided_at = now - RULES.approvals.DECISION_UNDO_WINDOW * 2
@@ -221,8 +230,11 @@ def test_reconsider_screen(live_server, label):
         reconsideration_deadline_at=now + dt.timedelta(days=10),
     )
     _approval(
-        request, outcome="rejected", decided_at=decided_at,
-        reason="Another reason.", reason_code="another_reason",
+        request,
+        outcome="rejected",
+        decided_at=decided_at,
+        reason="Another reason.",
+        reason_code="another_reason",
     )
     token = _token_for(request)
     condition = VIEWPORTS[label]

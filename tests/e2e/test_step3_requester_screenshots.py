@@ -28,7 +28,13 @@ VIEWPORTS = {"390": (390, 844), "1280": (1280, 900)}
 
 def _make_request(*, status, closed_at=None, reconsideration_deadline_at=None):
     from ham.platform.clock import now as clock_now
-    from ham.requests.models import AssistanceRequest, NeedCategory, Property, Requester, next_reference_number
+    from ham.requests.models import (
+        AssistanceRequest,
+        NeedCategory,
+        Property,
+        Requester,
+        next_reference_number,
+    )
 
     now = clock_now()
     request = AssistanceRequest.objects.create(
@@ -65,7 +71,7 @@ def _make_request(*, status, closed_at=None, reconsideration_deadline_at=None):
 def _approval(request, *, outcome, decided_at, reason="", reason_code="", urgent_approval=False):
     from ham.platform.ids import uuid7
     from ham.requests.models import Approval as ApprovalModel
-    from ham.requests.models import ApprovalOutcome, ApprovalRoute, ApprovalStage
+    from ham.requests.models import ApprovalRoute, ApprovalStage
     from ham.rules import RULES
 
     return ApprovalModel.objects.create(
@@ -91,12 +97,13 @@ def _token_for(request) -> str:
 
 @pytest.mark.django_db(transaction=True)
 def test_requester_step3_screens(live_server):
+    from playwright.sync_api import sync_playwright
+
     from ham.platform.clock import now as clock_now
     from ham.platform.ids import uuid7
     from ham.requests.models import RequestQuestion
     from ham.requests.states import RequestStatus
     from ham.rules import RULES
-    from playwright.sync_api import sync_playwright
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     now = clock_now()
