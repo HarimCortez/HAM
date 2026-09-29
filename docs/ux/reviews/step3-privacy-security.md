@@ -62,3 +62,30 @@ Four findings (H1, M1–M3) share one cause. The 30-minute undo window is enforc
 - **Masking:** the Administrator's view is masked (including while impersonating), and the requester never sees the decider.
 - **Payloads and audit:** subjects, titles and payloads are PII-free, and every command is audited with actor and UTC.
 - **Retention:** the Q-145 purge blanks all new free text.
+
+## Re-check at `089473e`
+
+All proofs of concept were re-run.
+
+| Item | Status |
+|---|---|
+| H1, M1, M2, M4, L1–L6, L8, L9 | Fixed |
+| M3 | Partly fixed: the `request_decision_phoned` view has no window gate |
+| L7 (requester-questions.js) | Not fixed |
+
+New findings, each confirmed by a proof of concept:
+- **N1 (High):** the "Tell by phone" sheet loads only the initial-stage decision, so after a reconsideration it reads out the wrong outcome and marks the requester as told.
+- **N2 (High):** undoing a decline or a "Not urgent" never restores the pastors' urgent banner.
+- **N3 (High):** approve/reject is allowed while a standalone urgency review is still undoable. The review's undo then leaves an urgent approval without certification. Fix: refuse decisions during the review's window, and have the review undo check a stored `prior_status`.
+
+Mediums and Lows:
+- **M-a:** migration 0007 has no backfill for the take-over basis.
+- **L-a:** the re-defer has no clock floor.
+- **L-b:** the banner restore reads live state and can create duplicates.
+- **L-c:** per-request queries on Home.
+- **L-d:** the undo GET is not decider-gated.
+- **Accessibility:** a new must-acknowledge alert is no longer announced.
+
+The FIX-3B banner and messages overrides are OK, and `need_category_label` is OK.
+
+**Resolution note (orchestrator):** the owner's Q-176 rule allows urgency certification during another decision's undo window. M2's "refuse review_urgency during any window" is reverted to that rule. The undo follow-up instead keys on stored `urgent_approval_emitted` facts across the request, so undoing a Board approval after a later certification still sends the Director/AD "urgent approval was undone" follow-up.
