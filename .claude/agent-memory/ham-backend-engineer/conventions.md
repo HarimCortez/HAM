@@ -2150,3 +2150,92 @@ scoping, Board route, view logic
   (which would be blank) and never reveals as a side effect of an unrelated GET (security M4).
   One reveal button, inside the same `<form>` as the main submit, works fine as long as both
   branches check the same sentinel.
+
+## Fix 3C (parallel step-3 fix round, 2026-09-29): undo-window carve-out, latest-decision
+helper, banner restore facts, migration backfill
+- **A "refuse during the undo window" predicate that was built to check TWO record kinds
+  (`Approval` + `UrgencyReview`, `decision_undo_open`) is wrong to reuse for a rule that the
+  PRD only means about ONE of them.** PRD N1's owner carve-out ("certifying/declining urgency
+  IS allowed during ANOTHER decision's undo window, refused only during the review's OWN
+  window") needed a second, narrower predicate (`ham.requests.queries.
+  urgency_review_undo_open`, checks only the latest live `UrgencyReview`) instead of reusing
+  `decision_undo_open` (checks both an `Approval` and a `UrgencyReview`) for `review_urgency`'s
+  own guard. Keep `decision_undo_open` for the *other* direction of the same coupling
+  (APPROVE/REJECT refusing while a standalone review is undoable, security N3) — the two
+  predicates read almost the same but serve opposite call sites; picking the wrong one silently
+  inverts an owner-decided carve-out.
+- **"The phone script reads the wrong decision" bugs come from N independent copies of
+  `Approval.objects.filter(request_id=..., undone_at__isnull=True).order_by("-decided_at").
+  first()`, each with its own accidental extra filter (a stage=initial that should have been
+  dropped, a missing `effective_at <= now` gate, or vice versa).** Fix once with a single
+  `ham.requests.queries.latest_effective_approval(request_id, now)` (any stage, only once
+  `effective_at <= now`) and grep every prior ad-hoc copy — this round found four (the
+  `record_decision_phoned` service, the `request_decision_phoned` view, and both
+  `decision_phone_card`/`pastor_certify_card` attention cards) that had each independently
+  drifted. For a *set* of candidate requests (an attention card counting across many rows),
+  add a bulk `Subquery`-based sibling (`requests_with_settled_decision`) rather than looping
+  the single-request helper once per candidate — same shape as `list_requests`'s own
+  `Exists()`/bulk-dict patterns elsewhere in this file.
+- **"Undo restores a banner the decision had cleared" must be keyed on a NEW stored boolean
+  (`Approval.banner_cleared`/`UrgencyReview.banner_cleared`, set at decision time), not on
+  reusing `urgent_approval_emitted`** — the pre-fix code only restored the pastors' banner when
+  undoing a decision that had *also* triggered the Director/AD urgent-approval alert
+  (`urgent_approval_emitted`), which is a completely different fact: a reject or a "Not urgent"
+  review clears the pastors' banner but never sets `urgent_approval_emitted` (that only fires
+  for a certify that produces an urgent *approval*). Two independent booleans, two independent
+  gates in the same `_build_decision_undone_notices`/`_build_urgency_review_undone_notices`
+  builders — restoring the banner and sending the DIR/AD "undone" follow-up are unrelated
+  question, don't collapse them into one `if`.
+- **"Any urgent-approval alert emitted for this request since this approval's decided_at" is
+  NOT the same predicate as "this approval's own `urgent_approval_emitted`".** Security M2's
+  full scenario (Board approves an urgent-but-not-yet-certified request, a pastor certifies
+  moments later making it urgent, the Board rep undoes the ORIGINAL approval) needs the
+  follow-up to fire even though the *approval being undone* never itself set
+  `urgent_approval_emitted` — the alert came from the later, separate `UrgencyReview`. Fixed
+  with `_any_urgent_alert_emitted_since(request_id, since=approval.decided_at)`, an `OR` across
+  both `Approval.urgent_approval_emitted` and `UrgencyReview.urgent_approval_emitted` rows with
+  `decided_at >= since`, not a single-row boolean check.
+- **A restore-banner helper must dedupe against unacknowledged rows, not total rows** — "skip
+  recipients who already have an unacknowledged banner" means filter on
+  `acknowledged_at__isnull=True` for the *existing* set before creating new notices; a
+  recipient whose earlier banner was cleared (acknowledged, not deleted — `Notification` rows
+  are themselves append-only/never edited) legitimately gets a brand-new row on restore, so
+  `Notification.objects.filter(..., kind=..., recipient_user_id__in=..., requires_ack=True,
+  acknowledged_at__isnull=True)` (never a bare `subject_id=`/`kind=` count) is the dedupe
+  query, and a test asserting "total row count unchanged" after one legitimate restore is
+  wrong — assert "at most one *unacknowledged* row" instead, across two decline-then-undo
+  round trips if you want to actually exercise the dedupe branch (a single round trip alone
+  can't tell dedup-working apart from dedup-never-invoked).
+- **`states.check_transition`'s APPROVE/REJECT branch never had a `decision_undo_open` guard
+  at all before this fix (only CANCEL/REQUEST_RECONSIDERATION/FINALIZE_REJECTION did)** — the
+  fix is a fourth read of the same already-plumbed `decision_undo_open: bool = False` kwarg,
+  refusing before the route/reason checks; the *caller* (`approve_request`/`reject_request`)
+  needed a new `decision_undo_open=decision_undo_open(request_id, now)` argument added to its
+  own `check_transition(...)` call — grep every existing `check_transition(RequestAction.
+  APPROVE/REJECT, ...)` call site in tests before adding this guard, since any test that
+  certifies/declines urgency and then immediately approves/rejects in the same instant (no
+  clock advance) now needs `set_clock(FixedClock(... + RULES.approvals.DECISION_UNDO_WINDOW))`
+  between the two calls — three pre-existing `test_s32_*` tests needed exactly this.
+- **`check_undo`'s existing "state changed since decision" guard for a request `Approval` (its
+  `status is not produced` check) has no equivalent for a standalone `UrgencyReview` until you
+  add one** — added `UrgencyReview.prior_status` (set at `review_urgency` time from
+  `request.status`) and a new `check_undo(..., prior_status=...)` param compared against the
+  live `status` inside the `isinstance(kind, UrgencyAction)` branch. A pre-existing test in
+  this codebase's history (`test_notifications_urgency_review_undone_weak_spot.py`) had
+  encoded the OLD, now-wrong expectation ("undo succeeds even though the request's status
+  changed to CANCELLED in between, and the notification builder alone has the bug") — once
+  the state-change guard exists one layer earlier (in `check_undo` itself), that scenario is
+  refused outright and the test needed rewriting to assert the refusal, not the old permissive
+  behavior. When a coordinator brief's fix directly contradicts what an existing test encodes,
+  check whether the brief is describing the CURRENT (buggy) behavior it wants changed, versus
+  a still-valid invariant the fix must preserve, before assuming the test is still right.
+- **Editing an already-merged-to-the-shared-branch migration (M-a: migration 0007 from a
+  PRIOR fix round, not this slice's own) is the intended move when the coordinator brief names
+  that exact migration file and the fix is a backfill/constraint gap in it** — added a
+  `RunPython` backfill (`took_over_basis="unavailable_ticked"` wherever
+  `took_over_from_user_id` is set from before the column existed) inserted between the
+  `AddField` and the `AddConstraint` operations already in that file, plus a new reverse-
+  direction `CheckConstraint` at the end. A brand new migration 0008 (same round) then only
+  carries genuinely new fields (`banner_cleared` x2, `UrgencyReview.prior_status`) — don't
+  conflate "the migration this fix needs to add a backfill to" with "the migration this fix's
+  own new model fields belong in" just because they land in the same commit.
