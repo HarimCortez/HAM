@@ -176,7 +176,15 @@ def test_a11_tell_by_phone_has_one_form_and_wraps_the_script():
         is_active=True,
         mfa_satisfied=True,
     )
-    approve_request(ctx, request_id=req.id, route="pastoral")
+    approval = approve_request(ctx, request_id=req.id, route="pastoral")
+
+    # A11 only opens once the decision has taken effect (security M3: no calling the
+    # requester during the 30-minute undo window), so step past `effective_at`.
+    import datetime as dt
+
+    from ham.platform.clock import FixedClock, set_clock
+
+    set_clock(FixedClock(approval.effective_at + dt.timedelta(seconds=1)))
 
     director = _make_director()
     client = Client()
