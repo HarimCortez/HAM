@@ -92,12 +92,8 @@ def test_a12_reconsider_word_no_mid_word_break(live_server, width, height):
     pastor, req = _make_awaiting_request_and_pastor()
 
     from ham.authz import roles
-    from ham.authz.context import ActorContext, RequesterContext
-    from ham.platform.clock import FixedClock, SystemClock, set_clock
-    from ham.platform.clock import now as clock_now
+    from ham.authz.context import ActorContext
     from ham.requests.services_decisions import reject_request
-    from ham.rules import RULES
-    import datetime as dt
 
     ctx = ActorContext(
         user_id=pastor.id,
@@ -165,6 +161,8 @@ def test_a6_something_word_no_mid_word_break(live_server):
 def test_a9_available_word_no_mid_word_break(live_server):
     """M10: "available" (in "Ruth Alvarez isn't available to decide this.") must not break
     mid-word at 195px, on the take-over statement card."""
+    import datetime as dt
+
     from playwright.sync_api import sync_playwright
 
     from ham.authz import roles
@@ -173,7 +171,6 @@ def test_a9_available_word_no_mid_word_break(live_server):
     from ham.platform.clock import now as clock_now
     from ham.requests.services_decisions import reject_request, request_reconsideration
     from ham.rules import RULES
-    import datetime as dt
 
     pastor, req = _make_awaiting_request_and_pastor(full_name="Ruth Alvarez")
     ctx = ActorContext(

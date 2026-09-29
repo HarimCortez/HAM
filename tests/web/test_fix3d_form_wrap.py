@@ -27,8 +27,7 @@ def _make_awaiting_request_and_pastor(full_name="Ruth Alvarez", *, urgent=False,
 
     kwargs = dict(
         full_name="Fictional Requester",
-        description="Water comes through the bedroom ceiling when it rains "
-        "(fictional test data).",
+        description="Water comes through the bedroom ceiling when it rains (fictional test data).",
     )
     if urgent:
         kwargs["urgent_requested"] = True
@@ -62,7 +61,7 @@ def _login(client, user):
     session.save()
 
 
-def _assert_form_wraps_body(content, *, intro_marker, bar_marker="class=\"action-bar\""):
+def _assert_form_wraps_body(content, *, intro_marker, bar_marker='class="action-bar"'):
     form_start = content.index("<form")
     intro_pos = content.index(intro_marker)
     bar_pos = content.index(bar_marker)

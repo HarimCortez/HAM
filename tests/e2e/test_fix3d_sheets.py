@@ -116,7 +116,9 @@ def test_a9_h1_no_sideways_scroll_at_large_text(live_server):
                         "document.addEventListener('DOMContentLoaded', () => {"
                         "document.documentElement.style.fontSize = '32px'; })"
                     )
-                page.goto(f"{live_server.url}/requests/{req.id}/reconsideration/decide?outcome=approve")
+                page.goto(
+                    f"{live_server.url}/requests/{req.id}/reconsideration/decide?outcome=approve"
+                )
                 page.wait_for_load_state("networkidle")
 
                 scroll_width = page.evaluate("document.documentElement.scrollWidth")
@@ -250,9 +252,9 @@ def test_a9_decline_prefills_message_and_shows_preview(live_server):
             message_field = page.locator("#id_reason_decline")
             assert message_field.input_value() == ""
 
-            page.locator(
-                '#recon-decline-reasons input[value="not_help_ham_offers"]'
-            ).check(force=True)
+            page.locator('#recon-decline-reasons input[value="not_help_ham_offers"]').check(
+                force=True
+            )
             page.wait_for_timeout(50)
             filled = message_field.input_value()
             assert filled != "", "message should be prefilled once a reason is picked"
@@ -286,16 +288,14 @@ def test_a9_decline_replace_keep_row_appears_on_dirty_edit(live_server):
             page.goto(f"{live_server.url}/requests/{req.id}/reconsideration/decide?outcome=decline")
             page.wait_for_load_state("networkidle")
 
-            page.locator(
-                '#recon-decline-reasons input[value="not_help_ham_offers"]'
-            ).check(force=True)
+            page.locator('#recon-decline-reasons input[value="not_help_ham_offers"]').check(
+                force=True
+            )
             page.wait_for_timeout(50)
             message_field = page.locator("#id_reason_decline")
             message_field.fill("My own carefully written note.")
 
-            page.locator(
-                '#recon-decline-reasons input[value="couldnt_confirm"]'
-            ).check(force=True)
+            page.locator('#recon-decline-reasons input[value="couldnt_confirm"]').check(force=True)
             page.wait_for_timeout(50)
 
             assert message_field.input_value() == "My own carefully written note."

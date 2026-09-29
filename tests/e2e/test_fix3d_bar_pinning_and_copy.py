@@ -81,9 +81,7 @@ def test_u1_form_wraps_the_whole_sheet_body():
     session = client.session
     session["ham_mfa_satisfied"] = True
     session.save()
-    response = client.get(
-        f"/requests/{req.id}/decision/undo", {"approval_id": str(approval.id)}
-    )
+    response = client.get(f"/requests/{req.id}/decision/undo", {"approval_id": str(approval.id)})
     content = response.content.decode()
 
     form_start = content.index("<form")
