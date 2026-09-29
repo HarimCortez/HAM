@@ -173,10 +173,11 @@ of hiding a duplicate copy from assistive tech.
         </div>
       {% endif %}
 
-      {% if decision.awaiting_site_visit %}
-        <p class="text-secondary">Approved, waiting for a site visit.</p>
-      {% endif %}
-
+      {% comment %}
+      PRD M4: "Approved, waiting for a site visit" is now the Director/AD Home awareness
+      card (`ham.requests.attention.awaiting_site_visit_card`) -- this line duplicated the
+      "Next: site assessment" line right below for the same viewer/condition.
+      {% endcomment %}
       {% if decision.outcome == "approved" and not decision.pending %}
         <p class="text-secondary">Next: site assessment (HAM leadership).</p>
       {% elif decision.outcome == "rejected" %}

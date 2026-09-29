@@ -1,12 +1,13 @@
-"""Regression (step-3 test pass, fixed in FIX-3A): the Director/AD "urgent approval was undone"
-follow-up for a standalone urgency certification must not depend on the request's *current*
-status. FIX-3A stores `UrgencyReview.urgent_approval_emitted` at review time, and
-`_build_urgency_review_undone_notices` keys on that stored fact (Q-176).
+"""Regression (step-3 test pass; FIX-3A then Fix 3C / security N3): a standalone urgency
+review's undo must refuse once the request's status has changed since the review, instead of
+silently restoring urgency onto a request that has since moved on entirely (e.g. been
+cancelled). `UrgencyReview.prior_status` (Fix 3C) is exactly the stored fact `check_undo`
+compares against, so this never depends on re-reading the request's *current* status at undo
+time.
 
 Scenario: a Board-approved urgent request is certified by a pastor (the urgent alert fires),
-then cancelled as "requester withdrew" (Q-165), then the pastor undoes the certification
-within its window. The request is no longer APPROVED, yet Director/AD must still be told the
-urgent approval was undone.
+then cancelled as "requester withdrew" (Q-165), then the pastor tries to undo the
+certification within its window.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from ham.authz import roles
 from ham.identity.models import RoleAssignment, SharedIdentityProfile
 from ham.platform.clock import now as clock_now
 from ham.requests.models import UrgencyReview
-from ham.requests.notifications import _build_urgency_review_undone_notices
 from ham.requests.services import cancel_request, complete_intake_checks, submit_request
 from ham.requests.services_decisions import approve_request, review_urgency, undo_decision
 from ham.rules import RULES
@@ -33,22 +33,7 @@ def _grant(user, role):
     return RoleAssignment.objects.create(user=user, role=role, granted_at=clock_now())
 
 
-def _event(event_type: str, *, aggregate_id, payload: dict):
-    from ham.outbox.models import OutboxEvent
-    from ham.platform.ids import uuid7
-
-    return OutboxEvent.objects.create(
-        id=uuid7(),
-        event_type=event_type,
-        schema_version=1,
-        occurred_at=clock_now(),
-        aggregate_type="request",
-        aggregate_id=aggregate_id,
-        payload=payload,
-    )
-
-
-def test_status_change_between_review_and_undo_swallows_the_urgent_follow_up(make_user):
+def test_undo_refuses_once_status_changed_between_review_and_undo(make_user):
     from ham.authz.context import RequesterContext, SystemContext
 
     requester_ctx = RequesterContext(request_id=None)
@@ -98,24 +83,12 @@ def test_status_change_between_review_and_undo_swallows_the_urgent_follow_up(mak
     req.refresh_from_db()
     assert req.status == "CANCELLED"
 
-    # The pastor undoes the certification -- a genuine undo of a real, already-alerted urgent
-    # approval (Q-176: "on undo they get an in-app ... follow-up").
-    undo_decision(pastor_ctx, review_id=review.id)
-
-    event = _event(
-        "RequestUrgencyReviewUndone",
-        aggregate_id=req.id,
-        payload={"request_id": str(req.id), "review_id": str(review.id)},
-    )
-    notices = _build_urgency_review_undone_notices(event)
-
-    # This is the bug: Director/AD get NO follow-up at all, because the builder's own
-    # "was this an urgent approval" check re-reads the request's *current* status (now
-    # CANCELLED) instead of a fact stored on the review at certification time.
-    assert notices is not None, (
-        "false negative confirmed: the undo of a genuinely-alerted urgent certification "
-        "produced no Director/AD follow-up notice once the request's status changed "
-        "between the certification and the undo (ham/requests/notifications.py "
-        "_build_urgency_review_undone_notices, ~line 453)"
-    )
-    assert {n.recipient_user_id for n in notices} == {director.id}
+    # Fix 3C / security N3: the pastor's undo of the certification now refuses outright --
+    # `UrgencyReview.prior_status` ("APPROVED") no longer matches the request's current
+    # status ("CANCELLED"), so `check_undo` returns `state_changed_since_decision` instead of
+    # silently restoring urgency onto a request that has since moved on entirely. (Before this
+    # fix, the undo would have succeeded and the *notification builder* alone had the bug this
+    # test used to document -- see the module docstring's history above; the state-change
+    # guard now catches the scenario one layer earlier, at the undo itself.)
+    with pytest.raises(ValueError, match="state_changed_since_decision"):
+        undo_decision(pastor_ctx, review_id=review.id)

@@ -62,7 +62,7 @@ from .models import (
     UrgencyReview,
 )
 from .presentation import APPROVAL_NOTE_MAX_CHARS, DECLINE_MESSAGE_MAX_CHARS
-from .queries import decision_undo_open
+from .queries import decision_undo_open, latest_effective_approval, urgency_review_undo_open
 from .states import (
     RequestAction,
     UrgencyAction,
@@ -149,6 +149,10 @@ def approve_request(
         decline_urgency=decline_urgency,
         now=now,
         closed_at=request.closed_at,
+        # Security N3: refuse while a standalone urgency review on this request is still
+        # inside its own undo window (never true for an APPROVE/REJECT stage in practice
+        # unless a certify/decline happened first -- see `decision_undo_open`'s own docstring).
+        decision_undo_open=decision_undo_open(request_id, now),
     )
     if not decision.allowed:
         raise ValueError(f"request.approve refused: {decision.refusal}")
@@ -184,6 +188,11 @@ def approve_request(
         # so it's set once, at insert, like every other decision fact -- no `ONCE_FIELDS`
         # update needed.
         urgent_approval_emitted=decision.urgent_approval,
+        # Security N2 / UX M9: an approve only clears the pastors' urgent banner when it also
+        # bundles a certify/decline of urgency (`_clear_urgent_banner`, via the
+        # `UrgencyCertified`/`UrgencyNotCertified` event below) -- a plain approve that leaves
+        # urgency untouched never clears it.
+        banner_cleared=bool(request.urgent_requested and accompanying_urgency is not None),
     )
 
     request.status = decision.target.value
@@ -296,6 +305,8 @@ def reject_request(
         message=message,
         now=now,
         closed_at=request.closed_at,
+        # Security N3: see `approve_request`'s matching comment.
+        decision_undo_open=decision_undo_open(request_id, now),
     )
     if not decision.allowed:
         raise ValueError(f"request.reject refused: {decision.refusal}")
@@ -318,6 +329,9 @@ def reject_request(
         reason=message,
         requester_phoned_at=now if told_by_phone else None,
         requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
+        # Security N2 / UX M9: a reject on an urgent request always clears the pastors'
+        # banner (`clear_pastor_urgent_banner_on_decline`, below) -- undo restores it.
+        banner_cleared=bool(request.urgent_requested),
     )
 
     request.status = decision.target.value
@@ -360,14 +374,12 @@ def reject_request(
 def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> CommandResult:
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
     now = clock_now()
-    # Fix 3A / security M2 (owner box Q-176: "while a decision can still be undone nothing
-    # else may change the request ... except urgency certification" -- but that carve-out is
-    # for a *different, live* decision being pending, e.g. certifying while an approval is
-    # still in its own separate undo window is fine; a *second* review of urgency itself,
-    # while THIS request's own live approval/urgency-review is still undoable, is refused so
-    # the pastor card and the follow-up bookkeeping never have two pending reviews to reason
-    # about at once).
-    if decision_undo_open(request_id, now):
+    # Fix 3C / PRD N1 (Q-176 carve-out, owner rule wins): certifying/declining urgency IS
+    # allowed during ANOTHER decision's (an Approval's) undo window -- refused only during
+    # THIS urgency review's own window (a second review of the same request, back to back,
+    # would otherwise leave the pastor card and the follow-up bookkeeping with two pending
+    # reviews to reason about at once).
+    if urgency_review_undo_open(request_id, now):
         raise ValueError("request.urgency.review refused: decision_undo_window_open")
     action = UrgencyAction.CERTIFY_URGENCY if certify else UrgencyAction.DECLINE_URGENCY
     decision = check_urgency_transition(
@@ -399,6 +411,9 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
         request=request,
         action=action.value,
         prior_urgency=before_urgency,
+        # Security N3: the request's status right now -- `_undo_urgency_review` refuses if it
+        # has since changed (e.g. an approve/reject recorded on this request in between).
+        prior_status=request.status,
         decided_by_user_id=ctx.user_id,
         decided_at=now,
         effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
@@ -406,6 +421,11 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
         # follow-up keys on, instead of re-deriving from the request's live status at undo
         # time.
         urgent_approval_emitted=bool(certify and decision.becomes_urgent_approval),
+        # Security N2 / UX M9: `review_urgency` only ever succeeds from a request that was
+        # flagged urgent (`CERTIFIABLE_URGENCY`/`AWAITING_CERTIFICATION`), so every standalone
+        # review clears the pastors' banner (`_clear_urgent_banner`, called by both
+        # `UrgencyCertified`/`UrgencyNotCertified` builders) -- undo restores it.
+        banner_cleared=True,
     )
 
     if certify and decision.becomes_urgent_approval:
@@ -788,25 +808,20 @@ def finalize_rejection(ctx: SystemContext, *, request_id: UUID) -> CommandResult
 # ------------------------------------------------------------------------------------------
 @command("request.decision.record_phoned", resource_from=_resource_request)
 def record_decision_phoned(ctx: ActorContext, *, request_id: UUID) -> CommandResult:
-    # UX B1 / PRD guardian M5 / Q-182: key on the latest LIVE decision at either stage
-    # (initial or reconsideration) -- not only the initial approval, which left a no-email
-    # requester's reconsideration outcome unreachable and, worse, showed the *first*
-    # decision's script even after a reconsideration reversed it.
+    # Fix 3C / security N1+M3-residual / UX B1 / PRD guardian M5 / Q-182: the one shared
+    # "which decision does the phone script read" lookup -- the latest LIVE decision at
+    # either stage (initial or reconsideration), only once its own undo window has closed.
+    now = clock_now()
+    settled = latest_effective_approval(request_id, now)
     approval = (
-        Approval.objects.select_for_update()
-        .filter(request_id=request_id, undone_at__isnull=True)
-        .order_by("-decided_at")
-        .first()
+        Approval.objects.select_for_update().get(pk=settled.id) if settled is not None else None
     )
     if approval is None:
-        raise ValueError("request.decision.record_phoned: no live decision")
+        # Either no live decision yet, or its undo window is still open -- Security M3/UX B2/
+        # Q-181: the requester must not be told anything until the held effects are released.
+        raise ValueError("request.decision.record_phoned: no settled live decision")
     if _has_email(request_id):
         raise ValueError("request.decision.record_phoned: this requester has email")
-    now = clock_now()
-    # Security M3 / UX B2 / Q-181: refuse while the decision can still be undone -- the
-    # requester must not be told anything until the held effects are released.
-    if approval.effective_at > now:
-        raise ValueError("request.decision.record_phoned: decision can still be undone")
     if approval.requester_phoned_at is not None:
         raise ValueError("request.decision.record_phoned: already recorded")
     approval.requester_phoned_at = now
@@ -968,6 +983,7 @@ def _undo_urgency_review(ctx: ActorContext, review_id: UUID) -> CommandResult:
         current_status=request.status,
         current_urgency=request.urgency_status,
         prior_urgency=review.prior_urgency,
+        prior_status=review.prior_status or None,
         is_impersonating=ctx.is_impersonating,
     )
     if not outcome.allowed:

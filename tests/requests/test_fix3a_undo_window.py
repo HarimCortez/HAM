@@ -10,6 +10,7 @@ from datetime import timedelta
 import pytest
 
 from ham.platform.clock import FixedClock, set_clock
+from ham.platform.clock import now as clock_now
 from ham.requests.models import RequestQuestion
 from ham.requests.queries import decision_undo_open
 from ham.requests.services_decisions import (
@@ -24,6 +25,7 @@ from ham.requests.services_decisions import (
 )
 from ham.requests.services_questions import ask_question
 from ham.requests.states import RequestStatus, UrgencyStatus
+from ham.rules import RULES
 
 from .test_s32_decisions import _awaiting, _no_email_awaiting, _urgent_awaiting
 
@@ -95,18 +97,33 @@ class TestRequestReconsiderationRefusedDuringWindow:
         assert req.status == RequestStatus.RECONSIDERATION_PENDING.value
 
 
-class TestReviewUrgencyRefusedDuringWindow:
-    """Security M2: `review_urgency` must refuse while the live approval it would certify/
-    decline is still undoable."""
+class TestReviewUrgencyAllowedDuringAnotherDecisionsWindow:
+    """Fix 3C / PRD N1 (Q-176 carve-out, owner rule wins): certifying/declining urgency IS
+    allowed during ANOTHER decision's (an Approval's) undo window -- refused only during the
+    urgency review's OWN window (see `TestReviewUrgencyRefusedDuringItsOwnWindow` below)."""
 
-    def test_certify_refused_during_the_boards_own_undo_window_then_allowed(
+    def test_certify_allowed_during_the_boards_own_undo_window(
         self, requester_ctx, system_ctx, pastor_ctx, board_rep_ctx
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
-        approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
+        approve_request(board_rep_ctx, request_id=req.id, route="board")
+        review_urgency(pastor_ctx, request_id=req.id, certify=True)
+        req.refresh_from_db()
+        assert req.urgency_status == UrgencyStatus.CERTIFIED.value
+
+
+class TestReviewUrgencyRefusedDuringItsOwnWindow:
+    """PRD N1: a SECOND certify/decline on the same request is refused while the first
+    standalone review is still inside its own undo window."""
+
+    def test_second_certify_refused_during_the_first_reviews_own_window_then_allowed(
+        self, requester_ctx, system_ctx, pastor_ctx
+    ):
+        req = _urgent_awaiting(requester_ctx, system_ctx)
+        review_urgency(pastor_ctx, request_id=req.id, certify=False)
         with pytest.raises(ValueError, match="decision_undo_window_open"):
             review_urgency(pastor_ctx, request_id=req.id, certify=True)
-        _past_window(approval)
+        set_clock(FixedClock(clock_now() + RULES.approvals.DECISION_UNDO_WINDOW))
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
         req.refresh_from_db()
         assert req.urgency_status == UrgencyStatus.CERTIFIED.value
@@ -120,7 +137,7 @@ class TestRecordDecisionPhonedRefusedDuringWindow:
     ):
         req = _no_email_awaiting(requester_ctx, system_ctx, director_ctx)
         approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
-        with pytest.raises(ValueError, match="can still be undone"):
+        with pytest.raises(ValueError, match="no settled live decision"):
             record_decision_phoned(director_ctx, request_id=req.id)
         _past_window(approval)
         record_decision_phoned(director_ctx, request_id=req.id)

@@ -601,6 +601,12 @@ class Approval(AppendOnlyOnceMixin, models.Model):
     # was itself later undone, or a request whose status has since moved on, must not change
     # whether the follow-up fires for what *was* emitted).
     urgent_approval_emitted = models.BooleanField(default=False)
+    # Fix 3C / security N2, UX M9: whether this decision actually cleared the pastors'
+    # must-ack "needs a pastor" banner (a reject on an urgent request, or an approve that
+    # bundled a certify/decline of urgency) -- same stored-fact shape as
+    # `urgent_approval_emitted`, so undo restores the banner from what actually happened,
+    # never by re-reading the request's live state (security L-b).
+    banner_cleared = models.BooleanField(default=False)
     # Q-159 ("I've already told them by phone", no-email requests): ONCE_FIELDS, set once
     # together, from null.
     requester_phoned_at = models.DateTimeField(null=True, blank=True)
@@ -689,6 +695,14 @@ class Approval(AppendOnlyOnceMixin, models.Model):
                 ),
                 name="approval_unavailable_confirmed_matches_basis",
             ),
+            # Fix 3C / security M-a: the reverse direction -- a basis is never recorded
+            # unless this row IS a take-over.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(took_over_basis="") | models.Q(took_over_from_user_id__isnull=False)
+                ),
+                name="approval_basis_requires_takeover",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(undone_at__isnull=True, undone_by_user_id__isnull=True)
@@ -740,6 +754,14 @@ class UrgencyReview(AppendOnlyOnceMixin, models.Model):
     prior_urgency = models.CharField(
         max_length=24, choices=[(s.value, s.value) for s in UrgencyStatus]
     )
+    # Fix 3C / security N3: the request's status at the moment of this review -- so
+    # `_undo_urgency_review` can refuse `state_changed_since_decision` the same way
+    # `check_undo` already does for an `Approval`, instead of blindly restoring urgency onto a
+    # request whose status has since moved on (e.g. an approve/reject recorded in between,
+    # itself only possible because that race wasn't guarded before this fix).
+    prior_status = models.CharField(
+        max_length=32, choices=[(s.value, s.value) for s in RequestStatus], default=""
+    )
     decided_by_user_id = models.UUIDField()
     decided_at = models.DateTimeField()
     # Same shape/reasoning as `Approval.effective_at` -- the undo window's end, computed and
@@ -753,6 +775,11 @@ class UrgencyReview(AppendOnlyOnceMixin, models.Model):
     # review's own certification made the request an urgent approval and
     # `RequestUrgentApproval` was actually emitted for it.
     urgent_approval_emitted = models.BooleanField(default=False)
+    # Fix 3C / security N2, UX M9: whether this review actually cleared the pastors' must-ack
+    # "needs a pastor" banner (Q-160/Q-161) -- undo restores the banner by reading THIS stored
+    # fact, never by re-deriving "should there be a banner" from the request's live state
+    # (security L-b: that re-derivation is exactly what silently dropped the restore before).
+    banner_cleared = models.BooleanField(default=False)
 
     ONCE_FIELDS = frozenset({"undone_at", "undone_by_user_id", "urgent_approval_emitted"})
 

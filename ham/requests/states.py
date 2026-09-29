@@ -554,6 +554,15 @@ def check_transition(
             if decision_undo_open:
                 return _refuse(Refusal.DECISION_UNDO_WINDOW_OPEN, t)
     elif act in (RequestAction.APPROVE, RequestAction.REJECT):
+        # Fix 3C / security N3: refuse while a standalone urgency review (certify/decline,
+        # not yet bundled with any approval) on THIS request is still inside its own undo
+        # window -- otherwise that review's later undo could leave an urgent approval with
+        # no certification behind it, or vice versa. Note this is `decision_undo_open`
+        # (checked here for the APPROVE/REJECT edge specifically), not a general "no decision
+        # may ever happen during any undo window" rule -- see `review_urgency`'s own separate,
+        # narrower guard for the symmetric case (PRD N1/Q-176 carve-out).
+        if decision_undo_open:
+            return _refuse(Refusal.DECISION_UNDO_WINDOW_OPEN, t)
         refusal = _route_refusal(route, roles)
         if refusal is not None:
             return _refuse(refusal, t)
@@ -1086,6 +1095,7 @@ def check_undo(
     current_urgency: UrgencyStatus | str | None,
     prior_urgency: UrgencyStatus | str | None = None,
     accompanying_urgency: UrgencyAction | str | None = None,
+    prior_status: RequestStatus | str | None = None,
     is_impersonating: bool = False,
     rules: Rules = RULES,
 ) -> UndoDecision:
@@ -1137,6 +1147,13 @@ def check_undo(
         if prior_u is None or prior_u not in t.sources:
             return _undo_refuse(Refusal.FACTS_MISSING)
         if urgency_now is not t.target:
+            return _undo_refuse(Refusal.STATE_CHANGED_SINCE_DECISION)
+        # Fix 3C / security N3: a standalone urgency review's undo also refuses if the
+        # request's STATUS moved on since the review (e.g. an approve/reject decided in
+        # between) -- the same "state changed since decision" idea `Approval` undo already
+        # enforces via `status is not produced` below, extended here now that
+        # `UrgencyReview.prior_status` exists to compare against.
+        if prior_status is not None and status is not RequestStatus(prior_status):
             return _undo_refuse(Refusal.STATE_CHANGED_SINCE_DECISION)
         return UndoDecision(
             allowed=True,

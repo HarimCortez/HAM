@@ -3,6 +3,19 @@
 from django.db import migrations, models
 
 
+def _backfill_took_over_basis(apps, schema_editor):
+    """Fix 3C / security M-a: this migration's own `took_over_basis` default ("") would
+    otherwise leave every pre-existing take-over row (`took_over_from_user_id` set, from
+    before this column existed) failing the new `approval_takeover_requires_basis` CHECK
+    added below. Every take-over recorded before this column existed carried
+    `unavailable_confirmed=True` (the only take-over path the schema had at the time), so
+    "unavailable_ticked" is the correct backfilled basis for all of them."""
+    Approval = apps.get_model("requests", "Approval")
+    Approval.objects.filter(took_over_from_user_id__isnull=False, took_over_basis="").update(
+        took_over_basis="unavailable_ticked"
+    )
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("requests", "0006_urgencyreview_approval_accompanying_urgency_and_more"),
@@ -26,6 +39,7 @@ class Migration(migrations.Migration):
                 max_length=24,
             ),
         ),
+        migrations.RunPython(_backfill_took_over_basis, migrations.RunPython.noop),
         migrations.AddField(
             model_name="approval",
             name="urgent_approval_emitted",
@@ -70,6 +84,20 @@ class Migration(migrations.Migration):
                     _connector="OR",
                 ),
                 name="approval_unavailable_confirmed_matches_basis",
+            ),
+        ),
+        # Fix 3C / security M-a: the reverse direction of `approval_takeover_requires_basis`
+        # (a take-over always carries a basis) -- a basis is never recorded on a row that
+        # ISN'T a take-over.
+        migrations.AddConstraint(
+            model_name="approval",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("took_over_basis", ""),
+                    ("took_over_from_user_id__isnull", False),
+                    _connector="OR",
+                ),
+                name="approval_basis_requires_takeover",
             ),
         ),
     ]
