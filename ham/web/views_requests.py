@@ -1654,6 +1654,10 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
                 board_decided_on_raw or church_today(clock_now()).isoformat()
             ),
             "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
+            # Fix 3E / UX M6, PRD guardian minor 1: this is E13's exact wording (final=True) --
+            # the SAME shared parts A3/E10 use, not a second, independently hand-written copy
+            # that can drift from what the email actually sends.
+            "decline_preview": presentation.decline_outcome_text(reason, final=True),
         },
     )
 
