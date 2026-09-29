@@ -1497,12 +1497,11 @@ def request_decision_undo(request, request_id: uuid.UUID):
         return redirect("web:request_detail", request_id=request_id)
 
     has_email = Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
-    requester_phoned_at = getattr(approval, "requester_phoned_at", None)
+    requester_phoned_at = approval.requester_phoned_at if approval is not None else None
     requester_phoned_by = ""
-    if requester_phoned_at is not None:
-        requester_phoned_by = display_names_for([approval.requester_phoned_by_user_id]).get(
-            approval.requester_phoned_by_user_id, ""
-        )
+    phoned_by_user_id = approval.requester_phoned_by_user_id if approval is not None else None
+    if phoned_by_user_id is not None:
+        requester_phoned_by = display_names_for([phoned_by_user_id]).get(phoned_by_user_id, "")
 
     return render(
         request,
@@ -1597,8 +1596,10 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
             ok = False
             messages.error(request, "Tick to confirm the original decider isn't available.")
         board_decided_on = _board_date_from_post(request) if is_board_route else None
-        if is_board_route and board_decided_on_raw and (
-            board_decided_on is None or board_decided_on > church_today(clock_now())
+        if (
+            is_board_route
+            and board_decided_on_raw
+            and (board_decided_on is None or board_decided_on > church_today(clock_now()))
         ):
             # Fix 3E / UX M7 / PRD re-check small items: checked inline (church-local date,
             # never a bare UTC one) so a genuinely-future date re-renders THIS template with

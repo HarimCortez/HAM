@@ -145,18 +145,24 @@ def _build_awaiting_approval_notices(event: OutboxEvent) -> list[InAppNotice] | 
     category = _category_label(request)
     if urgent:
         title = f"Urgent request needs a pastor · {request.display_number} {category}"
+        # FIX-3D hand-back item 2: "needs a pastor" addresses the wrong role in a
+        # Director/AD/Board-rep Inbox -- they're not the one being asked to act on it, and
+        # the wording read like an instruction meant for them. Their own in-app update
+        # (Q-121, intake.md §6 "DIR, AD: in-app update") stays factual instead.
+        other_title = f"Urgent request awaiting a pastor · {request.display_number} {category}"
     else:
         title = f"Request waiting for review · {request.display_number} {category}"
+        other_title = title
 
     notices = [
-        # Only pastors get the urgent, must-acknowledge banner (§10, §35); the Board rep and
-        # Director/AD get the same wording as an ordinary, dismissable update either way
-        # (intake-contracts.md §6 "DIR, AD: in-app update").
+        # Fix 3E / FIX-3D hand-back item 2: only pastors get the "needs a pastor" wording (as
+        # the urgent, must-acknowledge banner) or, non-urgent, the plain review wording --
+        # this notice's recipient targeting is pastors only.
         _awaiting_approval_notice(user_id=user_id, request=request, title=title, urgent=urgent)
         for user_id, _email, _notify_email in notification_recipients((roles.PASTOR,))
     ]
     notices += [
-        _awaiting_approval_notice(user_id=user_id, request=request, title=title, urgent=False)
+        _awaiting_approval_notice(user_id=user_id, request=request, title=other_title, urgent=False)
         for user_id, _email, _notify_email in notification_recipients(
             (roles.BOARD_REPRESENTATIVE, *_DIR_AD)
         )

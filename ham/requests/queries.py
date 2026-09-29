@@ -121,6 +121,13 @@ class RequestListRow:
     # requester whose latest live decision has settled (past its own undo window) and hasn't
     # been told by phone yet.
     needs_phone_call: bool = False
+    # FIX-3D hand-back item 3 (visual M3): REJECTED and closed -- either the 14-day
+    # reconsideration window passed with HAM auto-finalizing, or a reconsideration-stage
+    # decline (both close immediately, same `is_final` predicate `views_requests._decision_
+    # panel` already uses for the detail page's own "· Final" chip). This field was declared
+    # in `requests_list.html`'s template but never actually set here, so the marker never
+    # rendered.
+    is_final: bool = False
 
     @property
     def markers(self) -> list[dict[str, object]]:
@@ -277,6 +284,7 @@ def list_requests(
                 else None
             ),
             needs_phone_call=r.id in needs_phone_call_ids,
+            is_final=r.status == RequestStatus.REJECTED.value and r.closed_at is not None,
         )
         for r in rows
     ]

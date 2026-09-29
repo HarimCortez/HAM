@@ -1138,9 +1138,7 @@ def request_help_question_answer(
         # empty answer never reached the server with anything worth "still here"-ing, so the
         # generic "It's still here" wording was actively misleading for that case.
         reason = (
-            "empty"
-            if message == "requester.question.answer: answer is required"
-            else "too_long"
+            "empty" if message == "requester.question.answer: answer is required" else "too_long"
         )
         return redirect(
             f"{secure_url}?answer_failed={question_id}&answer_failed_reason={reason}"

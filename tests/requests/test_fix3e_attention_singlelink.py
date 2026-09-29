@@ -76,7 +76,7 @@ class TestReconsiderationCardSingleLink:
 
         request_reconsideration(RequesterContext(request_id=req.id), note="Please look again")
         cards = reconsideration_cards(pastor_ctx)
-        card = next(c for c in cards if c.key == "requests.reconsideration")
+        card = next(c for c in cards if c.key == f"requests.reconsideration.{req.id}")
         assert card.href == f"/requests/{req.id}"
         set_clock(None)
 
@@ -103,8 +103,8 @@ class TestDecisionPhoneCardSingleLink:
             message="Sorry.",
         )
         set_clock(FixedClock(approval.effective_at))
-        card = decision_phone_card(director_ctx)
-        assert card is not None
+        cards = decision_phone_card(director_ctx)
+        card = next(c for c in cards if c.key == f"requests.decision_phone.{req.id}")
         assert card.href == f"/requests/{req.id}"
         set_clock(None)
 
@@ -121,7 +121,7 @@ class TestPastorCertifyCardSingleLink:
         req = _urgent_awaiting(requester_ctx, system_ctx)
         approval = approve_request(board_ctx, request_id=req.id, route="board")
         set_clock(FixedClock(approval.effective_at))
-        card = pastor_certify_card(pastor_ctx)
-        assert card is not None
+        cards = pastor_certify_card(pastor_ctx)
+        card = next(c for c in cards if c.key == f"requests.awaiting_certification.{req.id}")
         assert card.href == f"/requests/{req.id}"
         set_clock(None)
