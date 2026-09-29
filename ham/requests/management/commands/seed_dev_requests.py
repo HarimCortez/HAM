@@ -139,6 +139,13 @@ class Command(BaseCommand):
         cancel_reason: CancelReason | None = None,
     ) -> AssistanceRequest:
         relationship = RelationshipToProperty.OWNER
+        # S3.0: `req_closed_at_set_when_cancelled` is now a real (not tautological) CHECK, so
+        # a CANCELLED row must carry `closed_at` from the very first INSERT -- creating it
+        # open and closing it in a follow-up `.save()` (the old two-step shape below) would
+        # violate the constraint on the initial insert itself.
+        is_cancelled = status is RequestStatus.CANCELLED
+        closed_at = submitted_at + dt.timedelta(hours=1) if is_cancelled else None
+        cancel_reason_code = (cancel_reason or CancelReason.SPAM).value if is_cancelled else ""
         request = AssistanceRequest.objects.create(
             reference_number=next_reference_number(),
             status=status.value,
@@ -160,11 +167,9 @@ class Command(BaseCommand):
             attested_at=submitted_at,
             submitted_at=submitted_at,
             status_changed_at=submitted_at,
+            closed_at=closed_at,
+            cancel_reason_code=cancel_reason_code,
         )
-        if status in (RequestStatus.CANCELLED,):
-            request.closed_at = submitted_at + dt.timedelta(hours=1)
-            request.cancel_reason_code = (cancel_reason or CancelReason.SPAM).value
-            request.save(update_fields=["closed_at", "cancel_reason_code"])
 
         keys = _hashed_keys(
             full_name=full_name,

@@ -62,6 +62,10 @@ _DIR_AD = frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})  # Q-054: no
 _REQUESTER = frozenset({"REQUESTER"})
 _SYSTEM = frozenset({"SYSTEM"})
 
+# Step 3 (approvals.md §3, amended by its owner-decisions box). PAS Pastor, BRD Board rep.
+_PAS = frozenset({roles.PASTOR})
+_PAS_BRD = frozenset({roles.PASTOR, roles.BOARD_REPRESENTATIVE})
+
 # intake.md §1/§5: Director, Assistant Director, Pastor, Board representative see every
 # request awaiting approval (§4.3, §8; Q-106/Q-125). Q-124 (decided): the Administrator gets
 # view-only access to requests/media with contact details masked and no reveal, alongside this
@@ -230,6 +234,58 @@ MATRIX: dict[str, ActionRule] = {
     "notification.acknowledge": ActionRule(
         ANY_STANDING_ROLE, scope=Scope.SELF, blocked_while_impersonating=True, prd=("§10", "§35")
     ),
+    # --- S3.0 (approvals.md §3, amended by its owner-decisions box): step-3 (Approvals)
+    # actions. Q-172 (decided, amended): every decision, undo and question action, and every
+    # phone record, is blocked while impersonating; `request.category.change` is the one
+    # exception (Q-109 -- "an operational correction, not a decision", §59). ---
+    "request.approve": ActionRule(
+        _PAS_BRD,
+        blocked_while_impersonating=True,
+        prd=("§4.2", "§4.3", "§8", "§10", "§67", "Q-048", "Q-153"),
+    ),
+    "request.reject": ActionRule(
+        _PAS_BRD, blocked_while_impersonating=True, prd=("§8.3", "Q-048", "Q-154")
+    ),
+    # Undo (Q-156/Q-176): only the person who recorded the decision may undo -- a
+    # finer-grained check the matrix can't express, enforced by the service
+    # (`ham.requests.services.undo_decision`) and tested there, same shape as reconsideration
+    # routing below. Same actor set as the actions it undoes (PAS approve/reject/certify, BRD
+    # approve/reject).
+    "request.decision.undo": ActionRule(
+        _PAS_BRD, blocked_while_impersonating=True, prd=("§8", "§3.3", "§58", "Q-156", "Q-176")
+    ),
+    "request.urgency.review": ActionRule(
+        _PAS, blocked_while_impersonating=True, prd=("§10", "§67", "Q-048", "Q-160")
+    ),
+    "request.reconsideration.decide": ActionRule(
+        _PAS_BRD, blocked_while_impersonating=True, prd=("§8.4", "Q-048", "Q-157")
+    ),
+    "request.reconsideration.record_phone": ActionRule(
+        _DIR_AD, blocked_while_impersonating=True, prd=("§8.4", "Q-025", "Q-159")
+    ),
+    "request.decision.record_phoned": ActionRule(
+        _DIR_AD, blocked_while_impersonating=True, prd=("§8.3", "Q-025", "Q-159")
+    ),
+    "request.question.ask": ActionRule(
+        _DIR_AD_PAS_BRD, blocked_while_impersonating=True, prd=("§7.2", "Q-162")
+    ),
+    "request.question.record_answer": ActionRule(
+        _DIR_AD_PAS_BRD, blocked_while_impersonating=True, prd=("§7.2", "Q-162")
+    ),
+    "request.question.withdraw": ActionRule(
+        _DIR_AD_PAS_BRD, blocked_while_impersonating=True, prd=("§7.2", "Q-162")
+    ),
+    # Owner box reconciliation ("Change category: Director and AD only. Not blocked while
+    # impersonating."): Director/AD only, NOT Pastor/Board rep -- narrower than
+    # approvals.md §2.6/§3's own table, which the box explicitly overrides.
+    "request.category.change": ActionRule(_DIR_AD, prd=("Q-109",)),
+    "requester.question.answer": ActionRule(
+        _REQUESTER, scope=Scope.OWN_REQUEST, prd=("§7.2", "Q-162")
+    ),
+    "requester.reconsideration.request": ActionRule(
+        _REQUESTER, scope=Scope.OWN_REQUEST, prd=("§8.3", "§8.4", "Q-155", "Q-158")
+    ),
+    "system.request.finalize_rejection": ActionRule(_SYSTEM, prd=("§8.4", "Q-155")),
     # System (background job) actions: `SystemContext`, no human behind them.
     "system.request.complete_intake_checks": ActionRule(_SYSTEM, prd=("§9",)),
     "system.media.process": ActionRule(_SYSTEM, prd=("§45",)),

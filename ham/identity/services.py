@@ -93,6 +93,40 @@ def notification_recipients(
     return recipients
 
 
+# S3.0 (approvals.md §4 "A new identity service is needed for this"; approvals-contracts.md
+# §7): the by-*id* sibling of `notification_recipients` above, for the step-3 notifications
+# that address specific people rather than "everyone holding role X" -- the original decider
+# of a reconsideration, the asker of a question, the leader who reopened a batch. Kept
+# alongside `notification_recipients` (same shape, same "only ham.identity reads auth tables"
+# reasoning) rather than folding one into the other, since "by role set" and "by id set" have
+# different callers and a `roles=None` overload would obscure which one a call site meant.
+def notification_recipients_for_users(
+    user_ids: Iterable[uuid.UUID],
+) -> list[tuple[uuid.UUID, str, bool]]:
+    """Resolves `user_ids` to `(user_id, email, notify_email)` triples, skipping any id that
+    is unknown, inactive or disabled (same "never a recipient" rule as
+    `notification_recipients`) -- so a caller can pass e.g. an original decider's, or a
+    question-asker's, `user_id` without checking that account status itself."""
+    ids = list(dict.fromkeys(user_ids))  # de-dupe, preserve order
+    if not ids:
+        return []
+    users = User.objects.filter(
+        id__in=ids, is_active=True, disabled_at__isnull=True
+    ).select_related("profile")
+    by_id = {user.id: user for user in users}
+    recipients: list[tuple[uuid.UUID, str, bool]] = []
+    for user_id in ids:
+        user = by_id.get(user_id)
+        if user is None:
+            continue
+        try:
+            notify_email = user.profile.notify_email
+        except ObjectDoesNotExist:
+            notify_email = True
+        recipients.append((user.id, user.email, notify_email))
+    return recipients
+
+
 # Least-privilege default for an invitation's role list (Q-037, Q-040 lineage): anyone who may
 # invite gets at least Volunteer, without necessarily being able to grant every other role.
 DEFAULT_INVITE_ROLES = (roles.VOLUNTEER,)

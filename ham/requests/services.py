@@ -737,15 +737,17 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
 
 def is_request_open(request_id: UUID) -> bool:
     """Whether a request still accepts requester media (intake.md §2: media asks
-    requests.services, requests never imports media). Open means the request exists and is
-    not in a terminal status; batch-level rules (initial batch closes at decision, §46
-    reopened batches) are ham.media's."""
-    from .models import AssistanceRequest
-    from .states import RequestStatus, is_terminal
+    requests.services, requests never imports media). Open means the request exists and its
+    `closed_at` is still null; batch-level rules (initial batch closes at decision, §46
+    reopened batches) are ham.media's.
 
-    status = (
-        AssistanceRequest.objects.filter(id=request_id).values_list("status", flat=True).first()
-    )
-    if status is None:
-        return False
-    return not is_terminal(RequestStatus(status))
+    Step-3 bug fix (approvals.md §2.1 "Fix a service bug"): this used to be
+    `not is_terminal(status)`, which only ever named `CANCELLED` (intake.md §2:
+    `TERMINAL_STATUSES` was step-2-only) -- so a *final* REJECTED request (Q-116: `closed_at`
+    set once the reconsideration window has passed with no reconsideration filed) still read
+    as "open" here, since `REJECTED` was never in `TERMINAL_STATUSES` at all (a
+    reconsiderable REJECTED must stay open). Keying on `closed_at` directly gets both cases
+    right without this function needing to know which statuses close a request."""
+    from .models import AssistanceRequest
+
+    return AssistanceRequest.objects.filter(id=request_id, closed_at__isnull=True).exists()

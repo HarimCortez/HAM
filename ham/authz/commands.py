@@ -116,6 +116,18 @@ _AUDITED_ON_DENIAL: frozenset[str] = frozenset(
         "requester_pii.reveal",
         "request.cancel",
         "request.contact_verify_phone",
+        # S3.0 (approvals.md §3): decisions, undo, urgency certification, reconsideration
+        # decisions and every phone record are consequential enough that a denied attempt is
+        # noise-worthy, same reasoning as the step-2 rows above. Question actions are NOT
+        # audited on denial (approvals.md §3: "no" in that row) -- asking/answering/
+        # withdrawing a question is lower-stakes than a decision.
+        "request.approve",
+        "request.reject",
+        "request.decision.undo",
+        "request.urgency.review",
+        "request.reconsideration.decide",
+        "request.reconsideration.record_phone",
+        "request.decision.record_phoned",
     }
 )
 

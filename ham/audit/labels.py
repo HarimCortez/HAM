@@ -120,6 +120,30 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "Notifications",
         ("notification.acknowledged",),
     ),
+    # S3.0 (approvals.md §4 "Audit actions"; approvals-contracts.md §5).
+    ActionGroup(
+        "Approvals",
+        (
+            "request.approved",
+            "request.rejected",
+            "request.decision_undone",
+            "request.reconsideration_requested",
+            "request.reconsideration_decided",
+            "request.rejection_finalized",
+            "request.urgency_certified",
+            "request.urgency_not_certified",
+            "request.category_changed",
+            "request.decision_phoned",
+        ),
+    ),
+    ActionGroup(
+        "HAM questions",
+        (
+            "request.question_asked",
+            "request.question_answered",
+            "request.question_withdrawn",
+        ),
+    ),
     ActionGroup(
         "Access denied",
         ("authz.denied",),
@@ -178,6 +202,20 @@ ACTION_LABELS: dict[str, str] = {
     # S2.2 (Q-127 retention sweep).
     "request.pii_purged": "Requester personal details erased (retention)",
     "request.purged": "Request erased (spam retention)",
+    # S3.0 (approvals.md §4).
+    "request.approved": "Request approved",
+    "request.rejected": "Request not approved",
+    "request.decision_undone": "Decision undone",
+    "request.reconsideration_requested": "Asked to take another look",
+    "request.reconsideration_decided": "Reconsideration decided",
+    "request.rejection_finalized": "Rejection made final",
+    "request.urgency_certified": "Urgency certified",
+    "request.urgency_not_certified": "Marked not urgent",
+    "request.category_changed": "Category changed",
+    "request.decision_phoned": "Told the decision by phone",
+    "request.question_asked": "Question asked",
+    "request.question_answered": "Question answered",
+    "request.question_withdrawn": "Question withdrawn",
 }
 
 

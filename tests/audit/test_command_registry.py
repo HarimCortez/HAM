@@ -62,6 +62,24 @@ PLACEHOLDER_ACTIONS = frozenset(
         # unbuilt this slice (no `@command(...)` site anywhere in `ham/` as of step 2):
         # (none left; request.create_assisted was removed from the matrix in the fix round)
         "intake_source.manage",
+        # S3.0 (approvals.md §8.1): matrix rows + service *signatures* declared this slice as
+        # `NotImplementedError` stubs (docs/architecture/approvals-contracts.md §2) -- the
+        # real `@command(...)`-wrapped bodies are S3.2 (decisions/reconsideration/category),
+        # S3.3 (questions). None of these have a real command site yet.
+        "request.approve",
+        "request.reject",
+        "request.decision.undo",
+        "request.urgency.review",
+        "request.reconsideration.decide",
+        "request.reconsideration.record_phone",
+        "request.decision.record_phoned",
+        "request.question.ask",
+        "request.question.record_answer",
+        "request.question.withdraw",
+        "request.category.change",
+        "requester.question.answer",
+        "requester.reconsideration.request",
+        "system.request.finalize_rejection",
         # `system.media.process`/`system.media.purge`: SYSTEM-scoped background jobs
         # (`ham/media/jobs.py::process_item`/`_purge_item`) that write their own audit rows
         # by hand (`request_media.rejected`/`request_media.purged`/`request_media.purged`)

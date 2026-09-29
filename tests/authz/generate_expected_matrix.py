@@ -56,6 +56,10 @@ MFA_ROLES = frozenset(
 _DIR_AD_PAS_BRD = frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR, PASTOR, BOARD_REPRESENTATIVE})
 _DIR_AD_PAS_BRD_ADM = _DIR_AD_PAS_BRD | frozenset({ADMINISTRATOR})
 
+# S3.0 (approvals.md §3, PRD §4.2/§4.3/§8/§10/§67; Q-153-Q-165). Typed from the PRD/Qs, not
+# copied from ham.authz.matrix (this module's own rule, restated at each new section).
+_PAS_BRD = frozenset({PASTOR, BOARD_REPRESENTATIVE})
+
 ANY = "any"
 SELF = "self"
 
@@ -247,6 +251,54 @@ ORACLE: dict[str, tuple[frozenset[str], str, bool, bool, str]] = {
     ),
     # §10/§35: any standing role may acknowledge their own urgent-banner notification.
     "notification.acknowledge": (frozenset(ALL_ROLES), SELF, False, True, "§10, §35"),
+    # --- S3.0 (approvals.md §3, amended by its owner-decisions box): step-3 human-role
+    # actions. PRD §4.2 ("Pastor: approval, urgent certification"), §4.3 ("Board rep: records
+    # Board decisions"), §5, §8, §10, §67. Q-153 (decided): the first recorded decision by
+    # either route settles the request -- both PAS and BRD may approve/reject on any request
+    # (route-vs-held-role is a finer, service-layer check, not visible here). Q-048/Q-172
+    # (decided): every decision/undo/question/phone action is blocked while impersonating.
+    "request.approve": (_PAS_BRD, ANY, False, True, "§4.2, §4.3, §8, §10, §67, Q-048, Q-153"),
+    "request.reject": (_PAS_BRD, ANY, False, True, "§8.3, Q-048, Q-154"),
+    # Q-156/Q-176: undo is limited (in the service, not the matrix) to the person who
+    # recorded the decision -- the oracle only asserts "PAS/BRD may attempt it".
+    "request.decision.undo": (_PAS_BRD, ANY, False, True, "§8, §3.3, §58, Q-156, Q-176"),
+    # §10 "a pastor must ... certify": Pastor only, never the Board rep (Q-160: "the Board rep
+    # can approve an urgent request but not certify it").
+    "request.urgency.review": (frozenset({PASTOR}), ANY, False, True, "§10, §67, Q-048, Q-160"),
+    "request.reconsideration.decide": (_PAS_BRD, ANY, False, True, "§8.4, Q-048, Q-157"),
+    # Q-159 (decided, amended): only Director/AD record a phone-requested reconsideration or a
+    # told-by-phone decision (no-email requesters, §8.3/§8.4/Q-025) -- never Pastor/Board rep.
+    "request.reconsideration.record_phone": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§8.4, Q-025, Q-159",
+    ),
+    "request.decision.record_phoned": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        True,
+        "§8.3, Q-025, Q-159",
+    ),
+    # §7.2 (decided, Q-162): Director, Assistant Director, Pastor and Board rep may ask/
+    # answer/withdraw a HAM question on any request that isn't closed. Not ADM (Q-124: view-
+    # only, masked -- never a question action). Finer "who may withdraw" (asker or DIR/AD) is
+    # a service-layer check.
+    "request.question.ask": (_DIR_AD_PAS_BRD, ANY, False, True, "§7.2, Q-162"),
+    "request.question.record_answer": (_DIR_AD_PAS_BRD, ANY, False, True, "§7.2, Q-162"),
+    "request.question.withdraw": (_DIR_AD_PAS_BRD, ANY, False, True, "§7.2, Q-162"),
+    # Owner box reconciliation (Q-109, decided): "Change category: Director and AD only. Not
+    # blocked while impersonating." -- narrower than PAS/BRD also having it, and NOT blocked
+    # while impersonating ("an operational correction, not a decision", §59).
+    "request.category.change": (
+        frozenset({HAM_DIRECTOR, ASSISTANT_DIRECTOR}),
+        ANY,
+        False,
+        False,
+        "Q-109",
+    ),
 }
 
 # S2.0 pseudo-roles (intake.md §5): `RequesterContext`/`SystemContext`, never in `ALL_ROLES`
@@ -269,6 +321,10 @@ PSEUDO_ORACLE: dict[str, tuple[str, str, str]] = {
     "system.media.process": (SYSTEM, ANY, "§45"),
     "system.media.purge": (SYSTEM, ANY, "§47"),
     "system.intake.purge": (SYSTEM, ANY, "§76"),
+    # S3.0: the requester's own two step-3 actions, and the hourly finalize job.
+    "requester.question.answer": (REQUESTER, OWN_REQUEST, "§7.2, Q-162"),
+    "requester.reconsideration.request": (REQUESTER, OWN_REQUEST, "§8.3, §8.4, Q-155, Q-158"),
+    "system.request.finalize_rejection": (SYSTEM, ANY, "§8.4, Q-155"),
 }
 
 OUT_PATH = Path(__file__).resolve().parent / "expected_matrix.csv"
