@@ -33,6 +33,7 @@
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="outcome" value="{% if approve_mode %}approve{% else %}decline{% endif %}">
+      {% if not approve_mode %}{{ prefills|json_script:"recon-decline-prefills" }}{% endif %}
 
       {% if needs_take_over %}
         <div class="quiet-block">
@@ -70,7 +71,7 @@
       {% else %}
         <fieldset class="form-field">
           <legend>Why can't HAM help?</legend>
-          <div class="choice-grid choice-grid--single">
+          <div class="choice-grid choice-grid--single" id="recon-decline-reasons">
             {% for code, label in reason_choices %}
               <label class="choice-card">
                 <input type="radio" name="reason_code" value="{{ code }}" {% if code == selected_reason %}checked{% endif %} required>
@@ -82,7 +83,27 @@
         <div class="form-field">
           <label for="id_reason_decline">What we'll tell the requester</label>
           <textarea id="id_reason_decline" name="reason" rows="5" maxlength="{{ max_chars }}">{{ reason }}</textarea>
+          <p class="text-tertiary type-small">Suggested wording, prefilled from the reason you choose. Edit it as you like.</p>
+          {# M7/M8: same Replace/Keep behaviour as A3 -- never silently overwrite an edited message. #}
+          <div class="reason-replace-row" id="recon-reason-replace-row" hidden role="status">
+            <span>Replace your message with the suggested one for the new reason?</span>
+            <button type="button" class="btn btn--secondary" id="recon-reason-replace-yes">Replace</button>
+            <button type="button" class="btn btn--ghost" id="recon-reason-replace-no">Keep mine</button>
+          </div>
         </div>
+
+        {% comment %}
+        M7: this is the requester's FINAL message (R18b wording) -- shown for both the
+        original decider and a take-over, same as A3's WYSIWYG preview.
+        {% endcomment %}
+        <section role="region" aria-labelledby="recon-decline-preview-heading" class="message-preview">
+          <p id="recon-decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> {% if has_email %}What the requester will read{% else %}What to tell them by phone{% endif %}</p>
+          <p class="type-body-lg">We looked at your request again, and we're sorry, we're still not able to help with this one.</p>
+          <p class="type-body-lg">Here's why:</p>
+          <blockquote id="recon-decline-preview-message" class="quote-block">{{ reason }}</blockquote>
+          <p class="type-body-lg">You're welcome to send a new request in the future if things change.</p>
+        </section>
+
         <div class="inline-alert inline-alert--attention">
           <p>This is final. The request will close and the requester can't ask again. They can send a new request in the future.</p>
         </div>
@@ -99,12 +120,75 @@
       <div class="action-bar">
         <div class="action-bar__inner">
           <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
-          <button class="btn btn--primary" type="submit">
-            {% if needs_take_over %}{% if approve_mode %}Take over and approve{% else %}Take over and decline{% endif %}{% else %}{% if approve_mode %}Approve{% else %}Decline (final){% endif %}{% endif %}
-            {{ request_row.display_number }}
-          </button>
+          {% comment %}
+          B2/M9: the visible label is short (the HAM # is already in the header and the
+          accessible name), so the bar stays under 18% of the viewport at 200% text/195 even
+          for the longest case (take-over decline).
+          {% endcomment %}
+          <button
+            class="btn btn--primary"
+            type="submit"
+            aria-label="{% if needs_take_over %}{% if approve_mode %}Take over and approve{% else %}Take over and decline{% endif %}{% else %}{% if approve_mode %}Approve{% else %}Decline{% endif %}{% endif %} {{ request_row.display_number }}"
+          >{% if needs_take_over %}{% if approve_mode %}Take over and approve{% else %}Take over and decline{% endif %}{% else %}{% if approve_mode %}Approve{% else %}Decline (final){% endif %}{% endif %}</button>
         </div>
       </div>
     </form>
   </div>
+  {% if not approve_mode %}
+    <script>
+      (function () {
+        var dataEl = document.getElementById("recon-decline-prefills");
+        var prefills = dataEl ? JSON.parse(dataEl.textContent) : {};
+        var messageField = document.getElementById("id_reason_decline");
+        var preview = document.getElementById("recon-decline-preview-message");
+        var replaceRow = document.getElementById("recon-reason-replace-row");
+        var replaceYes = document.getElementById("recon-reason-replace-yes");
+        var replaceNo = document.getElementById("recon-reason-replace-no");
+        if (!messageField || !preview) return;
+        var lastPrefill = messageField.value;
+        var pendingReason = null;
+        function syncPreview() {
+          preview.textContent = messageField.value;
+        }
+        function applyPrefill(reasonCode) {
+          messageField.value = prefills[reasonCode];
+          lastPrefill = prefills[reasonCode];
+          syncPreview();
+          replaceRow.hidden = true;
+          pendingReason = null;
+        }
+        // M7/M8: same "only auto-replace when the field is empty or still equals the last
+        // reason's own suggested wording" rule as A3 -- otherwise a decider's edited final
+        // message could silently vanish.
+        document.querySelectorAll('#recon-decline-reasons input[type="radio"]').forEach(function (input) {
+          input.addEventListener("change", function () {
+            if (prefills[input.value] === undefined) return;
+            var dirty = messageField.value.trim() !== "" && messageField.value !== lastPrefill;
+            if (dirty) {
+              pendingReason = input.value;
+              replaceRow.hidden = false;
+            } else {
+              applyPrefill(input.value);
+            }
+          });
+        });
+        if (replaceYes) {
+          replaceYes.addEventListener("click", function () {
+            if (pendingReason !== null) applyPrefill(pendingReason);
+          });
+        }
+        if (replaceNo) {
+          replaceNo.addEventListener("click", function () {
+            replaceRow.hidden = true;
+            pendingReason = null;
+          });
+        }
+        messageField.addEventListener("input", function () {
+          syncPreview();
+          replaceRow.hidden = true;
+        });
+        syncPreview();
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

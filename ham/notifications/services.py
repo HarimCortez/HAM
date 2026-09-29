@@ -49,19 +49,26 @@ def unread_update_count(ctx: Any) -> int:
     return Notification.objects.filter(recipient_user_id=ctx.user_id, read_at__isnull=True).count()
 
 
+def _unacknowledged_urgent_qs(ctx: Any):
+    return Notification.objects.filter(
+        recipient_user_id=ctx.user_id, requires_ack=True, acknowledged_at__isnull=True
+    )
+
+
 def urgent_banner_for(ctx: Any) -> Notification | None:
     """The app-wide urgent banner (§10, §35, Q-123): an urgent notification requiring
     acknowledgement stays until acknowledged, "regardless of the person's email preferences"
     — that override is about the *email* channel (`ham.identity.notifications`/S2.6 builders
     skip the `notify_email` check for these); this in-app query has no preference to check at
     all, it simply shows whatever is still unacknowledged."""
-    return (
-        Notification.objects.filter(
-            recipient_user_id=ctx.user_id, requires_ack=True, acknowledged_at__isnull=True
-        )
-        .order_by("-created_at")
-        .first()
-    )
+    return _unacknowledged_urgent_qs(ctx).order_by("-created_at").first()
+
+
+def urgent_banner_count_for(ctx: Any) -> int:
+    """Visual QA M12: the banner shows how many urgent items are waiting (e.g. "2 urgent
+    requests need a pastor"), not only the newest one's own title -- acknowledging the shown
+    one still leaves the rest for the next page load."""
+    return _unacknowledged_urgent_qs(ctx).count()
 
 
 def get_owned_notification(ctx: Any, notification_id: UUID) -> Notification | None:

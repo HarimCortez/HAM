@@ -11,13 +11,13 @@
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Certify {{ request_row.display_number }} as urgent?</h1>
     <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
-    <figure class="quote-block">
-      <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
-      <blockquote>{{ urgency_line }}</blockquote>
-    </figure>
-    <p>The Board already approved this request. Certifying tells HAM it's urgent, so work can be arranged quickly.</p>
     <form method="post">
       {% csrf_token %}
+      <figure class="quote-block">
+        <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
+        <blockquote>{{ urgency_line }}</blockquote>
+      </figure>
+      <p>The Board already approved this request. Certifying tells HAM it's urgent, so work can be arranged quickly.</p>
       <div class="quiet-block">
         <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg> The HAM Director and Assistant Director are alerted right away, on every channel.</p>
       </div>

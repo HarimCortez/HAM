@@ -87,14 +87,19 @@ of hiding a duplicate copy from assistive tech.
         checked, rather than nothing at all.
         {% endcomment %}
         <div class="decision-card__actions">
-          <p>Goes to {{ decision.original_decider_name }}. If they're unavailable, you can take it over when you decide.</p>
+          {% comment %}
+          M9: a semicolon, not a period, after the name -- `original_decider_name` can
+          itself end in a period (an abbreviated last name, "Ruth A."), which produced a
+          double period ("Ruth A.. If...") when a sentence-ending period followed directly.
+          {% endcomment %}
+          <p>Goes to {{ decision.original_decider_name }}; if they're unavailable, you can take it over when you decide.</p>
           <div class="decision-pair">
             <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=approve&amp;take_over=1">Take over and approve&hellip;</a>
             <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=decline&amp;take_over=1">Take over and decline&hellip;</a>
           </div>
         </div>
       {% elif decision.is_board_route %}
-        <p class="text-secondary">The Board is reconsidering this. Elder {{ decision.original_decider_name }} will record the outcome.</p>
+        <p class="text-secondary">The Board is reconsidering this. {{ decision.original_decider_name }} will record the outcome.</p>
       {% elif decision.masked %}
         <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Not shown to the Administrator role.</p>
       {% else %}
@@ -130,7 +135,7 @@ of hiding a duplicate copy from assistive tech.
           <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
           <div>
             <p class="type-label">Can be undone until <time datetime="{{ decision.undo_deadline|date:'c' }}">{{ decision.undo_deadline|church_time }}</time></p>
-            <p>Nothing has been sent to the requester yet.{% if decision.urgent_approval %} The Director and Assistant Director were alerted right away.{% endif %}</p>
+            <p class="decision-card__notice-text">Nothing has been sent to the requester yet.{% if decision.urgent_approval %} The Director and Assistant Director were alerted right away.{% endif %}</p>
             {# B3: a direct child of the alert body, not inside a `<p>` -- the ancestor `.request-detail p` rule's `overflow-wrap: anywhere` inherits into any button nested in a `<p>` and can break "Undo decision..." mid-word at large text. #}
             <a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?approval_id={{ decision.approval_id }}">Undo decision&hellip;</a>
           </div>
@@ -142,7 +147,7 @@ of hiding a duplicate copy from assistive tech.
         {% endcomment %}
         <div class="inline-alert inline-alert--info">
           <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
-          <p>Pending: {{ decision.decided_by_name }}, can be undone until {{ decision.undo_deadline|church_time }}. Nothing has gone to the requester yet.</p>
+          <p class="decision-card__notice-text">Pending: {{ decision.decided_by_name }}, can be undone until {{ decision.undo_deadline|church_time }}. Nothing has gone to the requester yet.</p>
         </div>
       {% endif %}
 

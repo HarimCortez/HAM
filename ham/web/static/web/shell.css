@@ -181,12 +181,25 @@ a:hover {
   container-type: inline-size;
 }
 
+/* Minor (re-check at 089473e): sticky on `.urgent-banner` never actually stuck, because its
+   containing block is `.urgent-banner-slot`, which wraps it exactly (a box can't scroll past
+   its own containing block). The slot itself -- not the banner -- has to be the sticky
+   element. Gated by height too: on a short/landscape viewport a sticky banner can crowd out
+   everything below it just as much as it would at large text (B1), so this stays plain
+   in-flow static below 30em tall regardless of width. */
+@media (min-width: 22em) and (min-height: 30em) {
+  .urgent-banner-slot {
+    position: sticky;
+    top: var(--ham-size-appbar-height);
+    z-index: var(--ham-z-appbar);
+  }
+}
+
 .urgent-banner {
   /* C§40: static by default. Sticky is opt-in once there's real room (>=22em) -- below that,
      a sticky banner plus a sheet's own pinned action bar can together exceed the viewport
      height at large text, blocking every control underneath (B1/B2). */
   position: static;
-  z-index: var(--ham-z-appbar);
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
   border-bottom: 1px solid var(--ham-tone-danger-border);
@@ -197,13 +210,6 @@ a:hover {
   gap: var(--ham-space-2) var(--ham-space-4);
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
-}
-
-@container (min-width: 22em) {
-  .urgent-banner {
-    position: sticky;
-    top: var(--ham-size-appbar-height);
-  }
 }
 
 .urgent-banner__icon {
@@ -232,6 +238,21 @@ a:hover {
 
 .urgent-banner__actions .btn {
   flex: 1 1 auto;
+}
+
+/* N3 (re-check at 089473e): at >=40em there's real room beside the banner text, so a button
+   stretching to fill the whole actions row (up to 1260px at desktop) competed for visual
+   weight with the page's own Primary. Content-sized once the banner's own container has
+   space, not stretched, the same tokens-only pattern as the rest of this component. */
+@container (min-width: 40em) {
+  .urgent-banner__actions {
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+  }
+
+  .urgent-banner__actions .btn {
+    flex: 0 0 auto;
+  }
 }
 
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
@@ -1238,6 +1259,26 @@ input[type="radio"] {
   padding: var(--ham-space-6);
   max-width: var(--ham-size-modal-sm, 480px);
   margin: var(--ham-space-8) auto;
+}
+
+/* N1 (step3 visual QA re-check): a single long word at h1 size (e.g. "reconsideration?")
+   was wider than the sheet column at 200% text/195px, with no wrap rule on `h1` to fall back
+   on -- real sideways scroll (WCAG 1.4.10). `hyphens: auto` needs a real `lang` on the
+   document; `base.html`'s `<html lang="en">` already covers every sheet. `container-type:
+   inline-size` on the fullscreen sheet plus a `min()` cap on the h1 font size is the second
+   half of the fix: at very narrow containers the heading shrinks a little instead of relying
+   on wrapping/hyphenation alone to avoid overflow. */
+.sheet h1 {
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.sheet--fullscreen {
+  container-type: inline-size;
+}
+
+.sheet--fullscreen h1 {
+  font-size: min(var(--ham-type-h1-size), 9cqi);
 }
 
 .pending-bar {
@@ -2652,6 +2693,32 @@ fieldset:has(
   container-type: inline-size;
 }
 
+/* B3 residue (re-check at 089473e): "Undo decision..." was still spilling outside its own
+   button border at 195/200% text -- the button is a flex item of a column-stacked div whose
+   own `min-width: 0` let it shrink narrower than the button's content in some browsers'
+   stretch-sizing. Give the button itself a hard 100% so it always matches the alert body's
+   own (already-shrunk) width instead of relying on stretch alone. */
+.decision-card .inline-alert .btn {
+  width: 100%;
+}
+
+/* B3: the fixed-copy notice sentences ("Nothing has been sent to the requester yet.") are
+   never an arbitrary long unbroken token like a URL -- they only need `.request-detail p`'s
+   `overflow-wrap: anywhere` for user-typed content elsewhere on the page, and that rule was
+   breaking "requester" mid-word ("request/er") here. Word-boundary wrapping is enough. */
+.decision-card__notice-text {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* B3: under 22em, drop the pending/undo notice's leading icon so its text (and the Undo
+   button) get the alert's full width instead of competing with a 20px icon column. */
+@container (max-width: 22em) {
+  .decision-card .inline-alert__icon {
+    display: none;
+  }
+}
+
 .decision-card__head {
   display: flex;
   justify-content: space-between;
@@ -2714,16 +2781,6 @@ fieldset:has(
   .decision-pair,
   .decision-pair--urgent {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (min-width: 1024px) {
-  /* C§33 "sticky (>=1024 two-column only)": the request-detail split-view/full-page layout
-     doesn't define its own container here, so this is viewport-width gated like the rest of
-     the >=1024 two-column rules already are, not a container query. */
-  .decision-card {
-    position: sticky;
-    top: calc(var(--ham-size-appbar-height) + var(--ham-space-6));
   }
 }
 
@@ -2953,6 +3010,12 @@ h1[tabindex="-1"]:focus-visible {
   .request-detail__side {
     grid-column: 2;
     grid-row: 1 / -1;
+    /* Minor (re-check at 089473e): the grid's own `align-items: start` sized the side column
+       to its own content (just the card), leaving it no taller than the card -- so a sticky
+       decision card inside it had no room to travel and never visibly stuck. Stretch just
+       this column to the full row height (spanning `__main`'s taller content) without
+       affecting `__main`'s own top-aligned sizing. */
+    align-self: stretch;
   }
 
   .request-detail__side .decision-card {
@@ -3061,6 +3124,12 @@ h1[tabindex="-1"]:focus-visible {
   min-height: var(--ham-size-chip, 1.75rem);
   max-width: 100%;
   white-space: normal;
+  /* N2 (re-check at 089473e): `white-space: normal` (M11, above) let a chip's label inherit
+     `.request-detail p/li`'s `overflow-wrap: anywhere` from an ancestor, breaking short status
+     words mid-word ("Approv/ed") once the chip wrapped onto two lines. A chip label is never
+     an arbitrary long unbroken value -- reset both explicitly, same reasoning as `.btn` above. */
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .chip__icon {
