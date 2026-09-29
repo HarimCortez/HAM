@@ -370,3 +370,51 @@ ham-ui-designer · 2026-09-29 · branch `feature/step-3-approvals`. The code und
 - [ ] **M10 / M11:** statement and choice-card wrapping; chip height and icon sizing in `em`.
 - [ ] **M12 / M13 / M14:** Home / Inbox / banner copy; the "Why it's urgent" block; A9 heading strings.
 - [ ] Minors as time allows. Then re-capture at 390, 390 + 200% text, 195, 768, 1280 and 1440 **with a live urgent banner**, and assert: `scrollWidth <= innerWidth`, sheet bar ≤ 18%, and no sticky element over the Decision card or the form.
+
+---
+
+## Re-check at 089473e
+ham-ui-designer · 2026-09-29 · after FIX-3B (screens) and FIX-3A (logic). This is a report only: no app code changed.
+
+**Method:** the same as before. Server on port 8045. Database `ham_qa3` was recreated, then `seed_dev` + `seed_dev_requests` were run. The same 14 step-3 states were staged through the services: past decisions under a `FixedClock` with `run_held_decision_effects`, and #010/#011 inside the live 30-minute window. The outbox was drained in event order **before** capture, so a banner is live in every mode. Captures:
+- 62 screens at 390, 768, 1024, 1280, 1440, 390 + 200% text, and 195.
+- A scrolled pass of every A1 page at 390, 1024, 1280 and 1440.
+- Interaction probes for M2, M6, M7, M8, and ticking reasons at 195 and 200% text.
+- axe-core 4.10.2: **0 violations on 124 runs** (390 + 1280).
+
+Screenshots are in the session scratchpad (`…/step3-qa-recheck/`), not in the repo.
+
+| ID | Verdict | Evidence |
+|---|---|---|
+| B1 | **Fixed** | No sideways scroll on any banner page (390t200 = 390, 195 = 195). The banner is static under 22em, `role="region" aria-label="Urgent"`, uses the siren icon, and is not rendered on sheets. |
+| B2 | **Partially** | Cancel / Keep now sit in the flow; there's one button in the bar on every sheet; short sheets pin at 390 (bar 73px, 9%); a decline reason can be ticked at 195 and at 200% text. **Still open:** bars are over 18% at 390t200/195 whenever the primary wraps: A2n, A12, A9 decline and R16 at 23%, A9 take-over approve at 29% (243px). And U1, A2c, A2u, A4, A5, A11 and A2n are *not pinned* at large text: the `<form>` wraps only the bar, so sticky has no room (U1 390t200 bar top 1928 of an 844 viewport). |
+| B3 | **Partially** | No more letter-by-letter breaks. But at 195 and 390t200, "Undo decision…" **spills outside its own button border**: the button is x82–145 and the text x74–154 (`crop-a1-pending-decider-195-full.png`). The alert icon is still displayed, and "request/er" still breaks in the notice text. |
+| B4 | **Fixed** | The side column is 320px at ≥1024. When scrolled, the card never pins over content (full page and 1280 split pane). |
+| M1 | **Fixed** (Minor residue) | Two columns via `@container (min-width: 42em)`, and the rail at 1280/1440. Residue: the side column is only as tall as the card (`align-items: start`), so the sticky side card never actually sticks. The old viewport rule at `shell.css:2719–2727` is dead. |
+| M2 | **Fixed** | David sees "Take over and approve…" / "Take over and decline…". Copy nit: "Goes to Ruth A.. If…" (`_decision_card.html:90`). |
+| M3 | **Partially** | Tones and icons are right (Approved info badge-check, Rejected neutral circle-x, Reconsideration attention rotate-ccw) and the requester chip is gone from rows. The "· Final" reason line is still missing on #017/#019. |
+| M4 | **Partially** | Decided now excludes Cancelled (10 rows). Still no step-3 markers, no filter chips, and line 2 is the submission age on every tab. |
+| M5 | **Fixed** | Waiting on requester shows 2 (#012, #016). |
+| M6 | **Partially** | The preview is WYSIWYG ("until Mon, Oct 12"). There's no empty state ("Here's why:" with nothing after it), and the consequence line is relative only, with no absolute time. |
+| M7 | **Not fixed** | On A9 decline, `textarea[name=reason]` stays empty after picking a reason, and there's no `.message-preview` (decider and take-over). |
+| M8 | **Fixed** | The edited text is kept and a Replace / Keep mine row appears. |
+| M9 | **Partially** | Names now come from context and the undo minutes from `undo_minutes`. Still hard-coded: "The 30 minutes to undo ended" (`request_decision_undo.html:17`) and "Elder" (`_decision_card.html:97`). |
+| M10 | **Partially** | A6, A4 and A5 are clean at 390t200. Still open: A9 statement "available" (390t200, 195), A12 "reconsider" (390t200), A6 "Something" (195). |
+| M11 | **Fixed** | R17 390t200 has no overflow, chips have auto height, and icons are sized in em. This causes new Major N2 below. |
+| M12 | **Not fixed** | Pastor Home still shows "Reconsideration for you (1)" and "Certify urgent · approved (1)". Director Home shows "Call to share a decision (1)". The Director Inbox still receives "Urgent request needs a pastor". The banner still shows the newest item only, with "I've seen this". |
+| M13 | **Fixed** | "Why it's urgent" is its own block under the Decision card, with the siren icon and a danger accent bar. |
+| M14 | **Fixed** | The strings are correct, but see N1. |
+
+### New Major
+- **N1. The A9 decider h1 overflows sideways at large text.** `scrollWidth` is 498 of 390 at 200% text and 251 of 195 at 195 (`a9-decider-390t200-probe.png`). The single word "reconsideration?" at h1 size is wider than the sheet column, and `h1` has no wrap rule. This is WCAG 1.4.10.
+  - **Where:** `request_reconsideration_decide.html:22`; `shell.css:32`.
+  - **Fix:** `.sheet h1 { overflow-wrap: break-word; hyphens: auto }`, and also, inside the sheet container, `font-size: min(var(--ham-type-h1-size), 9cqi)`, with `container-type: inline-size` on `.sheet--fullscreen`.
+- **N2. Status chips now break mid-word ("Approv/ed").** This happens in the L5 "Earlier request found" panel on every A1 page at 390t200 and 195 (`l5-chips-390t200.png`). The `.chip` change from M11 (`white-space: normal`) now inherits `overflow-wrap: anywhere` from `.request-detail p/li` (`shell.css:635–640`).
+  - **Fix:** add `overflow-wrap: normal; word-break: normal` to `.chip` at `shell.css:3059`.
+- **N3. The desktop urgent banner stretches "Open" to 1100–1260px.** Seen at 1024–1440 (`list-awaiting-ruth-1280.png`, `a1-urgent-1280.png`). `.urgent-banner__actions { flex: 1 1 100% }` plus `.btn { flex: 1 1 auto }` (`shell.css:225–235`) apply at every width, so a huge outline button competes with the page's own Primary.
+  - **Fix:** `@container (min-width: 40em) { .urgent-banner__actions { flex: 0 0 auto; margin-inline-start: auto } .urgent-banner__actions .btn { flex: 0 0 auto } }`.
+
+### New Minor
+- The banner's `@container (min-width: 22em) { position: sticky }` never sticks, because its containing block is the slot, which wraps it exactly. It scrolls away at every width.
+  - **Fix:** make `.urgent-banner-slot` the sticky element, gated by `@media (min-width: 22em) and (min-height: 30em)`. Alternatively, accept static everywhere and update C§40.
+- B2's un-pinned bar: move `<form>` to wrap the whole sheet body (as A2/A3 do), or give the sheet `min-height: calc(100dvh - appbar)` with the form as `flex: 1`.
