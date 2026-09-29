@@ -78,14 +78,19 @@ def _make_pastor_with_urgent_banners(count=1):
 def test_chip_no_mid_word_break_at_large_text(live_server):
     """N2: a status chip's label ("Approved") must never break mid-word at 200% text -- the
     `.chip` change that let it wrap onto two lines (M11) inherited `.request-detail p/li`'s
-    `overflow-wrap: anywhere` from an ancestor."""
+    `overflow-wrap: anywhere` from an ancestor. Measured on the L5 "Earlier request found"
+    panel's own chip, the exact spot the QA report caught this in (`l5-chips-390t200.png`) --
+    it's narrower than the Decision card's own status chip, so the break only reproduces there."""
     from playwright.sync_api import sync_playwright
 
     from ham.authz import roles
     from ham.authz.context import ActorContext
+    from ham.platform.clock import now as clock_now
+    from ham.requests.models import RequestMatch
     from ham.requests.services_decisions import approve_request
 
     pastor, req = _make_awaiting_request_and_pastor()
+    _, prior = _make_awaiting_request_and_pastor()
     ctx = ActorContext(
         user_id=pastor.id,
         real_user_id=None,
@@ -93,21 +98,29 @@ def test_chip_no_mid_word_break_at_large_text(live_server):
         is_active=True,
         mfa_satisfied=True,
     )
-    approve_request(ctx, request_id=req.id, route="pastoral")
+    approve_request(ctx, request_id=prior.id, route="pastoral")
+    RequestMatch.objects.create(
+        request=req, prior_request=prior, reasons=["same_address"], detected_at=clock_now()
+    )
 
     cookie = _session_cookie(live_server, pastor)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
-            context = browser.new_context(viewport={"width": 195, "height": 422})
+            context = browser.new_context(viewport={"width": 390, "height": 844})
             context.add_cookies(
                 [{"name": cookie["name"], "value": cookie["value"], "url": cookie["url"]}]
             )
             page = context.new_page()
+            page.add_init_script(
+                "document.addEventListener('DOMContentLoaded', () => {"
+                "document.documentElement.style.fontSize = '32px'; })"
+            )
             page.goto(f"{live_server.url}/requests/{req.id}")
             page.wait_for_load_state("networkidle")
+            page.locator(".duplicate-panel").locator("xpath=ancestor::details[1]/summary").click()
 
-            chip = page.locator(".decision-card .chip").first
+            chip = page.locator(".duplicate-panel .chip").last
             assert chip.count() >= 1
             rects = chip.evaluate(
                 """el => {
