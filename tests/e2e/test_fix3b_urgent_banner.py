@@ -77,7 +77,8 @@ def test_urgent_banner_no_sideways_scroll_at_large_text(live_server):
                 f"> innerWidth={inner_width}"
             )
 
-            seen_button = page.locator('button:has-text("I\'ve seen this")')
+            # M12 (FIX-3D) renamed the button "Got it" -- was "I've seen this".
+            seen_button = page.locator('button:has-text("Got it")')
             assert seen_button.is_visible()
             box = seen_button.bounding_box()
             assert box is not None

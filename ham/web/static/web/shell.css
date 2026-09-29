@@ -3113,6 +3113,25 @@ h1[tabindex="-1"]:focus-visible {
     padding-inline: var(--ham-space-2);
     gap: var(--ham-space-2);
   }
+
+  /* M10 residue (re-check at 089473e): "available"/"reconsider"/"Something" still broke
+     mid-word at 195px -- a standalone `.choice-card--statement` (no `.choice-grid`, so it
+     never got the icon-drop rule) has only ~74px of label width left after the fixed 24px
+     checkbox/radio + gap + padding, and the card's own `body-lg` (18px) font made a 9-10
+     letter word wider than that even once wrapped normally. Shrink the control and gap a
+     little further, and drop to `body` (16px) size -- for every choice-card in a sheet this
+     narrow, not just the statement variant, since a plain single-column category grid (A6)
+     hits the exact same arithmetic once it has no icon to drop. */
+  .sheet--fullscreen .choice-card {
+    font-size: var(--ham-type-small-size, 0.8125rem);
+    gap: var(--ham-space-1, 4px);
+    padding-inline: var(--ham-space-1, 4px);
+  }
+
+  .sheet--fullscreen .choice-card input {
+    width: 18px;
+    height: 18px;
+  }
 }
 
 /* M11: a chip's height was fixed and its label `white-space: nowrap` -- at 200% text or on a
