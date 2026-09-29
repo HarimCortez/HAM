@@ -8,6 +8,13 @@
  *      `cloud-off` reason line while `navigator.onLine` is false (R19 "Offline").
  * No framework, no bundler step -- same shape as the inline scripts already in these
  * templates (`_error_summary.html`, R2's urgent-reveal toggle).
+ *
+ * Fix 3E / security L7, UX M8: a draft is cleared ONLY once the server has actually
+ * confirmed the answer was recorded (`?answered=<id>` on the redirect back to this page) --
+ * clearing on every `submit` event (the old behavior) lost her typed text on a validation
+ * failure or a dropped connection, exactly the case this module exists to protect against.
+ * `?answer_failed=<id>` (either reason) leaves the draft alone. Drafts for a question that
+ * isn't open anymore (withdrawn, answered from another tab, or just old) are pruned on load.
  */
 (function () {
   "use strict";
@@ -38,10 +45,30 @@
     if (reason) reason.hidden = !offline;
   }
 
+  function pruneClosedDrafts(openQuestionIds) {
+    if (!window.sessionStorage) return;
+    var toRemove = [];
+    for (var i = 0; i < sessionStorage.length; i++) {
+      var key = sessionStorage.key(i);
+      if (key && key.indexOf(STORAGE_PREFIX) === 0) {
+        var questionId = key.slice(STORAGE_PREFIX.length);
+        if (openQuestionIds.indexOf(questionId) === -1) toRemove.push(key);
+      }
+    }
+    toRemove.forEach(function (key) {
+      sessionStorage.removeItem(key);
+    });
+  }
+
   function init() {
     var forms = document.querySelectorAll(".question-answer-form");
+    var openQuestionIds = [];
+    var params = new URLSearchParams(window.location.search);
+    var answeredId = params.get("answered");
+
     forms.forEach(function (form) {
       var questionId = form.getAttribute("data-question-id");
+      openQuestionIds.push(questionId);
       var textarea = form.querySelector("textarea[name=answer]");
       if (!textarea) return;
 
@@ -53,10 +80,6 @@
       textarea.addEventListener("input", function () {
         updateCounter(textarea);
         if (window.sessionStorage) sessionStorage.setItem(storageKey, textarea.value);
-      });
-
-      form.addEventListener("submit", function () {
-        if (window.sessionStorage) sessionStorage.removeItem(storageKey);
       });
 
       // Not `!navigator.onLine` here: some sandboxed/offline-by-default runtimes report no
@@ -72,6 +95,14 @@
         setOffline(form, true);
       });
     });
+
+    // The draft for whichever question the server just confirmed as answered is the only one
+    // ever cleared here -- `?answer_failed=<id>` (empty or too-long) deliberately leaves its
+    // draft alone, and a plain reload with neither param touches nothing.
+    if (answeredId && window.sessionStorage) {
+      sessionStorage.removeItem(STORAGE_PREFIX + answeredId);
+    }
+    pruneClosedDrafts(openQuestionIds);
   }
 
   if (document.readyState === "loading") {

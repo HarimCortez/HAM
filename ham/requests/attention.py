@@ -26,7 +26,7 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
-from .models import ApprovalRoute, AssistanceRequest, Reconsideration
+from .models import Approval, ApprovalRoute, AssistanceRequest, Reconsideration
 from .presentation import need_category_label
 from .queries import (
     RequestListRow,
@@ -135,7 +135,7 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
                 count=len(other_rows),
                 urgent=False,
                 actionable=True,
-                href="/requests?tab=awaiting",
+                href=_single_or(other_rows, "/requests?tab=awaiting"),
             )
         )
     return cards
@@ -183,8 +183,24 @@ def _oldest_waiting_words(hours: float | None) -> str:
     return f"oldest waiting {days} day" if days == 1 else f"oldest waiting {days} days"
 
 
+def _single_or(ids_or_rows: list, tab_href: str) -> str:
+    """Fix 3E / UX M1: a Home card whose count has settled to exactly one goes straight to
+    that request instead of the whole tab -- `ids_or_rows` is whatever the caller already has
+    on hand (a list of `RequestListRow`/`Reconsideration` objects, or plain UUIDs)."""
+    if len(ids_or_rows) != 1:
+        return tab_href
+    only = ids_or_rows[0]
+    request_id = only if not hasattr(only, "id") else only.id
+    if hasattr(only, "request_id"):
+        request_id = only.request_id
+    return f"/requests/{request_id}"
+
+
 def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
-    """Q-025: "{n} requests need a phone check · oldest waiting {age}", Director/AD only."""
+    """Q-025: "{n} requests need a phone check · oldest waiting {age}", Director/AD only.
+    Always links to the "new by phone" intake action (not a single request's own page --
+    there's nothing to "open" per request here), so UX M1's single-count deep-link doesn't
+    apply to this card."""
     if not can_see_needs_phone_check(ctx):
         return None
     rows = needs_phone_check_list(ctx)
@@ -206,91 +222,145 @@ def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
     )
 
 
+def _per_request_cards(
+    rows: list[AssistanceRequest],
+    *,
+    key_prefix: str,
+    title_for,
+    urgent: bool,
+    more_noun: str,
+    tab_href: str,
+) -> list[AttentionCard]:
+    """FIX-3D hand-back item 1 (UX/visual M12): one card per request (HAM # + category, Q-132)
+    with a link straight to it, capped like the step-2 urgent cards
+    (`awaiting_approval_cards`'s own `shown_urgent`/`extra_urgent` split) -- past
+    `MAX_URGENT_CARDS`, the rest fold into one "N more ..." card instead of a long column."""
+    shown, extra = rows[:MAX_URGENT_CARDS], rows[MAX_URGENT_CARDS:]
+    cards = [
+        AttentionCard(
+            key=f"{key_prefix}.{row.id}",
+            title=title_for(row),
+            count=1,
+            urgent=urgent,
+            actionable=True,
+            href=f"/requests/{row.id}",
+        )
+        for row in shown
+    ]
+    if extra:
+        cards.append(
+            AttentionCard(
+                key=f"{key_prefix}.more",
+                title=f"{len(extra)} more {more_noun}",
+                count=len(extra),
+                urgent=urgent,
+                actionable=True,
+                href=tab_href,
+            )
+        )
+    return cards
+
+
 def reconsideration_cards(ctx: ActorContext) -> list[AttentionCard]:
     """S3.2 (approvals.md §4, Q-168): "Reconsideration for you" -- Board route: every BRD;
     pastoral route: the original decider, or every pastor if that person no longer holds an
-    active Pastor role (same routing `ham.requests.states.may_decide_reconsideration` uses)."""
+    active Pastor role (same routing `ham.requests.states.may_decide_reconsideration` uses).
+
+    FIX-3D hand-back item 1: one card per request Ruth is assigned to reconsider, not a
+    single aggregate -- each is "Reconsideration · HAM #NNN · Category", straight to it."""
     if not (ctx.effective_roles & _PAS_BRD):
         return []
     pending = Reconsideration.objects.filter(
         request__status=RequestStatus.RECONSIDERATION_PENDING.value
     ).select_related("request")
-    mine = []
+    mine: list[AssistanceRequest] = []
     for recon in pending:
         if recon.route == ApprovalRoute.BOARD.value:
             if roles.BOARD_REPRESENTATIVE in ctx.effective_roles:
-                mine.append(recon)
+                mine.append(recon.request)
             continue
         if roles.PASTOR not in ctx.effective_roles:
             continue
         if str(recon.original_decider_user_id) == str(ctx.user_id):
-            mine.append(recon)
+            mine.append(recon.request)
             continue
         from ham.identity.services import user_holds_global_role
 
         if not user_holds_global_role(recon.original_decider_user_id, roles.PASTOR):
-            mine.append(recon)  # the original decider lost the role: every pastor sees it
+            mine.append(recon.request)  # the original decider lost the role: every pastor sees it
     if not mine:
         return []
-    return [
-        AttentionCard(
-            key="requests.reconsideration",
-            title=f"Reconsideration for you ({len(mine)})",
-            count=len(mine),
-            urgent=False,
-            actionable=True,
-            href="/requests?tab=reconsideration",
-        )
-    ]
+    return _per_request_cards(
+        mine,
+        key_prefix="requests.reconsideration",
+        title_for=lambda r: (
+            f"Reconsideration · {r.display_number} · {need_category_label(r.need_category)}"
+        ),
+        urgent=False,
+        more_noun="reconsiderations",
+        tab_href="/requests?tab=reconsideration",
+    )
 
 
-def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
+def decision_phone_card(ctx: ActorContext) -> list[AttentionCard]:
     """S3.2 (approvals.md §4, Q-159): DIR/AD "Call to share a decision" -- a no-email
     request's latest LIVE decision, at either stage (Q-182), with `requester_phoned_at` still
     null and the decision no longer inside its own undo window (security M3/B2, Q-181): the
-    requester must not be called before the decision has actually taken effect."""
+    requester must not be called before the decision has actually taken effect.
+
+    FIX-3D hand-back item 1: one card per request, so Marcus sees exactly which HAM # needs
+    the call instead of hunting through the Decided tab."""
     if not (ctx.effective_roles & _DIR_AD):
-        return None
+        return []
     now = clock_now()
     candidate_ids = AssistanceRequest.objects.filter(requester__email__isnull=True).values_list(
         "id", flat=True
     )
     # Fix 3C / security L-c: one bulk `Subquery`-based lookup instead of a per-request query,
     # for the same "settled decision" fact the phone-script view reads.
-    count = len(requests_with_settled_decision(candidate_ids, now, only_unphoned=True))
-    if not count:
-        return None
-    return AttentionCard(
-        key="requests.decision_phone",
-        title=f"Call to share a decision ({count})",
-        count=count,
+    ids = requests_with_settled_decision(candidate_ids, now, only_unphoned=True)
+    if not ids:
+        return []
+    rows = list(AssistanceRequest.objects.filter(id__in=ids).order_by("submitted_at"))
+    return _per_request_cards(
+        rows,
+        key_prefix="requests.decision_phone",
+        title_for=lambda r: (
+            f"Call to share a decision · {r.display_number} · "
+            f"{need_category_label(r.need_category)}"
+        ),
         urgent=False,
-        actionable=True,
-        href="/requests?tab=decided",
+        more_noun="to call",
+        tab_href="/requests?tab=decided",
     )
 
 
-def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
+def pastor_certify_card(ctx: ActorContext) -> list[AttentionCard]:
     """S3.2 (approvals.md §2.2/§10, Q-160/Q-161): a Board approval of an urgent request left
     urgency awaiting certification -- pastors only. Security M2: hidden while the live
-    approval that produced this state is still inside its own undo window."""
+    approval that produced this state is still inside its own undo window.
+
+    FIX-3D hand-back item 1: one card per request needing certification, not one aggregate."""
     if roles.PASTOR not in ctx.effective_roles:
-        return None
+        return []
     now = clock_now()
     candidate_ids = AssistanceRequest.objects.filter(
         status=RequestStatus.APPROVED.value,
         urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value,
     ).values_list("id", flat=True)
-    count = len(requests_with_settled_decision(candidate_ids, now))
-    if not count:
-        return None
-    return AttentionCard(
-        key="requests.awaiting_certification",
-        title=f"Certify urgent · approved ({count})",
-        count=count,
+    ids = requests_with_settled_decision(candidate_ids, now)
+    if not ids:
+        return []
+    rows = list(AssistanceRequest.objects.filter(id__in=ids).order_by("submitted_at"))
+    return _per_request_cards(
+        rows,
+        key_prefix="requests.awaiting_certification",
+        title_for=lambda r: (
+            f"Certify urgent · {r.display_number} · {need_category_label(r.need_category)}"
+        ),
         urgent=True,
-        actionable=True,
-        href="/requests?tab=decided",
+        more_noun="to certify",
+        tab_href="/requests?tab=decided",
     )
 
 
@@ -308,16 +378,50 @@ def awaiting_site_visit_card(ctx: ActorContext) -> AttentionCard | None:
         .exclude(urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value)
         .values_list("id", flat=True)
     )
-    count = len(requests_with_settled_decision(candidate_ids, now))
-    if not count:
+    ids = requests_with_settled_decision(candidate_ids, now)
+    if not ids:
         return None
     return AttentionCard(
         key="requests.awaiting_site_visit",
-        title=f"Approved, waiting for a site visit ({count})",
-        count=count,
+        title=f"Approved, waiting for a site visit ({len(ids)})",
+        count=len(ids),
         urgent=False,
         actionable=False,
-        href="/requests?tab=decided",
+        href=_single_or(list(ids), "/requests?tab=decided"),
+    )
+
+
+def phone_callback_card(ctx: ActorContext) -> AttentionCard | None:
+    """Fix 3E / UX M11: undoing a decision that had already been told to the requester by
+    phone leaves them holding stale news until someone calls back -- Director/AD get a
+    "call back" nudge for any undone-and-phoned `Approval` that hasn't since been superseded
+    by a later phone call on the same request. PII-free: HAM # + category only (Q-132)."""
+    if not (ctx.effective_roles & _DIR_AD):
+        return None
+    undone_phoned = Approval.objects.filter(
+        requester_phoned_at__isnull=False, undone_at__isnull=False
+    ).values("request_id", "undone_at")
+    needs_callback: set = set()
+    checked: set = set()
+    for row in undone_phoned:
+        request_id = row["request_id"]
+        if request_id in checked:
+            continue
+        checked.add(request_id)
+        later_call = Approval.objects.filter(
+            request_id=request_id, requester_phoned_at__gte=row["undone_at"]
+        ).exists()
+        if not later_call:
+            needs_callback.add(request_id)
+    if not needs_callback:
+        return None
+    return AttentionCard(
+        key="requests.phone_callback",
+        title=f"Call them back · decision changed ({len(needs_callback)})",
+        count=len(needs_callback),
+        urgent=False,
+        actionable=True,
+        href=_single_or(list(needs_callback), "/requests?tab=decided"),
     )
 
 
@@ -328,15 +432,14 @@ def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     phone_check = needs_phone_check_card(ctx)
     if phone_check is not None:
         cards.append(phone_check)
-    phone_decision = decision_phone_card(ctx)
-    if phone_decision is not None:
-        cards.append(phone_decision)
-    certify = pastor_certify_card(ctx)
-    if certify is not None:
-        cards.append(certify)
+    cards += decision_phone_card(ctx)
+    cards += pastor_certify_card(ctx)
     site_visit = awaiting_site_visit_card(ctx)
     if site_visit is not None:
         cards.append(site_visit)
+    callback = phone_callback_card(ctx)
+    if callback is not None:
+        cards.append(callback)
     return cards
 
 

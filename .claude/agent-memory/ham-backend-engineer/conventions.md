@@ -2239,3 +2239,124 @@ helper, banner restore facts, migration backfill
   carries genuinely new fields (`banner_cleared` x2, `UrgencyReview.prior_status`) — don't
   conflate "the migration this fix needs to add a backfill to" with "the migration this fix's
   own new model fields belong in" just because they land in the same commit.
+
+## Fix 3E (parallel step-3 fix round, 2026-09-29): undo consequence line, shared decline
+preview, church-local date checks, per-request Home cards, requester-questions.js lifecycle
+- **A "which decision is this" Approval-only field (`Approval.requester_phoned_at/_by`) has no
+  equivalent on the sibling `UrgencyReview` record, and a template/view that needs "the
+  consequence line" for BOTH kinds of undo must branch on which record it actually has, not
+  assume the field exists.** `request_decision_undo`'s new `has_email`/`requester_phoned_at`/
+  `requester_phoned_by` context is only ever populated when `approval is not None`; a
+  standalone `UrgencyReview` undo always gets the "no email" wording since urgency review never
+  itself phones/emails the requester. mypy caught the union-narrowing the hard way twice
+  (`approval.requester_phoned_by_user_id` on `Approval | None`, then again on the `UUID | None`
+  field itself) — narrow with a local variable assigned under an explicit `if approval is not
+  None:`, not `getattr(approval, "x", None)` (that silences the type checker instead of
+  satisfying it, and still leaves the *second* attribute access unguarded).
+- **A "same wording, but with `urgent=False`" second recipient group is not the same thing as
+  "the same title with `urgent=False`."** FIX-3D hand-back item 2: `_build_awaiting_approval_
+  notices`'s urgent branch had Director/AD/Board rep receive the literal title "Urgent request
+  needs a pastor · ..." — grammatically addressed at a role they don't hold. Fixed with a
+  second `other_title` string computed alongside `title`, used only for the `(BOARD_
+  REPRESENTATIVE, *_DIR_AD)` recipient loop; the pastor-only loop keeps the original wording.
+  Don't assume "recipient targeting" bugs are always about *who* gets a notice — sometimes the
+  targeting bug is "the same string reaches a role for whom it doesn't make grammatical sense,"
+  and the fix is a second string, not a filter.
+- **Converting an aggregate `AttentionCard | None`-returning function into a per-request
+  `list[AttentionCard]`-returning one is a return-type change every caller must be updated
+  for, including `attention_cards()`'s own `if x is not None: cards.append(x)` pattern
+  (becomes `cards += x(ctx)`) and every existing test that unpacked a single card.** FIX-3D
+  hand-back item 1: `reconsideration_cards`/`decision_phone_card`/`pastor_certify_card` now
+  return one `AttentionCard` per request (key `f"{prefix}.{request.id}"`, HAM # + category,
+  straight to it) via a new shared `_per_request_cards(rows, *, key_prefix, title_for, urgent,
+  more_noun, tab_href)` helper — same cap-then-"N more" shape `awaiting_approval_cards`'s own
+  `shown_urgent`/`extra_urgent` split already used, pulled out once instead of copy-pasted a
+  third time. `reconsideration_cards`' `Reconsideration.select_related("request")` queryset
+  needed switching from collecting `recon` objects to collecting `recon.request` objects
+  (`.id`/`.display_number` on the *request*, not the join-table row) before handing rows to the
+  shared helper.
+- **A dataclass field a template already references (`RequestListRow.is_final`) but the
+  dataclass never sets is not caught by any type checker or template-rendering test that
+  doesn't specifically assert on that field's effect** — Django resolves a missing/default
+  attribute to `False`/`""` silently, so `{% if row.is_final %}` had rendered nothing since
+  whenever the template line was added. Fix: add the field (`bool = False`) AND set it in
+  `list_requests`'s own `RequestListRow(...)` construction, mirroring the already-correct
+  `views_requests._decision_panel`'s own `is_final = status == REJECTED and closed_at is not
+  None`. **Testing this needs to scope past the list page's own auto-selected split-view detail
+  pane** (`elif rows: selected_detail = _build_detail_context(ctx, rows[0].id)` renders
+  `_decision_card.html`'s OWN, already-correct "Final" chip for whichever row is first/
+  auto-selected, regardless of `RequestListRow.is_final` — a bare `"Final" in body` assertion
+  passes even with the list-row field completely unset) — extract just the `<li>...</li>` for
+  the request under test (`body.rfind("<li>", 0, idx)` / `body.find("</li>", idx)` around the
+  row's own `display_number` marker) before asserting.
+- **Security L-d (a non-decider's GET to an undo sheet must 404, not just have their POST
+  refused): gate BOTH GET and POST identically, as early as possible, and update every existing
+  test that encoded the OLD "POST refused with a flash message" behavior.** The pre-existing
+  `test_other_approver_cannot_undo_someone_elses_decision` asserted `302` (a redirect + "time to
+  undo has passed" flash) for a different Pastor's POST — this was already "safe" in the sense
+  that `check_undo`'s own actor check meant the undo never actually happened, but a 302 with a
+  message is a different response shape than an unrelated/unknown id gets, which the security
+  review flagged as a scoping leak (the response itself confirms the id resolved to something
+  real). After gating on `ctx.user_id == record.decided_by_user_id` before the `if request.
+  method == "POST":` branch, that test needed updating to assert `404`, matching every other
+  out-of-scope-id response in this codebase.
+- **Testing "the request's currently-still-undoable second decision doesn't shadow the first
+  decision's own `is_final`/list marker" requires advancing the clock past BOTH decisions' own
+  undo windows, not just the first.** A reconsideration-stage decline creates a brand new
+  `Approval` with its own fresh `effective_at` — `RequestListRow.markers`/`line2_text` shows
+  "Can still be undone" (correctly) for as long as THAT second decision is pending, which
+  silently pre-empts the `is_final` branch in the template (`{% if row.line2_text %}...{% elif
+  %}...{% else %}{% if row.is_final %}` — is_final only ever renders in the final `{% else %}`).
+  `set_clock(FixedClock(second_approval.effective_at + RULES.approvals.DECISION_UNDO_WINDOW))`
+  is required before asserting the Final marker, not just past the first decision's window.
+- **`requester-questions.js`'s "clear the draft" decision belongs on the confirmed-success
+  redirect param, never on the bare `submit` event** — the old code cleared `sessionStorage`
+  the instant the form was submitted, regardless of whether the server accepted it. Fixed by
+  reading `new URLSearchParams(location.search).get("answered")` on page load and clearing only
+  that one key; `?answer_failed=<id>&answer_failed_reason=empty|too_long` (new second query
+  param, server-computed from which `ValueError` message `answer_question` raised) leaves the
+  draft alone. A same-page "prune drafts for questions that aren't open anymore" pass
+  (`sessionStorage` keys not matching any currently-rendered `.question-answer-form[data-
+  question-id]`) piggybacks on the same page-load pass, using the DOM as the source of truth
+  for "which questions are still open" rather than a second server round-trip.
+- **A Playwright test that types into a field and then wants a *different* still-typed value in
+  the box at submit time (to prove "failure doesn't clear an untouched draft") should pick a
+  failure mode that doesn't require touching the field a second time** — an earlier version of
+  the empty-answer draft-survives test called `page.fill(..., "")` to force the empty-answer
+  server error, which itself fires the `input` listener and legitimately overwrites the draft
+  with `""` (correct JS behavior, wrong test scenario). Switched to a too-long answer (`"x" *
+  1001`, no hard `maxlength` on the textarea) instead — the field is filled once, submitted
+  once, and the failure/draft-survival check is unambiguous.
+- **A dual-role fixture (Pastor + Board rep) is sometimes required just to make a 422 reachable
+  in a real browser, not only to test the dual-role behavior itself.** A single-role Pastor's
+  decline sheet auto-fills `route` into a hidden input (`_default_route`), so a real click can
+  never produce a "missing route" 422 through the browser — only Django's test *client* can
+  (`client.post(...)` skips native `required` validation entirely). A Playwright test that needs
+  to reach that specific 422 needs either a dual-role actor (route radios are genuinely
+  optional-until-chosen) or `page.eval_on_selector("#the-form", "f => f.noValidate = true")` to
+  bypass HTML5 validation and prove the *server-side* 422 re-render specifically.
+- **`ham.requests.services_decisions.church_today` (renamed from `_church_today`, no leading
+  underscore) is the one church-local-date helper `ham.web.views_requests`'s own inline
+  Board-date-in-the-future pre-checks must import and reuse, never re-derive with a bare
+  `clock_now().date()`** — that bare form silently uses UTC, which is wrong near local midnight
+  (§70.5) and was exactly A9's bug (only checked `board_decided_on is None`, i.e. unparseable,
+  never "parsed fine but is tomorrow"). A9's inline check also needed to move from "fall through
+  to `_decision_error_redirect`'s generic 'someone decided first' message" to a same-shape `ok =
+  False; messages.error(...)` re-render, so the typed reason survives (same UX M7 pattern A3
+  already had).
+- **`ham.requests.presentation.decline_outcome_text` returns a `DeclineOutcomeParts` dataclass
+  (`opening`/`message`/`closing`) instead of one formatted string** — both the E10/E13 email
+  body (`render_decline_outcome_text(parts)`, plain-text concatenation) and the A3 leadership
+  preview (`request_reject.html` renders `opening`/`closing` as separate static `<p>`s, with only
+  the quoted `message` block swapped by JS on reason change) now build from the identical parts,
+  closing the drift the UX re-check found (the preview had grown its own extra sentence the
+  email never sent). The double-punctuation fix lives in the dataclass constructor itself
+  (`message.strip().rstrip(".")`), not in either caller, so neither can reintroduce it by
+  formatting differently. **Gotcha for a Django-template test asserting on this text: apostrophes
+  in a template *variable* ("we're sorry") get HTML-escaped to `&#x27;`; the same words as
+  *static* template text (not a `{{ var }}`) are NOT escaped** — a body-content assertion has to
+  match whichever form actually applies, not assume one uniformly.
+- **A9's decline mode (`request_reconsideration_decide.html`) still has no preview at all** —
+  neither this round nor FIX-3D wired `decline_outcome_text`'s parts into that sheet (it only
+  shows the raw reason textarea, no "What the requester will read" section, unlike A3). Flagged
+  for the next round, not built here (out of this slice's item list).

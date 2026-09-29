@@ -236,7 +236,10 @@ def test_other_approver_cannot_undo_someone_elses_decision(client, make_user):
     response = client.post(
         reverse("web:request_decision_undo", args=[req.id]), {"approval_id": str(approval.id)}
     )
-    assert response.status_code == 302
+    # Fix 3E / security L-d: the undo sheet (GET and POST alike) is decider-only -- a
+    # different Pastor gets the same neutral 404 as any other out-of-scope id, not a distinct
+    # "someone decided first" flash that would confirm the id resolved to something real.
+    assert response.status_code == 404
     approval.refresh_from_db()
     assert approval.undone_at is None
 

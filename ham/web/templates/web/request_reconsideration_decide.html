@@ -93,15 +93,17 @@
         </div>
 
         {% comment %}
-        M7: this is the requester's FINAL message (R18b wording) -- shown for both the
-        original decider and a take-over, same as A3's WYSIWYG preview.
+        M7 / Fix 3E (UX M6, PRD guardian minor 1): this is the requester's FINAL message
+        (R18b wording) -- shown for both the original decider and a take-over, rendered from
+        the SAME `decline_outcome_text` parts A3/E10/E13 use (never a second, independently
+        hand-written copy of "we looked at your request again..." that can drift).
         {% endcomment %}
         <section role="region" aria-labelledby="recon-decline-preview-heading" class="message-preview">
           <p id="recon-decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> {% if has_email %}What the requester will read{% else %}What to tell them by phone{% endif %}</p>
-          <p class="type-body-lg">We looked at your request again, and we're sorry, we're still not able to help with this one.</p>
+          <p class="type-body-lg">{{ decline_preview.opening|capfirst }}</p>
           <p class="type-body-lg">Here's why:</p>
           <blockquote id="recon-decline-preview-message" class="quote-block">{{ reason }}</blockquote>
-          <p class="type-body-lg">You're welcome to send a new request in the future if things change.</p>
+          <p class="type-body-lg">{{ decline_preview.closing }}</p>
         </section>
 
         <div class="inline-alert inline-alert--attention">

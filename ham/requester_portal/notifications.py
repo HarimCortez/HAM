@@ -381,18 +381,20 @@ def _build_rejected_email(event: OutboxEvent) -> NotificationEmail | None:
     message = approval.reason.strip() if approval else ""
     first = _first_name(requester.full_name)
 
-    # Fix 3A / UX M6 / PRD guardian minor 1: the same builder the leadership preview uses
-    # (`ham.requests.presentation.decline_outcome_text`), so the preview promises exactly
-    # what this email sends -- Q-154's kind message, the sympathy line, the real deadline
-    # date and "once", and the church phone line when one is on file.
-    from ham.requests.presentation import decline_outcome_text
+    # Fix 3A/3E / UX M6 / PRD guardian minor 1: the same builder AND the same parts the
+    # leadership preview uses (`ham.requests.presentation.decline_outcome_text`/
+    # `render_decline_outcome_text`), so the preview promises exactly what this email sends --
+    # Q-154's kind message, the sympathy line, the real deadline date and "once", and the
+    # church phone line when one is on file.
+    from ham.requests.presentation import decline_outcome_text, render_decline_outcome_text
 
-    body = decline_outcome_text(
+    parts = decline_outcome_text(
         message,
         final=final,
         deadline_text=_reconsideration_deadline_text(request),
         church_phone=church_profile().phone,
     )
+    body = render_decline_outcome_text(parts)
     text = f"Hi {first}, {body}\n\nOpen my request page: {link_url}"
     return NotificationEmail(
         to=requester.email,

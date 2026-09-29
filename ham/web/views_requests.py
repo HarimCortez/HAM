@@ -57,6 +57,7 @@ from ham.requests.services_decisions import (
     RECONSIDERATION_NOTE_MAX_CHARS,
     approve_request,
     change_category,
+    church_today,
     decide_reconsideration,
     record_decision_phoned,
     record_reconsideration_by_phone,
@@ -295,6 +296,29 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
             "age": presentation.relative_age(open_question.asked_at, now=now),
         }
 
+    # Fix 3E: a standalone urgency review (certify/not-urgent, Q-176/Q-177) is undoable on its
+    # own timer, independent of the request's own approve/reject decision -- reachable from
+    # either AWAITING_APPROVAL or APPROVED (PRD guardian minor 3). The decider needs a way
+    # back to that undo offer from the Decision card itself, not just the one-time redirect
+    # `_redirect_to_undo_offer` gives right after deciding.
+    review_undo = None
+    if not masked and not impersonating and ctx.user_id:
+        live_review = (
+            UrgencyReview.objects.filter(request_id=request_row.id, undone_at__isnull=True)
+            .order_by("-decided_at")
+            .first()
+        )
+        if (
+            live_review is not None
+            and live_review.decided_by_user_id == ctx.user_id
+            and decision_is_undoable(live_review.decided_at, now, live_review.undone_at)
+        ):
+            review_undo = {
+                "review_id": live_review.id,
+                "undo_deadline": live_review.effective_at,
+                "action": live_review.action,
+            }
+
     panel: dict = {
         "masked": masked,
         "impersonating": impersonating,
@@ -302,6 +326,7 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
         "can_change_category": authorize(ctx, "request.category.change", request_row).allowed,
         "question_marker": question_marker,
         "has_email": has_email,
+        "review_undo": review_undo,
     }
 
     # -------- AWAITING_APPROVAL --------
@@ -979,15 +1004,35 @@ def _decision_error_redirect(request, request_id: uuid.UUID, *, expected_status:
     lands here. We don't try to distinguish every `Refusal` code from the outside (that's
     `ham.requests.states`'s own job) -- a plain, honest message covers both "someone else
     already recorded a decision while you were looking" (concurrency, the common real case)
-    and any other validation refusal, and nothing was changed either way."""
+    and any other validation refusal, and nothing was changed either way.
+
+    PRD re-check small items: names who decided and when, using the most recent `Approval`
+    (approve/reject AND reconsideration decisions are all recorded there, by stage) -- falls
+    back to the generic wording only if that lookup somehow comes up empty."""
+    from ham.platform.church import format_church_time
+
     ctx = request.actor
     current = get_request_by_id(ctx, request_id)
     if current is not None and current.status != expected_status:
-        messages.error(
-            request,
-            "Someone else already decided this request while you were looking. "
-            "Nothing was changed.",
+        latest = Approval.objects.filter(request_id=request_id).order_by("-decided_at").first()
+        decider_name = (
+            display_names_for([latest.decided_by_user_id]).get(latest.decided_by_user_id, "")
+            if latest is not None
+            else ""
         )
+        if latest is not None and decider_name:
+            messages.error(
+                request,
+                f"{decider_name} already decided this request "
+                f"({format_church_time(latest.decided_at)}), while you were looking. "
+                "Nothing was changed.",
+            )
+        else:
+            messages.error(
+                request,
+                "Someone else already decided this request while you were looking. "
+                "Nothing was changed.",
+            )
     else:
         messages.error(request, "That didn't go through. Nothing was changed. Try again.")
     return redirect("web:request_detail", request_id=request_id)
@@ -1019,13 +1064,6 @@ def _default_route(ctx) -> str:
     ):
         return ApprovalRoute.BOARD.value
     return ApprovalRoute.PASTORAL.value
-
-
-def _route_from_post(request, ctx) -> str:
-    posted = request.POST.get("route", "")
-    if posted in (ApprovalRoute.PASTORAL.value, ApprovalRoute.BOARD.value):
-        return posted
-    return _default_route(ctx)
 
 
 def _board_date_from_post(request) -> dt.date | None:
@@ -1127,6 +1165,15 @@ def request_approve(request, request_id: uuid.UUID):
     )
 
 
+def _has_open_question(request_id: uuid.UUID) -> bool:
+    """Fix 3E / UX M12: deciding a request auto-withdraws any still-open HAM question
+    (`services_questions.close_open_questions`, run from the held-effects job) -- both the
+    approve and decline sheets warn about this before the decider confirms."""
+    return RequestQuestion.objects.filter(
+        request_id=request_id, answered_at__isnull=True, closed_at__isnull=True
+    ).exists()
+
+
 def _approve_context(
     request_row,
     ctx,
@@ -1152,6 +1199,7 @@ def _approve_context(
         "urgency_line": presentation.urgency_line(
             request_row.urgency_reason, request_row.urgency_justification
         ),
+        "has_open_question": _has_open_question(request_row.id),
     }
 
 
@@ -1184,7 +1232,19 @@ def request_decline_urgency(request, request_id: uuid.UUID):
         messages.success(request, f"Left for normal review · {request_row.display_number}")
         return _redirect_to_undo_offer(request_id)
 
-    return render(request, "web/request_decline_urgency.html", {"request_row": request_row})
+    return render(
+        request,
+        "web/request_decline_urgency.html",
+        {
+            "request_row": request_row,
+            # Fix 3E / UX M13: repeat why it was marked urgent, so a Director/AD deciding
+            # "Not urgent" at a desk (>=1280 split view) or on this standalone sheet isn't
+            # asked to overturn a judgment they never saw.
+            "urgency_line": presentation.urgency_line(
+                request_row.urgency_reason, request_row.urgency_justification
+            ),
+        },
+    )
 
 
 def _redirect_to_undo_offer(request_id: uuid.UUID):
@@ -1284,9 +1344,10 @@ def request_reject(request, request_id: uuid.UUID):
         if (
             route == ApprovalRoute.BOARD.value
             and board_decided_on_raw
-            and (board_decided_on is None or board_decided_on > clock_now().date())
+            and (board_decided_on is None or board_decided_on > church_today(clock_now()))
         ):
-            # UX M7: validated inline, so the message the pastor already typed survives.
+            # UX M7 / Fix 3E (PRD re-check small items): validated inline, church-LOCAL date
+            # (never a bare UTC `.date()`), so the message the pastor already typed survives.
             ok = False
             messages.error(request, "Enter the date the Board decided. It can't be in the future.")
         if ok:
@@ -1344,6 +1405,15 @@ def _reject_context(
     from ham.platform.church import church_profile
 
     deadline_text = presentation.reconsideration_preview_deadline_text(clock_now())
+    # Fix 3E / UX M6, PRD guardian minor 1: one shared builder for the preview AND the email
+    # (`presentation.decline_outcome_text`) -- the opening/closing sentences render statically
+    # here; the JS below only ever swaps the quoted `message` part when the reason changes.
+    decline_preview = presentation.decline_outcome_text(
+        message,
+        final=False,
+        deadline_text=deadline_text,
+        church_phone=church_profile().phone,
+    )
     return {
         "request_row": request_row,
         "has_email": has_email,
@@ -1359,6 +1429,8 @@ def _reject_context(
         "reconsideration_deadline_text": deadline_text,
         "church_phone": church_profile().phone,
         "undo_minutes": int(RULES.approvals.DECISION_UNDO_WINDOW.total_seconds() // 60),
+        "decline_preview": decline_preview,
+        "has_open_question": _has_open_question(request_row.id),
     }
 
 
@@ -1396,6 +1468,15 @@ def request_decision_undo(request, request_id: uuid.UUID):
 
     record = approval or review
     assert record is not None
+    # Security L-d: the undo sheet is decider-only -- holding the `request.decision.undo`
+    # matrix action (any Pastor/Board rep with a decision-undo-shaped role) is not the same
+    # fact as "this is the person who made THIS decision". Before this gate, a GET here from
+    # anyone else with the action leaked the sheet's own contents (the "what we'll tell them"
+    # consequence line, who was phoned and when) even though their POST would always be
+    # refused by `check_undo`'s own actor check. Same 404 as any other out-of-scope sheet --
+    # never a distinct "not your decision" message that would confirm the id resolved.
+    if ctx.user_id is None or ctx.user_id != record.decided_by_user_id:
+        return render(request, "web/not_found.html", status=404)
     now = clock_now()
     window_open = decision_is_undoable(record.decided_at, now, record.undone_at)
 
@@ -1415,6 +1496,13 @@ def request_decision_undo(request, request_id: uuid.UUID):
         messages.success(request, f"Undone · {request_row.display_number}")
         return redirect("web:request_detail", request_id=request_id)
 
+    has_email = Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
+    requester_phoned_at = approval.requester_phoned_at if approval is not None else None
+    requester_phoned_by = ""
+    phoned_by_user_id = approval.requester_phoned_by_user_id if approval is not None else None
+    if phoned_by_user_id is not None:
+        requester_phoned_by = display_names_for([phoned_by_user_id]).get(phoned_by_user_id, "")
+
     return render(
         request,
         "web/request_decision_undo.html",
@@ -1423,9 +1511,18 @@ def request_decision_undo(request, request_id: uuid.UUID):
             "window_open": window_open,
             "undo_deadline": record.effective_at,
             "is_urgency_review": review is not None,
+            "review_action": review.action if review is not None else "",
             "urgent_approval": bool(approval and approval.urgent_approval),
             "approval_id": approval.id if approval else "",
             "review_id": review.id if review else "",
+            # Fix 3E / UX M11: the sheet's consequence line depends on whether the requester
+            # has an email on file at all, and whether this decision was already told to them
+            # by phone -- only an `Approval` (never a standalone `UrgencyReview`) ever carries
+            # `requester_phoned_at`, so a review's undo always uses the "no email" wording.
+            "has_email": has_email,
+            "requester_phoned_at": requester_phoned_at,
+            "requester_phoned_by": requester_phoned_by,
+            "undo_minutes": int(RULES.approvals.DECISION_UNDO_WINDOW.total_seconds() // 60),
         },
     )
 
@@ -1499,7 +1596,15 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
             ok = False
             messages.error(request, "Tick to confirm the original decider isn't available.")
         board_decided_on = _board_date_from_post(request) if is_board_route else None
-        if is_board_route and board_decided_on_raw and board_decided_on is None:
+        if (
+            is_board_route
+            and board_decided_on_raw
+            and (board_decided_on is None or board_decided_on > church_today(clock_now()))
+        ):
+            # Fix 3E / UX M7 / PRD re-check small items: checked inline (church-local date,
+            # never a bare UTC one) so a genuinely-future date re-renders THIS template with
+            # the typed reason still in it, instead of bouncing to `_decision_error_redirect`'s
+            # generic "someone decided first" message and losing what was typed.
             ok = False
             messages.error(request, "Enter the date the Board decided. It can't be in the future.")
         if ok:
@@ -1545,8 +1650,14 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
             "has_email": Requester.objects.filter(request_id=request_id)
             .exclude(email=None)
             .exists(),
-            "board_decided_on_default": board_decided_on_raw or clock_now().date().isoformat(),
+            "board_decided_on_default": (
+                board_decided_on_raw or church_today(clock_now()).isoformat()
+            ),
             "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
+            # Fix 3E / UX M6, PRD guardian minor 1: this is E13's exact wording (final=True) --
+            # the SAME shared parts A3/E10 use, not a second, independently hand-written copy
+            # that can drift from what the email actually sends.
+            "decline_preview": presentation.decline_outcome_text(reason, final=True),
         },
     )
 

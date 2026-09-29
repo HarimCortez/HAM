@@ -104,7 +104,13 @@
         </figure>
         {% if answer_failed_question_id == q.id|stringformat:"s" %}
           <div class="inline-alert inline-alert--danger" role="alert">
-            <p>We couldn't send your answer just now. It's still here. Please try again.</p>
+            {% if answer_failed_reason == "empty" %}
+              <p>Please write an answer before sending. It's still here.</p>
+            {% elif answer_failed_reason == "too_long" %}
+              <p>That's too long to send. It's still here -- please shorten it.</p>
+            {% else %}
+              <p>We couldn't send your answer just now. It's still here. Please try again.</p>
+            {% endif %}
           </div>
         {% endif %}
         <form method="post" action="{% url 'web:request_help_question_answer' token=token question_id=q.id %}" class="question-answer-form" data-question-id="{{ q.id }}">

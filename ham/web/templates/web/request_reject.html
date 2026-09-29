@@ -65,22 +65,22 @@
       </div>
 
       {% comment %}
-      UX M6 / PRD guardian minor 1: this preview must read EXACTLY what E10 sends
-      (`ham.requests.presentation.decline_outcome_text`, the same builder) -- the sympathy
-      line, "once", the real deadline date, and the church phone line, never a hard-coded
-      "14 days".
+      Fix 3E / UX M6 / PRD guardian minor 1: this preview renders the SAME three parts
+      (`ham.requests.presentation.decline_outcome_text`) as the email E10 actually sends --
+      the opening and closing are static (they don't depend on the reason), and the JS below
+      only ever swaps the quoted message.
       {% endcomment %}
       <section role="region" aria-labelledby="decline-preview-heading" class="message-preview">
         <p id="decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> {% if has_email %}What the requester will read{% else %}What to tell them by phone{% endif %}</p>
-        <p class="type-body-lg">We're sorry. After looking carefully at your request, we aren't able to help with this one.</p>
+        <p class="type-body-lg">{{ decline_preview.opening|capfirst }}</p>
         <p class="type-body-lg">Here's why:</p>
         <blockquote id="decline-preview-message" class="quote-block">{{ message }}</blockquote>
-        <p class="type-body-lg">
-          We know this isn't the answer you hoped for.
-          {% if reconsideration_deadline_text %}If you think we've missed something, you can ask us to reconsider, once, until {{ reconsideration_deadline_text }}.{% endif %}
-          {% if church_phone %}Or call us at {{ church_phone }} &mdash; we're glad to talk it through.{% endif %}
-        </p>
+        <p class="type-body-lg">{{ decline_preview.closing }}</p>
       </section>
+
+      {% if has_open_question %}
+        <p class="text-secondary type-small">The open question will be withdrawn.</p>
+      {% endif %}
 
       <p class="text-secondary type-small"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg> If you know the requester, a call first can be kind. The email goes after your {{ undo_minutes }} minutes to undo.</p>
 
@@ -109,7 +109,16 @@
       var replaceRow = document.getElementById("reason-replace-row");
       var replaceYes = document.getElementById("reason-replace-yes");
       var replaceNo = document.getElementById("reason-replace-no");
-      var lastPrefill = messageField.value;
+      // UX M5 minor: after a 422 re-render, `messageField.value` is the pastor's OWN typed
+      // text (posted back per UX M7), not a suggested prefill -- treating it as "the last
+      // prefill" would let the next reason change silently overwrite it without asking.
+      // `lastPrefill` starts as the real suggested wording for whichever reason is checked
+      // (or null if none/no match), never the field's current value.
+      var initialReasonInput = document.querySelector('#decline-reasons input[type="radio"]:checked');
+      var lastPrefill =
+        initialReasonInput && prefills[initialReasonInput.value] !== undefined
+          ? prefills[initialReasonInput.value]
+          : null;
       var pendingReason = null;
       function syncPreview() {
         preview.textContent = messageField.value;
