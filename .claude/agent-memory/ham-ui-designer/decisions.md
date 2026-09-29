@@ -29,3 +29,9 @@
 - <768: decision buttons rendered in card + sticky bar; under 22em a normal pair leaves the bar (no primary to keep), urgent keeps only the Primary. Sheets: consequence line + Cancel move into flow under 22em.
 - Requester R13: Send answer stays inside the card (no mirrored sticky bar for textarea cards). R16: "Not now" in the flow <1024, bar holds only the primary.
 - Open visual questions OQ-1..OQ-8 at the end of the spec (requester page during undo window, rail at 1280, etc.).
+
+## Step 3 visual QA (2026-09-29, report docs/ux/reviews/step3-ui-visual-qa.md)
+- QA recipe: DB ham_qa3, states made via services under FixedClock (past-window decisions) + run_held_decision_effects; drain outbox with ham.outbox.dispatch._attempt to get urgent banners. ALWAYS QA leadership with a live urgent banner: it caused the worst large-text failures.
+- Recurring traps to check first next time: inherited `overflow-wrap:anywhere` (`.request-detail p`) breaks buttons letter-by-letter -> `.btn{overflow-wrap:normal}`; sheet Cancel must carry `.action-bar__back` or it stays in the bar under 22em; short-page bar pinning must cover `.sheet--fullscreen`, not only `.public-card`; viewport-gated sticky (media query) on one-column layouts covers content -> sticky only inside the container-query two-column mode.
+- Verdicts: full-screen sheets at every width = acceptable V1 (with request line in header, no sticky banner on sheets); no second decision bar = acceptable if card is first and not sticky; R16 no aside = acceptable.
+- Staff chips must come from tokens.json status.project (Rejected neutral circle-x, Approved info badge-check, Recon attention rotate-ccw); never render requester chip labels on staff rows.
