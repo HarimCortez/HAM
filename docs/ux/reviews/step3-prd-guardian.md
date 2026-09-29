@@ -88,3 +88,20 @@ Q-179 to Q-183 are logged in `docs/prd-open-questions.md`.
 | 4 | Partly advanced: the pastoral route works end to end; the Board route fails for urgent requests and reconsideration; the harness is still a placeholder |
 | 28 | Advanced |
 | 30 | Advanced |
+
+## Re-check at `089473e`
+
+| Item | Status |
+|---|---|
+| B1, B2 | Fixed |
+| M1–M3, M6–M9 | Fixed |
+| Minors 2–7 | Fixed |
+| M4 | Partial: the §64 Home awareness card for "approved, waiting for a site visit" is missing |
+| M5 | Partial: the "Tell by phone" screen still loads only the initial-stage decision |
+| Minor 1 | Partial: the preview adds a sentence the email lacks; "30 minutes" is still typed into the undo sheet |
+
+New findings:
+- **N1 (Major):** `review_urgency` is refused during another decision's undo window. That contradicts Q-176's carve-out ("except urgency certification") and would delay the §10 immediate alert. Security M2's root cause is now solved by the stored `urgent_approval_emitted`, so the owner's rule stands.
+- **N2 (Major):** the take-over tick is pre-checked from `?take_over=1`. That contradicts Q-157's required tick.
+
+Scope is clean, and migration 0007 is clean.
