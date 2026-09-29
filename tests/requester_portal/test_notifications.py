@@ -220,6 +220,10 @@ class TestMorePhotosEmail:
     def test_reopened_batch_emails_the_leaders_reason(self, requester_ctx, director_ctx):
         request = _submit(requester_ctx)
         services.issue_link(request_id=request.id, kind=RequesterAccessLink.KIND_INITIAL)
+        # S3.4/Q-173: `reopen_batch` only accepts AWAITING_APPROVAL, RECONSIDERATION_PENDING
+        # or APPROVED -- `submit_request` leaves a fresh request at SUBMITTED.
+        request.status = "AWAITING_APPROVAL"
+        request.save(update_fields=["status"])
         batch = reopen_batch(director_ctx, request_id=request.id, reason="one more of the roof")
 
         event = _event(
@@ -327,6 +331,10 @@ class TestPIIFreeSubjects:
         request = _submit(requester_ctx)
         services.issue_link(request_id=request.id, kind=RequesterAccessLink.KIND_INITIAL)
         link = services.issue_link(request_id=request.id, kind=RequesterAccessLink.KIND_REGENERATED)
+        # S3.4/Q-173: `reopen_batch` only accepts AWAITING_APPROVAL, RECONSIDERATION_PENDING
+        # or APPROVED -- `submit_request` leaves a fresh request at SUBMITTED.
+        request.status = "AWAITING_APPROVAL"
+        request.save(update_fields=["status"])
         batch = reopen_batch(director_ctx, request_id=request.id, reason="more of the roof")
         requester = Requester.objects.get(request=request)
 

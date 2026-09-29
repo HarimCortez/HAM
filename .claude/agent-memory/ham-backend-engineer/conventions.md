@@ -1770,3 +1770,80 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   <app> <prior>`, delete the migration file, `makemigrations`, `migrate`) rather than adding a
   second one — confirm the fix is real by reverting the constraint change temporarily, running
   the new regression test (must fail), then restoring it (must pass) before committing.
+
+## S3.4 (media + requester-portal backend, parallel with S3.2/S3.3)
+- **A held-effect subscriber shouldn't gate on the held-effect's own timing (`effective_at`/
+  `undone_at`) itself** — `ham.media.subscribers.handle_media_event` just reacts to
+  `RequestApproved`/`RequestRejected` whenever they arrive (closes open batches) and has no
+  handler at all for `RequestDecisionUndone`. The "close only after the undo window, never on
+  undo" behavior falls out entirely from *when the decider's own command chooses to emit the
+  event* (S3.2's held-effects job, at `effective_at`, only if not undone by then) — the
+  subscriber staying dumb about timing is what makes it correct, not an added check here.
+  Tested by emitting the events directly with `ham.outbox.api.emit()` inside a
+  `transaction.atomic()` block and `run_due_jobs_now()`, without needing S3.2's real decision
+  commands to exist yet (they were still `NotImplementedError` stubs during this slice).
+- **A reopen/state guard change that narrows an existing allowed-from set breaks every
+  pre-existing test using the default open-request fixture at the old, now-too-permissive
+  status** — `ham.media.services.reopen_batch`'s Q-173 guard
+  (`ham.requests.states.accepts_media_reopen`) replaced a plain `is_request_open` (`closed_at
+  IS NULL`) check, which used to accept the `open_request`/`make_request()` fixture's default
+  SUBMITTED status. SUBMITTED and NEEDS_PHONE_CHECK are step-2-only, pre-duplicate-check
+  statuses that were never meant to accept "ask for more photos" — but five *existing*
+  step-2-era tests across three files (`tests/media/test_fix_b_security.py`,
+  `test_media_services.py`, `tests/requester_portal/test_fix_b_email_links.py`,
+  `test_notifications.py`) called `reopen_batch` against a request still at that default
+  status (or a freshly-`submit_request`ed one, same effect) and started failing. Fix each by
+  bumping the test's own request to `AWAITING_APPROVAL` before calling `reopen_batch` (either
+  via `make_request(status=RequestStatus.AWAITING_APPROVAL.value)` or `request.status =
+  "AWAITING_APPROVAL"; request.save(update_fields=["status"])` right after `submit_request`),
+  not by loosening the guard back — the guard change is the intended behavior (Q-173), the old
+  tests were exercising a scenario the new rule correctly refuses. Grep every call site of a
+  service function before narrowing its guard, not just the new tests you're writing.
+- **A refusal message that's asserted on by an *existing* test's `match=` substring constrains
+  new wording, across otherwise-unrelated refusal reasons** — `reopen_batch`'s new combined
+  "closed or wrong status" `ValueError` had to keep the substring `"closed"` in it because
+  `test_reopen_batch_refuses_a_cancelled_request` asserts `match="closed"` — even though the
+  same message also fires for an *open* (not literally closed) REJECTED-awaiting-
+  reconsideration request, where "closed" isn't technically accurate for that specific case.
+  Check `pytest.raises(..., match=...)` call sites for a function before changing what error
+  message it raises, not just its `ValueError`/exception type.
+- **Q-176 "during the undo window, nothing changes for the requester" means the requester-
+  facing *projection* has to independently re-derive the prior status/closed-at, because the
+  underlying `AssistanceRequest.status`/`closed_at` flip immediately at `decided_at`** (per
+  approvals-contracts.md §4, the state-machine transition is part of the deciding command's
+  own atomic write; only the *held effects* — email, batch close, question withdrawal, the
+  event driving them — wait for `effective_at`). `ham.requester_portal.page.
+  _effective_status_and_closed` does this by finding the most-recently-decided *live*
+  (`undone_at IS NULL`) `Approval` row for the request and, if `now < that row's effective_at`,
+  substituting a hardcoded per-stage "prior status" (`initial` -> `AWAITING_APPROVAL`,
+  `reconsideration` -> `RECONSIDERATION_PENDING`) and `closed_at=None` instead of the DB row's
+  actual (already-flipped) values — this mapping is deliberately local to `page.py`, not a new
+  `ham.requests.states` function, since it's a presentation-layer "what do I show" decision,
+  not a new state-machine rule.
+- **`ham.requester_portal.page` (new file, S3.4's "secure-page card data" module) calls
+  `ham.requests` models/queries directly** (a legal downward import per the layers contract,
+  `ham.web -> ham.requester_portal -> ham.media -> ham.requests -> ...`) rather than going
+  through an outbox-registry indirection — this is a plain, read-only, already-token-scoped
+  query (same shape as the pre-existing `ham.requests.queries.get_request_for_requester` the
+  secure-page view already calls), not a cross-app write or a notification builder, so the
+  registry pattern other cross-app reads in this codebase use doesn't apply here. It takes a
+  bare `request_id: UUID` only — never a token, never a session — so a caller can't
+  accidentally scope it any other way; question cards read `RequestQuestion` directly today
+  with a `TODO(S3.3)` docstring marker to switch to that slice's own query once merged (S3.3
+  was still a stub during this slice, running in a parallel worktree).
+- **Q-171 ("never the decider's identity or route") is easiest to keep true by construction**:
+  `page.DecisionCard`/`page.StatusCard` simply have no field that could carry a user id or
+  route at all (outcome/stage/closed/reason_message and chip/sentence/next_steps
+  respectively) — there's no masking step to forget, because the data was never fetched onto
+  the dataclass in the first place. A regression test here can only pin the dataclass's own
+  field-name set (`dataclasses.fields`), since a signature change adding such a field is what
+  you're actually guarding against, not a runtime masking bug.
+- **§26a's `Approved`/`Not approved`/`Taking another look`/`Closed` requester chip vocabulary
+  lives in `ham.requester_portal.projection`, extending the existing step-2
+  `REQUESTER_STATUS_CHIPS` dict** for the statuses that don't need extra context, plus a
+  standalone `rejected_chip(*, closed: bool)` function for REJECTED specifically (open vs.
+  final needs a fact the dict alone can't carry) — same "dict for the simple cases, a small
+  function when one more fact changes the answer" split `status_wording`/`cancel_reason_*`
+  already used for CANCELLED in step 2. Every step-3 wording function only ever takes an
+  already-known outcome/stage/boolean/date, never an `Approval` row — keeps the "pure, no
+  `ham.requests` import" rule from step 2 intact into step 3.

@@ -6,10 +6,17 @@ secure-page view (S2.7, once merged) loads the real request/requester/property r
 `ham.requests`' own authorized query functions and passes the handful of fields these
 functions need. Step 2 only ever shows `SUBMITTED`, `NEEDS_PHONE_CHECK`, `AWAITING_APPROVAL`
 and `CANCELLED` (step 3 adds the rest of navigation.md §5's table).
+
+S3.4 adds the step-3 rows (docs/ux/approvals.md §6 R13-R19, design-system/screens/approvals.md
+§5.2-§5.6, §26a): Approved, Not approved (open/reconsiderable and final), Taking another look.
+Same rules as the step-2 wording above: pure, no `ham.requests` import, and **never** the
+decider's name or route (Q-171) -- these functions only ever take an already-known outcome/
+stage/flag, never an `Approval` row or a user id.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 
 # navigation.md §5 (step-2 rows only; step 3 adds Approved/Rejected/etc.).
@@ -21,15 +28,26 @@ _STATUS_WORDING: dict[str, str] = {
     "AWAITING_APPROVAL": "Our pastors or Board are reviewing your request.",
 }
 
-# C§26: the requester-facing chip word/tone/icon for each status this step shows (staff status
-# -> requester word, per the table in design-system/components.md C§26). Tone tokens are the
-# `.chip--<tone>` suffix; icon names are from `ham/web/static/web/icons.svg`.
+# C§26 / C§26a: the requester-facing chip word/tone/icon for each status this step shows
+# (staff status -> requester word, design-system/components.md §26 and §26a). Tone tokens are
+# the `.chip--<tone>` suffix; icon names are from `ham/web/static/web/icons.svg`. REJECTED is
+# not here (open vs final needs `closed`, not just the status) -- see `rejected_chip` below.
 REQUESTER_STATUS_CHIPS: dict[str, tuple[str, str, str]] = {
     "SUBMITTED": ("Received", "info", "inbox"),
     "NEEDS_PHONE_CHECK": ("Received", "info", "inbox"),
     "AWAITING_APPROVAL": ("Being reviewed", "info", "hourglass"),
     "CANCELLED": ("Closed", "neutral", "ban"),
+    # §26a
+    "APPROVED": ("Approved", "success", "circle-check"),
+    "RECONSIDERATION_PENDING": ("Taking another look", "info", "rotate-ccw"),
 }
+
+
+def rejected_chip(*, closed: bool) -> tuple[str, str, str]:
+    """§26a: Rejected shows a neutral chip either way (never red) -- "Not approved" while it
+    can still be reconsidered, "Closed" once final (window passed or reconsidered)."""
+    return ("Closed", "neutral", "ban") if closed else ("Not approved", "neutral", "circle-x")
+
 
 # usability M14: "What happens next" per status -- the welcome page (R7) and the plain secure
 # page (R10) share this list instead of R7 hard-coding its own and R10 having none at all.
@@ -47,6 +65,72 @@ STATUS_NEXT_STEPS: dict[str, list[str]] = {
         "If it's approved, someone from HAM will call you to arrange a visit.",
     ],
 }
+
+# --------------------------------------------------------------------------------------
+# Step 3 (approvals.md §6 R14/R15/R17/R18; design-system/screens/approvals.md §5.2-§5.6)
+# --------------------------------------------------------------------------------------
+_APPROVED_SENTENCE = "Good news: your request is approved."
+_APPROVED_AFTER_RECONSIDERATION_SENTENCE = (
+    "Good news: after taking another look, we've approved your request."
+)
+# owner box / §11: the approval copy keeps this line (design-system §26a checklist item,
+# approvals-contracts.md task brief). Numbered list, R14/R18a "What happens next".
+APPROVED_NEXT_STEPS: tuple[str, ...] = (
+    "Someone from HAM will call you to arrange a visit to look at the work.",
+    "The visit helps us plan; it doesn't yet promise the work.",
+    "You don't need to do anything right now.",
+)
+URGENT_CERTIFIED_ALERT = (
+    "Because it's urgent, HAM's leaders have been told right away and will contact you soon. "
+    "If anyone is in danger, call 911."
+)
+
+_REJECTED_OPEN_SENTENCE = (
+    "We're sorry. After looking carefully at your request, we aren't able to help with this one."
+)
+REJECTED_SYMPATHY_LINE = "We know this isn't the answer you hoped for."
+RECONSIDER_OFFER_LINE = "If you think we've missed something, you can ask us to reconsider, once."
+
+_REJECTED_FINAL_AFTER_RECONSIDERATION_SENTENCE = (
+    "We looked at your request again, and we're sorry, we're still not able to help with this one."
+)
+_REJECTED_FINAL_WINDOW_PASSED_SENTENCE = "We weren't able to help with this request."
+REJECTED_FINAL_NEXT_STEP = "You're welcome to send a new request in the future if things change."
+
+_RECONSIDERATION_PENDING_SENTENCE = "We're taking another look at your request."
+RECONSIDERATION_PENDING_NEXT_STEP = "We'll let you know what we decide, by email and on this page."
+
+
+def approved_sentence(*, after_reconsideration: bool) -> str:
+    """R14 / R18a "Good news" sentence (never the §11 line -- that's in `APPROVED_NEXT_STEPS`)."""
+    return _APPROVED_AFTER_RECONSIDERATION_SENTENCE if after_reconsideration else _APPROVED_SENTENCE
+
+
+def rejected_open_sentence() -> str:
+    """R15's fixed sentence (the reason message itself is separate, shown in its own quote
+    block -- this function never sees it)."""
+    return _REJECTED_OPEN_SENTENCE
+
+
+def rejected_final_sentence(*, after_reconsideration: bool) -> str:
+    """R18b (declined on reconsideration) vs R18c (window passed, never asked)."""
+    return (
+        _REJECTED_FINAL_AFTER_RECONSIDERATION_SENTENCE
+        if after_reconsideration
+        else _REJECTED_FINAL_WINDOW_PASSED_SENTENCE
+    )
+
+
+def reconsideration_pending_sentence() -> str:
+    """R17's fixed sentence."""
+    return _RECONSIDERATION_PENDING_SENTENCE
+
+
+def reconsider_ask_line(last_day: dt.date) -> str:
+    """R15: "You can ask until Thu, Nov 5." -- the church-local calendar date the deadline
+    ends on (`ham.requests.states.reconsideration_last_day`), never a time of day."""
+    return f"You can ask until {last_day.strftime('%a, %b %-d')}."
+
 
 # Q-107/Q-140: pre-decision cancel reasons, in the requester's own words (never "spam", which
 # gets no note at all per docs/ux/intake.md). Usability M14: a duplicate close must not invite
@@ -145,13 +229,25 @@ def masked_contact(
 
 
 __all__ = [
+    "APPROVED_NEXT_STEPS",
     "MaskedContact",
+    "REJECTED_FINAL_NEXT_STEP",
+    "REJECTED_SYMPATHY_LINE",
+    "RECONSIDER_OFFER_LINE",
+    "RECONSIDERATION_PENDING_NEXT_STEP",
     "REQUESTER_STATUS_CHIPS",
     "STATUS_NEXT_STEPS",
+    "URGENT_CERTIFIED_ALERT",
+    "approved_sentence",
     "cancel_reason_offers_new_request",
     "mask_email",
     "mask_phone",
     "mask_street",
     "masked_contact",
+    "reconsideration_pending_sentence",
+    "reconsider_ask_line",
+    "rejected_chip",
+    "rejected_final_sentence",
+    "rejected_open_sentence",
     "status_wording",
 ]
