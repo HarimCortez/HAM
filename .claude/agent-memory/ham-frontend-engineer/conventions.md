@@ -251,6 +251,96 @@
   themselves call `run_due_jobs_now()`/need Procrastinate to see committed rows), just use
   plain `@pytest.mark.django_db`; it rolls back and nothing leaks.
 
+## S3.6 (step 3 leadership screens: Decision card, A2-A12 sheets, list tabs)
+- Files: `ham/web/views_requests.py` (added `_decision_panel`/`_decision_error_redirect`/12 new
+  views), `ham/web/urls_requests_approvals.py` (the 12 routes, exact names from
+  `docs/architecture/approvals-contracts.md` §8), `ham/web/templates/web/_decision_card.html`
+  (new partial, included from `_request_detail.html` before the Earlier-request alert) + 11 new
+  `web/request_*.html` sheet templates, `ham/requests/presentation.py` (added
+  `REJECTION_REASON_LABELS`/`REJECTION_REASON_PREFILLS`/`DECLINE_MESSAGE_MAX_CHARS` — the S3.0
+  contracts doc never assigned an owner for the Q-154 prefill copy, so this slice added it here
+  since it's leadership-screen-only display text, same layer as the rest of the file), CSS
+  appended to `shell.css` under "Step 3 (Approvals), S3.6", 4 new icons in `icons.svg`
+  (`message-circle-question`, `message-circle`, `phone-outgoing`, `calendar-clock`).
+- **`_decision_panel(ctx, request_row, detail, has_email=...)`** builds the *entire* Decision
+  card's data in one place (state: `awaiting`/`pending`/`decided`/`reconsideration`, or `None`
+  for a status the card doesn't cover) by querying `Approval`/`Reconsideration`/`RequestQuestion`
+  directly, the same "reach into the model, don't wait on a parallel slice's query module" move
+  `_build_detail_context` already made for `Requester.email`. `ham.requests.queries`/
+  `queries_questions` are S3.2/S3.3's files, not this slice's — only used where they already
+  exposed exactly what was needed (`list_requests(view=...)`, `waiting_on_requester`,
+  `question_thread`), never edited.
+- **Route-guard-first, not view-first, for "impersonation blocks a whole screen."** Every
+  decision/undo/question/phone action is `blocked_while_impersonating` in the matrix, so
+  `@requires_action` 404s the entire GET+POST route before the view body ever runs (the
+  step-2-established gotcha, "the neutral 404 *is* the impersonation-blocked experience").
+  `request.category.change` is the one action that's `blocked_while_impersonating=False`
+  (Q-109/Q-172), so only that sheet is reachable while impersonating — proved directly.
+- **"Someone decided first" (A13) needed the view's own state check turned from a 404 into a
+  friendly redirect.** The natural guard ("if the request isn't in the expected source status,
+  404") looks right until a concurrent decision moves the request out of that status between a
+  GET and a POST (or even the GET itself, if reached from a stale card) — that's supposed to be
+  A13's clean "Someone else already decided this" alert, not a blank not-found page.
+  `request_approve`/`request_reject`/`request_reconsideration_decide` all changed their early
+  guard to: `request_row is None` → 404 (truly missing); wrong status → `_decision_error_redirect`
+  (a `messages.error` + redirect to the detail page). Caught by
+  `test_concurrent_decision_shows_clean_alert` (expected 404, got a real one — the guard itself
+  was the bug, not the service layer, which had already refused correctly).
+- **`_decision_error_redirect` doesn't try to parse `ValueError`'s message string for the exact
+  `Refusal` code.** `ham.requests.states.check_transition` raises a plain
+  `ValueError(f"... refused: {decision.refusal}")` — decision commands don't structure this as
+  a typed exception the view layer could safely pattern-match. Re-fetching the request and
+  comparing its *current* status to what this sheet expected is enough to tell "someone else
+  decided while you were looking" from "a genuine validation error" without depending on string
+  parsing; both paths still land on an honest, kept-nothing-changed message.
+- **Known simplifications, handed back rather than built** (design-system/screens/approvals.md
+  §§34/39 called for more than this slice built; noted inline in `shell.css`'s own block
+  comment too):
+  - No real `role="dialog"` right-anchored side-sheet frame at ≥1024 (C§39). Every sheet here
+    reuses the step-2 `.sheet.sheet--fullscreen` + `{% block bottom_nav %}{% endblock %}`
+    pattern (`request_phone_check.html`'s precedent) at *every* width, not just <768.
+  - No duplicate decision-pair copy in a separate sticky bottom action bar (C§34). The Decision
+    card carries its own buttons at every width and is itself `position: sticky` at ≥1024 (one
+    copy of each button, not two — satisfies C§33's "the card must work alone" without the a11y
+    bookkeeping a hidden duplicate would need).
+  - The A3 "Replace your message with the suggested one?" inline confirm row (C§10) was
+    simplified to "changing the reason always refills the suggested wording" (a plain
+    `<script>` listener, no confirm dialog) — the field starts empty, so there's rarely
+    anything real to lose on the first choice, and re-choosing a reason after editing is an
+    edge case this slice didn't build a confirm step for.
+  - List rows don't carry the "Question open · 2 days" (A7) marker — `RequestListRow`
+    (`ham.requests.queries`, not owned by this slice) has no field for it; adding one would mean
+    editing a shared dataclass other slices' tests also assert on. The marker/state is instead
+    fully covered on the request detail page's own Decision card and the L16 Q&A thread.
+  - A11 "Tell by phone" doesn't yet reuse `RECONSIDERATION_NOTE_MAX_CHARS`-style copy for its own
+    script text beyond the fixed approve/decline sentences already in the template.
+- **Concurrency test gotcha:** to prove "someone else decided first" from the *view* layer (not
+  just the service layer, already covered by S3.2's own tests), call the losing decision
+  through the Django test client (`client.post(...)`) but make the *winning* decision by calling
+  `approve_request`/`reject_request` directly with a second actor's `ActorContext` first — no
+  threads needed, since the row lock only matters within one call; sequencing the "other
+  decider's" call before the client's `post()` reproduces the same `WRONG_STATE`-driven refusal
+  a true race would, deterministically.
+- **Playwright async-context gotcha (new one, not in the step-2 list):** any Django ORM/service
+  call made *after* entering `with sync_playwright() as p:` raises
+  `SynchronousOnlyOperation` (playwright's sync API runs its own event loop on the test's
+  thread) — create every fixture row *before* opening the `sync_playwright()` block, never
+  mid-test between page actions (e.g. to seed a second request for a later step in the same
+  flow).
+- **Full-page Playwright screenshots misplace `position: sticky` elements.** A `full_page=True`
+  screenshot of a sheet with a sticky `.action-bar` (Cancel/Primary) rendered the bar in the
+  middle of the captured image, not at the page's visual bottom — a known Playwright/Chromium
+  full-page-screenshot quirk with sticky positioning, not a real layout bug (the same page
+  behaves correctly in a real scrolled viewport, confirmed by the interactive Playwright flow
+  test clicking the same buttons without incident). Didn't chase a workaround (e.g. per-viewport
+  non-full-page screenshots) given the time budget; flagged here rather than "fixed" by
+  guessing.
+- `RULES.approvals.DECISION_UNDO_WINDOW` (30 min) and `RECONSIDERATION_REQUEST_WINDOW` (14
+  days, Q-155/Q-174 final) are only ever read through `ham.rules`/`ham.requests.states` helpers
+  (`decision_is_undoable`, `reconsideration_deadline`) from the service layer already wired by
+  S3.2 — this slice never re-implements the arithmetic, only renders what the service/query
+  layer already computed (`Approval.effective_at`, `AssistanceRequest.reconsideration_deadline_at`).
+
 ## Known open item (handed back, not fixed)
 - Audit log at >=1280 (visual QA M3): chose fix option (b) — dropped the `.list-detail`
   wrapper so the table fills the width — over building a real split-pane detail view (option

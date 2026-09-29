@@ -73,6 +73,7 @@
                     <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">Saved {{ row.submitted_at|date:"M j" }} &middot; waiting {{ row.submitted_at|relative_age }}</time>
                   {% else %}
                     <span class="chip chip--{{ status_tones|get_item:row.status }} chip--outline"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icons|get_item:row.status }}"></use></svg></span> {{ status_labels|get_item:row.status }}</span>
+                    {% if row.decision_chip %}<span class="chip chip--tag">{{ row.decision_chip }}</span>{% endif %}
                     <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">{{ row.submitted_at|relative_age }}</time>
                   {% endif %}
                 </span>
@@ -95,6 +96,12 @@
               No one is waiting for a call.
             {% elif active_tab == "awaiting" %}
               No requests are waiting for a decision.
+            {% elif active_tab == "waiting" %}
+              No questions are waiting for an answer.
+            {% elif active_tab == "reconsideration" %}
+              No one has asked us to reconsider.
+            {% elif active_tab == "decided" %}
+              No decisions yet. Approved and declined requests will show up here.
             {% else %}
               No requests yet.
             {% endif %}
@@ -106,7 +113,7 @@
 
     {% if selected %}
       <div class="split-detail" role="region" aria-label="{{ selected.detail.display_number }} details" tabindex="0">
-        {% include "web/_request_detail.html" with detail=selected.detail request_row=selected.request_row contact_state=selected.contact_state updates_by=selected.updates_by source_label=selected.source_label need_category_label=selected.need_category_label status_label=selected.status_label status_tone=selected.status_tone status_icon=selected.status_icon property_type_label=selected.property_type_label relationship_label=selected.relationship_label cancel_reason_label=selected.cancel_reason_label gallery=selected.gallery hazards=selected.hazards availability_labels=selected.availability_labels can_view_matches=selected.can_view_matches matches=selected.matches newest_match_id=selected.newest_match_id history=selected.history can_view_history=selected.can_view_history can_cancel=selected.can_cancel can_verify_phone=selected.can_verify_phone can_reopen_media=selected.can_reopen_media has_email=selected.has_email revealed=selected.revealed is_director=selected.is_director standalone=False heading_tag="h3" %}
+        {% include "web/_request_detail.html" with detail=selected.detail request_row=selected.request_row contact_state=selected.contact_state updates_by=selected.updates_by source_label=selected.source_label need_category_label=selected.need_category_label status_label=selected.status_label status_tone=selected.status_tone status_icon=selected.status_icon property_type_label=selected.property_type_label relationship_label=selected.relationship_label cancel_reason_label=selected.cancel_reason_label gallery=selected.gallery hazards=selected.hazards availability_labels=selected.availability_labels can_view_matches=selected.can_view_matches matches=selected.matches newest_match_id=selected.newest_match_id history=selected.history can_view_history=selected.can_view_history can_cancel=selected.can_cancel can_verify_phone=selected.can_verify_phone can_reopen_media=selected.can_reopen_media has_email=selected.has_email revealed=selected.revealed is_director=selected.is_director decision=selected.decision questions=selected.questions can_withdraw_question=selected.can_withdraw_question can_record_phone_answer=selected.can_record_phone_answer standalone=False heading_tag="h3" %}
       </div>
     {% endif %}
   </div>

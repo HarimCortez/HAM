@@ -1,0 +1,31 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}Record a reconsideration by phone · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Record a request to reconsider{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Record a request to reconsider</h1>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-field">
+        <label for="id_note">What did they say? <span class="form-field__optional">(optional)</span></label>
+        <textarea id="id_note" name="note" rows="4" maxlength="{{ max_chars }}"></textarea>
+      </div>
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="confirmed" required>
+        <span>The requester asked us by phone to reconsider.</span>
+      </label>
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">Record request to reconsider</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

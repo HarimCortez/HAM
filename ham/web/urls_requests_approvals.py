@@ -30,4 +30,61 @@ above them for the full prefix.)
 
 from __future__ import annotations
 
-urlpatterns: list = []
+from django.urls import path
+
+from . import views_requests as views
+
+urlpatterns = [
+    path("requests/<uuid:request_id>/approve", views.request_approve, name="request_approve"),
+    path("requests/<uuid:request_id>/reject", views.request_reject, name="request_reject"),
+    path(
+        "requests/<uuid:request_id>/decision/undo",
+        views.request_decision_undo,
+        name="request_decision_undo",
+    ),
+    path(
+        "requests/<uuid:request_id>/urgency/certify",
+        views.request_certify_urgency,
+        name="request_certify_urgency",
+    ),
+    path(
+        "requests/<uuid:request_id>/urgency/decline",
+        views.request_decline_urgency,
+        name="request_decline_urgency",
+    ),
+    path(
+        "requests/<uuid:request_id>/reconsideration/decide",
+        views.request_reconsideration_decide,
+        name="request_reconsideration_decide",
+    ),
+    path(
+        "requests/<uuid:request_id>/reconsideration/phone",
+        views.request_reconsideration_phone,
+        name="request_reconsideration_phone",
+    ),
+    path(
+        "requests/<uuid:request_id>/decision/phoned",
+        views.request_decision_phoned,
+        name="request_decision_phoned",
+    ),
+    path(
+        "requests/<uuid:request_id>/questions/ask",
+        views.request_question_ask,
+        name="request_question_ask",
+    ),
+    path(
+        "requests/<uuid:request_id>/questions/<uuid:question_id>/answer",
+        views.request_question_record_answer,
+        name="request_question_record_answer",
+    ),
+    path(
+        "requests/<uuid:request_id>/questions/<uuid:question_id>/withdraw",
+        views.request_question_withdraw,
+        name="request_question_withdraw",
+    ),
+    path(
+        "requests/<uuid:request_id>/category",
+        views.request_category_change,
+        name="request_category_change",
+    ),
+]

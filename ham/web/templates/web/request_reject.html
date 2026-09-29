@@ -1,0 +1,110 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Decline {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Decline{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Decline {{ request_row.display_number }}</h1>
+
+    {% if messages %}
+      <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" id="decline-form">
+      {% csrf_token %}
+      {{ prefills|json_script:"decline-prefills" }}
+
+      {% if dual_role %}
+        <fieldset class="form-field">
+          <legend>Record this as</legend>
+          <div class="choice-grid choice-grid--single">
+            <label class="choice-card"><input type="radio" name="route" value="pastoral" required {% if default_route == "pastoral" %}checked{% endif %}><span>My decision as a pastor</span></label>
+            <label class="choice-card"><input type="radio" name="route" value="board" {% if default_route == "board" %}checked{% endif %}><span>The Board's decision</span></label>
+          </div>
+        </fieldset>
+      {% else %}
+        <input type="hidden" name="route" value="{{ default_route }}">
+      {% endif %}
+
+      {% if default_route == "board" or dual_role %}
+        <div class="form-field">
+          <label for="id_board_decided_on">Date the Board decided</label>
+          <input id="id_board_decided_on" type="date" name="board_decided_on" value="{% now 'Y-m-d' %}" max="{% now 'Y-m-d' %}">
+        </div>
+      {% endif %}
+
+      <fieldset class="form-field">
+        <legend>Why can't HAM help?</legend>
+        <div class="choice-grid choice-grid--single" id="decline-reasons">
+          {% for code, label in reason_choices %}
+            <label class="choice-card">
+              <input type="radio" name="reason_code" value="{{ code }}" {% if code == selected_reason %}checked{% endif %} required>
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="form-field">
+        <label for="id_message">What we'll tell the requester</label>
+        <p class="form-field__help">Kind and plain. They read this in the email and on their page. Don't include anyone else's details.</p>
+        <textarea id="id_message" name="message" rows="5" maxlength="{{ max_chars }}">{{ message }}</textarea>
+        <p class="text-tertiary type-small">Suggested wording, prefilled from the reason you choose. Edit it as you like.</p>
+      </div>
+
+      <section role="region" aria-labelledby="decline-preview-heading" class="message-preview">
+        <p id="decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> What the requester will read</p>
+        <p class="type-body-lg">We're sorry. After looking carefully at your request, we aren't able to help with this one.</p>
+        <p class="type-body-lg">Here's why:</p>
+        <blockquote id="decline-preview-message" class="quote-block">{{ message }}</blockquote>
+        <p class="type-body-lg">We know this isn't the answer you hoped for. If you think we've missed something, you can ask us to reconsider, once, within the next 14 days.</p>
+      </section>
+
+      <p class="text-secondary type-small"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg> If you know the requester, a call first can be kind. The email goes after your 30 minutes to undo.</p>
+
+      {% if not has_email %}
+        <label class="choice-card choice-card--statement">
+          <input type="checkbox" name="told_by_phone">
+          <span>I've already told the requester by phone.</span>
+        </label>
+      {% endif %}
+
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">Decline {{ request_row.display_number }}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <script>
+    (function () {
+      var dataEl = document.getElementById("decline-prefills");
+      var prefills = dataEl ? JSON.parse(dataEl.textContent) : {};
+      var messageField = document.getElementById("id_message");
+      var preview = document.getElementById("decline-preview-message");
+      function syncPreview() {
+        preview.textContent = messageField.value;
+      }
+      // Simplified vs the full spec's "Replace your message with the suggested one?"
+      // inline confirm row: changing the reason always refills the suggested wording,
+      // since the field is empty until a reason is chosen the first time anyway.
+      document.querySelectorAll('#decline-reasons input[type="radio"]').forEach(function (input) {
+        input.addEventListener("change", function () {
+          if (prefills[input.value] !== undefined) {
+            messageField.value = prefills[input.value];
+            syncPreview();
+          }
+        });
+      });
+      messageField.addEventListener("input", syncPreview);
+      syncPreview();
+    })();
+  </script>
+{% endblock %}

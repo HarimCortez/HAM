@@ -2578,13 +2578,169 @@ fieldset:has(
   border-radius: var(--ham-radius-md);
 }
 
+/* ================================================================================================
+   Step 3 (Approvals), S3.6: leadership Decision card, sheets and the quote/preview/pending
+   components it needs (design-system/screens/approvals.md §§33-40). Reuses existing tokens and
+   patterns (.card, .btn--*, .chip--*, .inline-alert--*, .choice-card--statement, .action-bar,
+   .sheet, .locked-note, .marker) -- only the handful of genuinely new shapes are added here.
+
+   Known simplification (handed back to the coordinator): the spec's §39 "side sheet at >=1024"
+   frame (a right-anchored panel with a scrim, replacing the Decision card's own spot) was not
+   built -- every sheet here is the existing `.sheet.sheet--fullscreen` + no-bottom-nav pattern
+   `request_phone_check.html`/`request_close.html` already established in step 2, at every
+   width. Likewise, the spec's C§34 "decision pair duplicated into a separate sticky bottom
+   action bar below 1024" was not built -- the Decision card carries its own buttons at every
+   width and is sticky by itself at >=1024 (below), which already satisfies "the card must work
+   alone" (C§33) with one copy of each button instead of two.
+   ================================================================================================ */
+.decision-card {
+  container-type: inline-size;
+}
+
+.decision-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--ham-space-2);
+  flex-wrap: wrap;
+}
+
+.decision-card__age {
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  white-space: nowrap;
+}
+
+.decision-card--awaiting {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-attention-icon);
+}
+
+.decision-card--urgent {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-danger-icon);
+}
+
+.decision-card--pending {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-info-icon);
+}
+
+.decision-card--approved {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-info-icon);
+}
+
+.decision-card--rejected {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-neutral-icon);
+}
+
+.decision-card--reconsideration {
+  border-top: var(--ham-size-accent-bar) solid var(--ham-tone-attention-icon);
+}
+
+.decision-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-2);
+  margin-top: var(--ham-space-3);
+}
+
+.decision-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ham-space-3);
+}
+
+.decision-pair--urgent {
+  grid-template-columns: 2fr 1fr;
+}
+
+/* C§33/C§34 "no mid-word/overflow at 200% text or 195px" -- the pair collapses to one column
+   well before the buttons' own text would wrap awkwardly. */
+@container (max-width: 22em) {
+  .decision-pair,
+  .decision-pair--urgent {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* C§33 "sticky (>=1024 two-column only)": the request-detail split-view/full-page layout
+     doesn't define its own container here, so this is viewport-width gated like the rest of
+     the >=1024 two-column rules already are, not a container query. */
+  .decision-card {
+    position: sticky;
+    top: calc(var(--ham-size-appbar-height) + var(--ham-space-6));
+  }
+}
+
+/* --- Quote block (C§35) --------------------------------------------------------------------- */
+.quote-block {
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-sm);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  border-left: var(--ham-size-accent-bar) solid var(--ham-border-strong);
+  margin: var(--ham-space-2) 0;
+}
+
+.quote-block figcaption {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  margin-bottom: var(--ham-space-1);
+}
+
+.quote-block blockquote {
+  margin: 0;
+  color: var(--ham-text-primary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.quote-block--leaders-only {
+  border-left-color: var(--ham-tone-info-icon);
+}
+
+.quote-block--muted blockquote {
+  color: var(--ham-text-secondary);
+}
+
+/* --- Message preview (C§36) ------------------------------------------------------------------ */
+.message-preview {
+  background: var(--ham-bg-surface);
+  border: 1.5px dashed var(--ham-border-strong);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-4);
+  margin: var(--ham-space-2) 0;
+}
+
+/* --- Question thread (C§38) ------------------------------------------------------------------ */
+.qa-thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-4);
+}
+
+.qa-thread__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-1);
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-1);
+}
 /* ============================================================================================
    Step 3 requester (S3.7): R13-R19 (docs/ux/approvals.md §6; design-system/screens/
    approvals.md §5; components.md C§35/C§38 requester variants). Tokens only.
    ============================================================================================ */
 
 /* --- Quote block (C35) ----------------------------------------------------------------------- */
-.quote-block {
+.public-shell .quote-block {
   background: var(--ham-bg-sunken);
   border-radius: var(--ham-radius-sm);
   border-left: var(--ham-size-accent-bar) solid var(--ham-border-strong);
@@ -2640,7 +2796,7 @@ fieldset:has(
 }
 
 /* --- Questions and answers (C38, requester side) ------------------------------------------- */
-.qa-thread {
+.public-shell .qa-thread {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -2650,7 +2806,7 @@ fieldset:has(
   margin-bottom: var(--ham-space-4);
 }
 
-.qa-thread__meta {
+.public-shell .qa-thread__meta {
   font-size: var(--ham-type-body-size);
   color: var(--ham-text-secondary);
   margin: 0 0 var(--ham-space-1);

@@ -1,0 +1,188 @@
+{% load static web_extras %}
+{% comment %}
+S3.6: the Decision card (docs/ux/approvals.md A1 "Decision panel"; design-system/screens/
+approvals.md C§33). `decision` is `None` for a request in a state that has no decision to
+make yet (Needs a phone check, Submitted, Cancelled) -- the existing L2 banners already cover
+those. Always rendered before the long content, per the spec's DOM order and focus-order
+rules (A1 §1.8).
+
+Known simplification (handed back): the design spec calls for a *second* copy of the primary
+decision button(s) in a sticky bottom action bar below 1024 (C§34), with the Decision card
+working standalone above it. This build keeps the buttons in the Decision card only, which the
+card is already sticky for at >=1024 (below) and sits right under the header at 390/768 (first
+thing after the h1) -- one set of buttons, not two, satisfies "the card must work alone" (C§33
+"Don't put the decision buttons only in the sticky bar") without needing the a11y bookkeeping
+of hiding a duplicate copy from assistive tech.
+{% endcomment %}
+{% if decision %}
+  <section class="card decision-card decision-card--{{ decision.accent }}" aria-labelledby="decision-card-heading-{{ detail.id }}">
+    <div class="decision-card__head">
+      <{{ heading_tag }} id="decision-card-heading-{{ detail.id }}">Decision</{{ heading_tag }}>
+      {% if decision.state == "awaiting" %}
+        <span class="decision-card__age"><time datetime="{{ decision.waiting_since|date:'c' }}" title="{{ decision.waiting_since|church_time }}">{{ decision.waiting_since|relative_age }}</time></span>
+      {% endif %}
+    </div>
+
+    {% if decision.impersonating and decision.state != "decided" and decision.state != "pending" %}
+      <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Decisions and questions can't be recorded while acting as someone else.</p>
+    {% endif %}
+
+    {% if decision.state == "awaiting" %}
+      {% if decision.urgent_awaiting_cert %}
+        <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg>
+          {% if decision.board_cant_certify_note %}
+            Only a pastor can certify urgency. The Board can approve it; a pastor can certify it later.
+          {% else %}
+            Urgent: needs a pastor to certify. Any pastor can approve it directly.
+          {% endif %}
+        </p>
+      {% elif decision.is_dir_ad_awareness %}
+        <p class="text-secondary">With the pastors and Board since {{ decision.waiting_since|church_time }}.</p>
+      {% else %}
+        <p class="text-secondary">Any pastor, or the Board rep for the Board. One decision is needed.</p>
+      {% endif %}
+
+      {% if decision.question_marker %}
+        <p class="marker marker--attention"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-message-circle-question"></use></svg> Waiting on the requester's answer{% if decision.question_marker.asked_by %} &middot; asked by {{ decision.question_marker.asked_by }}{% endif %} &middot; {{ decision.question_marker.age }}</p>
+      {% endif %}
+
+      {% if not decision.impersonating and not decision.masked %}
+        <div class="decision-card__actions">
+          {% if decision.can_certify_and_approve %}
+            <div class="decision-pair decision-pair--urgent">
+              <a class="btn btn--primary" href="{% url 'web:request_approve' request_id=detail.id %}?mode=urgent">Approve as urgent&hellip;</a>
+              {% if decision.can_reject %}<a class="btn btn--secondary" href="{% url 'web:request_reject' request_id=detail.id %}">Decline&hellip;</a>{% endif %}
+            </div>
+          {% elif decision.can_approve or decision.can_reject %}
+            <div class="decision-pair">
+              {% if decision.can_approve %}<a class="btn btn--secondary" href="{% url 'web:request_approve' request_id=detail.id %}">{% if decision.is_board_only %}Board approved&hellip;{% else %}Approve&hellip;{% endif %}</a>{% endif %}
+              {% if decision.can_reject %}<a class="btn btn--secondary" href="{% url 'web:request_reject' request_id=detail.id %}">{% if decision.is_board_only %}Board didn't approve&hellip;{% else %}Decline&hellip;{% endif %}</a>{% endif %}
+            </div>
+          {% endif %}
+          <div class="decision-card__actions">
+            {% if decision.can_ask_question %}<a class="btn btn--secondary" href="{% url 'web:request_question_ask' request_id=detail.id %}">Ask a question</a>{% endif %}
+            {% if decision.can_decline_urgency_link %}<a class="btn btn--secondary" href="{% url 'web:request_decline_urgency' request_id=detail.id %}">Not urgent: leave for normal review&hellip;</a>{% endif %}
+            {% if decision.can_change_category %}<a class="btn btn--secondary" href="{% url 'web:request_category_change' request_id=detail.id %}">Change category&hellip;</a>{% endif %}
+          </div>
+        </div>
+      {% elif decision.masked %}
+        <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Not shown to the Administrator role.</p>
+      {% endif %}
+
+    {% elif decision.state == "reconsideration" %}
+      {% if decision.can_decide %}
+        <div class="decision-card__actions">
+          {% if decision.needs_take_over %}
+            <p>Goes to {{ decision.original_decider_name }}, who declined it. If they're unavailable, you can take it over when you decide.</p>
+          {% endif %}
+          <div class="decision-pair">
+            <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=approve{% if decision.needs_take_over %}&amp;take_over=1{% endif %}">{% if decision.is_board_route %}Board approved on reconsideration&hellip;{% elif decision.needs_take_over %}Take over and approve&hellip;{% else %}Approve&hellip;{% endif %}</a>
+            <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=decline{% if decision.needs_take_over %}&amp;take_over=1{% endif %}">{% if decision.is_board_route %}Board still didn't approve&hellip;{% elif decision.needs_take_over %}Take over and decline&hellip;{% else %}Decline&hellip;{% endif %}</a>
+          </div>
+        </div>
+      {% elif decision.is_board_route %}
+        <p class="text-secondary">The Board is reconsidering this. Elder {{ decision.original_decider_name }} will record the outcome.</p>
+      {% elif decision.masked %}
+        <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Not shown to the Administrator role.</p>
+      {% else %}
+        <p class="text-secondary">Goes to {{ decision.original_decider_name }}, who declined it. If they're unavailable, another pastor can take it over.</p>
+      {% endif %}
+      {% if decision.recon %}
+        <figure class="quote-block">
+          <figcaption>What they told us &middot; {{ decision.recon.requested_at|church_time }}</figcaption>
+          {% if decision.recon_note_masked %}
+            <blockquote>Not shown to the Administrator role.</blockquote>
+          {% elif decision.recon.requester_note %}
+            <blockquote>{{ decision.recon.requester_note }}</blockquote>
+          {% else %}
+            <blockquote class="text-secondary">(no note)</blockquote>
+          {% endif %}
+        </figure>
+      {% endif %}
+
+    {% else %}
+      {# pending or decided #}
+      <p>
+        <span class="chip chip--{{ status_tone }}"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icon }}"></use></svg></span> {{ status_label }}{% if decision.is_final %} &middot; Final{% endif %}</span>
+      </p>
+      <p class="text-secondary">
+        {% if decision.is_decider %}You{% else %}{{ decision.decided_by_name }}{% endif %}
+        &middot; {% if decision.route == "board" %}Board route &middot; Board decided {{ decision.board_decided_on }}{% else %}pastoral route{% endif %}
+        &middot; {{ decision.decided_at|church_time }}
+        {% if decision.took_over_from_name %} &middot; took over from {{ decision.took_over_from_name }}{% endif %}
+      </p>
+
+      {% if decision.pending %}
+        <div class="inline-alert inline-alert--info" role="status">
+          <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
+          <div>
+            <p class="type-label">Can be undone until <time datetime="{{ decision.undo_deadline|date:'c' }}">{{ decision.undo_deadline|church_time }}</time></p>
+            <p>Nothing has been sent to the requester yet.{% if decision.urgent_approval %} The Director and Assistant Director were alerted right away.{% endif %}</p>
+            <p><a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?approval_id={{ decision.approval_id }}">Undo decision&hellip;</a></p>
+          </div>
+        </div>
+      {% elif decision.state == "pending" %}
+        {# another approver, during someone else's undo window #}
+        <div class="inline-alert inline-alert--info">
+          <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
+          <p>Decision pending ({{ decision.decided_by_name }}, can be undone until {{ decision.undo_deadline|church_time }}). You can't decide while it can still be undone.</p>
+        </div>
+      {% endif %}
+
+      {% if decision.message %}
+        <figure class="quote-block">
+          <figcaption>What we told the requester</figcaption>
+          <blockquote>{{ decision.message }}</blockquote>
+        </figure>
+      {% endif %}
+      {% if decision.approval_note %}
+        <figure class="quote-block quote-block--leaders-only">
+          <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Why approved (leaders only)</figcaption>
+          <blockquote>{{ decision.approval_note }}</blockquote>
+        </figure>
+      {% elif decision.masked and decision.outcome == "approved" %}
+        <p class="locked-note"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Not shown to the Administrator role.</p>
+      {% endif %}
+
+      {% if decision.urgency_line %}<p class="text-secondary">{{ decision.urgency_line }}</p>{% endif %}
+
+      {% if decision.certify_after_approval %}
+        <div class="inline-alert inline-alert--attention">
+          <p>Urgent, not yet certified. The Board approved it; a pastor can certify it.</p>
+          <p><a class="btn btn--primary" href="{% url 'web:request_certify_urgency' request_id=detail.id %}">Certify as urgent&hellip;</a></p>
+        </div>
+      {% endif %}
+
+      {% if decision.outcome == "approved" and not decision.pending %}
+        <p class="text-secondary">Next: site assessment (HAM leadership).</p>
+      {% elif decision.outcome == "rejected" %}
+        {% if decision.reconsideration_deadline %}
+          <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-calendar-clock"></use></svg> The requester can ask us to reconsider until {{ decision.reconsideration_deadline|church_time }}.</p>
+          {% if decision.can_record_reconsideration_phone %}
+            <p><a class="btn btn--secondary" href="{% url 'web:request_reconsideration_phone' request_id=detail.id %}">Record request to reconsider (phone)&hellip;</a></p>
+          {% endif %}
+        {% elif decision.is_final %}
+          <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-ban"></use></svg> Final. The request is closed.</p>
+        {% endif %}
+      {% endif %}
+
+      {% if decision.tell_by_phone %}
+        {% if decision.tell_by_phone.told %}
+          <p class="marker"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg> Told by phone &middot; {{ decision.tell_by_phone.by }} &middot; {{ decision.tell_by_phone.at|church_time }}</p>
+        {% else %}
+          <div class="decision-card__actions">
+            <p class="marker marker--attention"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-outgoing"></use></svg> Call to share a decision &middot; not yet told</p>
+            <a class="btn btn--secondary" href="{% url 'web:request_decision_phoned' request_id=detail.id %}">Tell by phone&hellip;</a>
+          </div>
+        {% endif %}
+      {% endif %}
+
+      {% if not decision.pending and not decision.impersonating %}
+        <div class="decision-card__actions">
+          {% if decision.can_ask_question %}<a class="btn btn--secondary" href="{% url 'web:request_question_ask' request_id=detail.id %}">Ask a question</a>{% endif %}
+          {% if decision.can_change_category and not decision.is_final %}<a class="btn btn--secondary" href="{% url 'web:request_category_change' request_id=detail.id %}">Change category&hellip;</a>{% endif %}
+        </div>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endif %}
