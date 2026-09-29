@@ -585,7 +585,21 @@ class Approval(AppendOnlyOnceMixin, models.Model):
         db_table = "requests_approval"
         indexes = [models.Index(fields=["request", "decided_at"], name="approval_request_idx")]
         constraints = [
-            models.UniqueConstraint(fields=["request", "stage"], name="approval_unique_stage"),
+            # Q-156/Q-176 (undo is a real "fix a mistake", not just a marker): only *live*
+            # (not-undone) decisions are unique per (request, stage) -- an undone decision
+            # frees its stage for a fresh one, by the same or a different eligible approver.
+            # A plain `UNIQUE(request, stage)` would wrongly keep blocking that second
+            # decision forever once one row for the stage had ever been undone.
+            # Q-156/Q-176 (undo is a real "fix a mistake", not just a marker): only *live*
+            # (not-undone) decisions are unique per (request, stage) -- an undone decision
+            # frees its stage for a fresh one, by the same or a different eligible approver.
+            # A plain `UNIQUE(request, stage)` would wrongly keep blocking that second
+            # decision forever once one row for the stage had ever been undone.
+            models.UniqueConstraint(
+                fields=["request", "stage"],
+                condition=models.Q(undone_at__isnull=True),
+                name="approval_unique_live_stage",
+            ),
             models.CheckConstraint(
                 condition=(
                     ~models.Q(outcome=ApprovalOutcome.REJECTED.value)

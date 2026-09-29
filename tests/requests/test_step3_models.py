@@ -98,11 +98,28 @@ class TestApprovalAppendOnly:
 
 
 class TestApprovalConstraints:
-    def test_unique_per_request_and_stage(self, requester_ctx):
+    def test_two_live_decisions_for_one_stage_are_refused(self, requester_ctx):
         req = _make_request(requester_ctx)
         _make_approval(req)
         with pytest.raises(IntegrityError), transaction.atomic():
             _make_approval(req)
+
+    def test_a_second_decision_is_allowed_once_the_first_is_undone(self, requester_ctx):
+        # Coordinator correction (Q-156/Q-176): undo's whole point is that a fresh decision
+        # for the same stage becomes possible again -- a *plain* `UNIQUE(request, stage)`
+        # would keep refusing this forever once the first row had ever been undone. The fix
+        # is `approval_unique_live_stage`, a *partial* unique index
+        # (`condition=Q(undone_at__isnull=True)`) that only constrains not-yet-undone rows.
+        req = _make_request(requester_ctx)
+        first = _make_approval(req)
+        first.undone_at = timezone.now()
+        first.undone_by_user_id = first.decided_by_user_id
+        first.save(update_fields=["undone_at", "undone_by_user_id"])
+
+        second = _make_approval(req)  # would have raised IntegrityError before the fix
+
+        assert Approval.objects.filter(request=req, stage=ApprovalStage.INITIAL.value).count() == 2
+        assert second.undone_at is None
 
     def test_second_stage_is_allowed(self, requester_ctx):
         req = _make_request(requester_ctx)

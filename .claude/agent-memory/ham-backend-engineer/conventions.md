@@ -1754,3 +1754,19 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   effects job — write that split down explicitly in the contracts doc, since it's easy to
   assume "the decision's outbox event" is one single held thing when it's actually two
   (an immediate safety alert plus separately-held effects).
+- **Coordinator correction: a plain `UNIQUE(request, stage)` on an "undoable decision" row is
+  wrong — undo must free the slot for a fresh decision, not permanently occupy it.** My first
+  cut of `Approval` kept a plain `UNIQUE(request, stage)`, reasoning (wrongly) that this was
+  what Q-176's "other approvers can't decide during the window" required, and flagged
+  "decide again after undo" as an open gap instead of just fixing it — undo's entire point
+  (Q-156/Q-176: "fix a mistake ... recorded, never deleted") is that the request returns to
+  its prior state and can be decided again, by anyone eligible. Fix: a **partial** unique
+  index, `UniqueConstraint(fields=["request","stage"], condition=Q(undone_at__isnull=True))`
+  — only *live* (not-undone) rows are unique per stage, so undoing a row frees its slot for
+  exactly one new live decision while two *simultaneously live* decisions for one stage are
+  still refused (the "can't decide during the window" property falls out automatically, for
+  free, from the row still being live). When a slice's own migration hasn't merged yet, fix a
+  constraint like this by editing the model and **regenerating the same migration** (`migrate
+  <app> <prior>`, delete the migration file, `makemigrations`, `migrate`) rather than adding a
+  second one — confirm the fix is real by reverting the constraint change temporarily, running
+  the new regression test (must fail), then restoring it (must pass) before committing.

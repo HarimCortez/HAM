@@ -27,9 +27,23 @@ never collide on a `requests` migration of their own.
 
 ### 1.2 `Approval` (`requests_approval`) — the decision record
 
-One row per `(request, stage)` — `stage` is `initial`/`reconsideration`
-(`ApprovalStage`), so at most two rows per request ever exist (D1/Q-153 "first decision
-settles it", §8.4 "the one reconsideration"). `UNIQUE(request_id, stage)`.
+At most one **live** (not-undone) row per `(request, stage)` — `stage` is
+`initial`/`reconsideration` (`ApprovalStage`), so at most two *live* rows per request ever
+exist (D1/Q-153 "first decision settles it", §8.4 "the one reconsideration"). Enforced by
+`approval_unique_live_stage`, a **partial** unique index:
+`UniqueConstraint(fields=["request", "stage"], condition=Q(undone_at__isnull=True))` — **not**
+a plain `UNIQUE(request, stage)`.
+
+**Coordinator correction (2026-09-29), Q-156/Q-176:** undo's whole purpose is that the
+request returns to its prior state and *any* eligible approver — including the same person —
+may record a fresh decision for that stage; undo is not merely a marker on an otherwise
+still-blocking row. A plain `UNIQUE(request, stage)` (what this slice originally shipped)
+would have permanently blocked a second decision for a stage the instant its first row was
+ever undone, which is backwards from what undo is for. The partial index above only
+constrains rows where `undone_at IS NULL`, so an undone row frees its `(request, stage)` slot
+for exactly one new live decision, while still refusing two *simultaneously live* decisions
+for the same stage (Q-176 "other approvers can't decide during the window" — see §9 for how
+this and §4's held-effects design interact).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -52,7 +66,8 @@ settles it", §8.4 "the one reconsideration"). `UNIQUE(request_id, stage)`.
 | `undone_at` / `undone_by_user_id` | `DateTimeField`/`UUIDField`, null | Q-156/Q-176; **`ONCE_FIELDS`**, set together, once, from null |
 | `effects_ran_at` | `DateTimeField`, null | held-effects job idempotency marker (§4); **`ONCE_FIELDS`**, set once |
 
-Constraints: `UNIQUE(request, stage)`; `outcome=rejected ⇒ reason_code≠'' AND reason≠''`;
+Constraints: `UNIQUE(request, stage) WHERE undone_at IS NULL` (partial, see above);
+`outcome=rejected ⇒ reason_code≠'' AND reason≠''`;
 `stage=reconsideration ⇒ reason≠''`; `urgent_approval ⇒ outcome=approved`;
 `route=board ⇒ board_decided_on IS NOT NULL`; `took_over_from_user_id IS NOT NULL ⇒
 unavailable_confirmed`; `undone_at`/`undone_by_user_id` set together; `requester_phoned_at`/
@@ -260,14 +275,17 @@ builder turns an undo of an already-alerted urgent approval into the Q-176 in-ap
 approval was undone" follow-up (a normal, unheld outbox subscriber reaction — not part of the
 held-effects mechanism above).
 
-**During the window:** `decide_reconsideration`/`approve_request`/`reject_request` refuse a
-second decision on the same `(request, stage)` regardless of `undone_at` (`UNIQUE(request,
-stage)` already enforces this at the DB level) — Q-176's "other approvers can't decide during
-the window" is therefore automatic, not a separate check: the pending `Approval` row already
-exists, undone or not, and a fresh decision would violate the unique constraint. `undo_decision`
-does **not** delete or blank that row; a genuine "try again" after an undo needs no new
-`Approval` row for the same stage in V1 (out of scope; not asked for by Q-176 or the owner
-box — flag as a gap if a later slice needs it).
+**During the window:** while the pending `Approval` row is still live (`undone_at IS NULL`),
+`decide_reconsideration`/`approve_request`/`reject_request` refuse a second decision on the
+same `(request, stage)` — `approval_unique_live_stage`'s partial unique index already
+enforces this at the DB level for any *live* row. Q-176's "other approvers can't decide
+during the window" is therefore automatic, not a separate check. `undo_decision` does **not**
+delete or blank the undone row — it only sets `undone_at`/`undone_by_user_id` (its
+`ONCE_FIELDS`) — but doing so *does* free the `(request, stage)` slot: once undone, a fresh
+`approve_request`/`reject_request`/`decide_reconsideration` call for that same stage is an
+ordinary insert and succeeds (coordinator correction, 2026-09-29 — see §9). This is exactly
+what makes undo a genuine "fix a mistake and let it be re-decided", not merely a "mark this
+wrong" flag on an otherwise permanently-blocking row.
 
 ## 5. Audit (`ham/audit/labels.py`)
 
@@ -346,14 +364,23 @@ truth — keep both in sync):
 
 ## 9. Gaps found while building this seam (report to the orchestrator, not yet numbered)
 
-- **Undo + a genuine "decide again" after undo.** §4 above notes that `UNIQUE(request,
-  stage)` blocks a second `Approval` row for the same stage even after `undone_at` is set, so
-  after a decider undoes a mistaken decision there is currently no way to record a *different*
-  decision for that same stage in V1 — only another undo-then-nothing. Q-156/Q-176 describe
-  undo as "fix a mistake within 30 minutes", which reads as "cancel it", not "replace it with
-  a different decision" — but neither Q explicitly says what happens next. Flagged for the
-  orchestrator to log as a Q-NNN; S3.2 should not silently invent a "supersedes" mechanic
-  without one.
+- **RESOLVED (coordinator, 2026-09-29): undo + a genuine "decide again" after undo.** Was
+  flagged here as a gap (the original `UNIQUE(request, stage)` blocked a second `Approval`
+  row for the same stage forever once the first was ever undone). Ruling: undo's whole
+  purpose is that the request returns to its prior state and any eligible approver, including
+  the same person, may record a new decision for that stage. Fixed in §1.2 above:
+  `approval_unique_live_stage` is a **partial** unique index
+  (`condition=Q(undone_at__isnull=True)`), still in migration `requests/0004` (not a second
+  migration, since it hadn't merged yet) — only *live* rows are unique per `(request, stage)`,
+  so an undone row frees its slot for exactly one fresh live decision, while two
+  simultaneously-live decisions for one stage are still refused. Regression test:
+  `tests/requests/test_step3_models.py::TestApprovalConstraints::
+  test_a_second_decision_is_allowed_once_the_first_is_undone` (confirmed to fail against the
+  original plain `UNIQUE(request, stage)` and pass against the partial index) plus
+  `test_two_live_decisions_for_one_stage_are_refused` (still refused). S3.2's `undo_decision`
+  and the re-decide commands need no new mechanic beyond this constraint — a fresh
+  `approve_request`/`reject_request`/`decide_reconsideration` call for the same stage after an
+  undo is just an ordinary insert that now succeeds.
 - **`RequestDecisionUndone`'s exact consumers.** approvals.md's own event table (§4) doesn't
   list an undo event at all (D4/"no undo" was the *plan's* original recommendation before the
   owner's Q-156 decision superseded it) — `RequestDecisionUndone` here is this slice's own
