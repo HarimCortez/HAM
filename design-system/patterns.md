@@ -18,6 +18,7 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 - **Tablet:** same as mobile, lists as 2-column cards where cards are used.
 - **Desktop (≥ 1280): split view.** List pane 400px (resizable 360–520) + detail pane fills the rest. Selecting a row updates the URL. Detail pane has its own header (h1 + chips + primary action). At 1024–1279 open detail as full page (split view too cramped).
 - **Split-view widths (v1.3, from intake):** with the 264px sidebar, 1280 leaves ~950px of content. At 1280–1535 the list pane is `--ham-size-split-list-min` and the detail pane is **one column** (key facts as a compact strip under the header). At ≥1536 the list pane is `--ham-size-split-list` and the detail pane splits into main + side columns (2fr / 1fr). The list pane scrolls independently (`position: sticky`, `max-height: calc(100vh - appbar)`), the detail pane is a labelled region (`aria-labelledby` its h1).
+- **Decision split view (v1.4, from approvals).** On the Requests split view at 1280–1535 the sidebar shows as the rail (`--ham-size-sidebar-collapsed`, with its expand control) so the detail pane gets ~850px; the full sidebar returns at ≥1536. The detail is a size container (`container-name: detail`): at `min-width: 42em` it becomes two columns, `minmax(0, 1fr)` main + `--ham-size-aside` side, gap `space-6`, and the side column's Decision card (components §33) is sticky. Below 42em (tablet, 200% text, 400% zoom) it is one column with the Decision card first. The same container rule gives the 1024–1279 full-page detail its two columns. This supersedes the "one-column detail at 1280–1535" line above for the Requests area only.
 - Detail layout (desktop): main column (2/3: tasks, timeline, comments) + side column (1/3: key facts, people, budget summary, attention items). Mobile: side column content moves *above* main content as a compact "Key facts" card.
 
 ## 3. Cards vs tables
@@ -32,6 +33,7 @@ Page gutters: 16px (`space-4`) mobile, 24px (`space-6`) tablet, 32px (`space-8`)
 - Validate on blur and on submit; on submit error, focus an error summary alert at top listing links to each field.
 - Sticky save bar on long forms (mobile bottom, desktop bottom of form column). Autosave drafts where the UX spec allows; show "Draft saved · 2:14 PM" in `text.tertiary`.
 - Consequential actions (approve, reject, override, excuse, clear hold) end in a confirm sheet showing *what will happen* and *who will be notified*; the actor and time are recorded (PRD §3.3).
+- **Undo window (v1.4, Q-156/Q-176).** Where the rules allow the actor to undo (decisions, urgency certification), the record shows at once with a pending notice (components §37) and an **Undo…** button that opens a small confirm sheet. No undo inside toasts: a 6-second toast is too short and hard to reach by keyboard for a consequential reversal.
 
 ## 5. Wizards (intake, site assessment, project planning)
 - Steps: 3–7. Header: "Step 2 of 5 · Property" (text, not dots alone) + thin progress bar (`action.primary.bg` on `bg.sunken`).

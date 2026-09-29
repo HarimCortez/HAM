@@ -245,3 +245,110 @@ Three variants of one component (`.masked-block`), all `radius-md`, padding `spa
 ## 32. Sheet sizes (extends §14)
 - **Small** (`--ham-size-modal-sm`): L10 close, L11 more photos. **Medium** (`--ham-size-modal-md`): L9 phone check.
 - **Full-screen sheet (<768):** for sheets whose content is longer than half the screen (L9): full height, no drag handle, app-bar-style header on `bg.surface` with ✕ (48px) left and the title (`type-h3`), the body scrolls, and the primary sits in the §22 action bar.
+
+---
+
+# Additions for step 3 (Approvals), v1.4
+
+Used by `design-system/screens/approvals.md`. **No new tokens** in v1.4: everything below is built from v1.3 tokens (`tokens.css` stays 1.3.0). Class names are proposals in the same BEM style as `ham/web/static/web/shell.css`; reuse `.card`, `.btn--*`, `.chip--*`, `.inline-alert--*`, `.choice-card--statement`, `.action-bar`, `.sheet`, `.locked-note`, `.urgent-banner`, `.marker` wherever they fit. New icons needed in `icons.svg` are listed in the screen spec's checklist.
+
+The large-text contract from v1.3 applies to every component here, on leadership screens too (step-2 NM3): `min-height` only, container queries in `em`, decorative icons dropped under `22em`, `overflow-wrap: anywhere` on every quoted user text.
+
+## 26a. Requester chip labels for step 3 (extends the §26 table)
+| Staff status (§52) | Requester chip | Tone tokens | Icon |
+|---|---|---|---|
+| Approved | Approved | `--ham-tone-success-*` (good news for her; staff chip stays `status-project-approved`, info) | `circle-check` |
+| Rejected (can be reconsidered) | Not approved | `--ham-tone-neutral-*` (never red) | `circle-x` |
+| Reconsideration Pending | Taking another look | `--ham-tone-info-*` (not amber: nothing waits on her) | `rotate-ccw` |
+| Rejected · final | Closed | `--ham-tone-neutral-*` | `ban` |
+| Awaiting Approval, question open | Being reviewed (unchanged) | info | `hourglass` |
+
+Staff screens keep the §52 chips from `tokens.json › status.project` (Approved info `badge-check`, Rejected neutral `circle-x`, Reconsideration Pending attention `rotate-ccw`). "Final" is never a separate chip: it is a **reason line** after the Rejected chip ("Rejected · Final"), like "Blocked · Materials" (§5).
+
+## 33. Decision card (`.decision-card`)
+The one place on a request where the decision state and the decision actions live (UX A1). It is a `section` with `aria-labelledby` its h2 "Decision", placed **before** the long content in the DOM at every width.
+- **Box:** `.card` (`bg.surface`, 1px `border.default`, `radius-lg`, padding `space-4` <1024 / `space-5` ≥1024) with a top `size.accent-bar` in the state's tone `-icon` colour (decorative): awaiting `tone.attention.icon` · urgent awaiting `tone.danger.icon` · pending undo `tone.info.icon` · approved `tone.info.icon` · rejected / final `tone.neutral.icon` · reconsideration `tone.attention.icon` · read-only/blocked: no bar.
+- **Anatomy (top to bottom, gap `space-3`):**
+  1. h2 "Decision" (`type-h3`) + optional right-aligned `type-small` `text.secondary` age ("waiting 5 days", `tabular-nums`, `nowrap`).
+  2. **State line** (`type-body`, `text.primary`): who can decide, or the outcome chip row (status chip + Urgent chip if any, `size.chip`) followed by the decider line (`type-small`, `text.secondary`): "Pastor Ruth Alvarez · pastoral route · Oct 6, 3:15 PM".
+  3. Optional **notice** (§37 pending notice, or an `inline-alert` compact for urgent / window / concurrency).
+  4. Optional **quote blocks** (§35): "What we told the requester", "Why approved (leaders only)", the reconsideration note.
+  5. Optional **question marker** (`.marker--attention`, `message-circle-question`): "Waiting on the requester's answer · asked by Andre W. · 2 days".
+  6. **Actions** (`.decision-card__actions`): the §34 pair (or one Primary), then secondary actions as a wrap row of Secondary md buttons (Ask a question, More ▾). Gap `space-2` (≥ 8px).
+  7. **Reason line** when an action is unavailable (`.locked-note`: `lock` 16px + `type-small` `text.secondary`), never a disabled button alone.
+- **Sticky (≥1024 two-column only):** `position: sticky; top: space-6` inside the scrolling detail pane (split view) or `top: calc(size.appbar-height + space-6)` on the full page. Not sticky when the viewport is shorter than `breakpoint.short`, or when the detail is one column (container query), so it never covers content at 200% text.
+- **States:** loading = a `bg.sunken` skeleton block the height of the awaiting card, no buttons, `aria-busy="true"` on the section, and it resolves **last** (never a flash of enabled buttons); error = `inline-alert--danger` inside the card "We couldn't load the decision." + **Try again** (Secondary md); offline = actions shown with `action.disabled.*` + a reason line with `cloud-off` "You're offline. You can decide when you're connected."; impersonating = decision/undo/question actions removed and one reason line "Decisions and questions can't be recorded while acting as someone else." (Change category stays, Q-172); read-only (Administrator, decided, or not your route) = no actions area at all.
+- **Focus:** after any decision, undo or take-over, focus moves to the card's h2 (`tabindex="-1"`), so the new state is read.
+- **Don't:** colour the Approve or Decline buttons green/red; put the decision buttons only in the sticky bar (the card must work alone); show the card's accent colour as the only state signal (the chip and words carry it).
+
+## 34. Decision button pair (`.decision-pair`)
+Approve and Decline carry **equal visual weight** (owner decision; §3.2 "humans decide").
+- **Normal pair:** two **Secondary** buttons of the same size (`control-lg` <1024, `control-md` ≥1024), same fill (`action.secondary.*`), same leading icon size, one grid row `1fr 1fr` (gap `space-3`), in the order **Approve…** then **Decline…**. Icons: `check` and `x` in `action.secondary.fg` (same colour both). No Primary on the page while the pair shows.
+- **Urgent pair:** **Approve as urgent…** is Primary (speed is the point, §10) and **Decline…** is Secondary, both the same height; the grid becomes `2fr 1fr` at ≥22em.
+- **Stacking:** in the Decision card at ≥1024 the pair stacks full width (1 column), Approve first. In any container under `22em` the pair stacks full width.
+- **In the <768 sticky bar (§22):** at ≥22em bar width the pair sits in the bar side by side. Under `22em` a normal pair **leaves the bar entirely** (no primary exists to keep) and shows stacked in the Decision card, which sits right under the header; an urgent pair keeps only **Approve as urgent…** in the bar and **Decline…** shows in the card. The bar and the card render the buttons from the same data; the hidden copy is `display: none`, so assistive tech meets each button once.
+- **Accessible names** include the request: "Approve HAM #047", "Decline HAM #047", "Approve HAM #048 as urgent" (visible label first, so 2.5.3 Label in Name holds).
+- **Don't:** use Danger for Decline (declining is a pastoral decision, not a destructive system action); give one button an icon and not the other; reorder by recommendation.
+
+## 35. Quote block (`.quote-block`)
+For the requester's own words, the message we sent, questions, answers and notes. Formalizes the "quote block" named in §27.
+- **Markup:** `<figure class="quote-block">` + `<figcaption>` (above the quote) + `<blockquote>`. The caption is visible text, not an ARIA label.
+- **Box:** `bg.sunken`, `radius-sm`, padding `space-3` block / `space-4` inline, left `size.accent-bar` rule in `border.strong` (decorative). Text `text.primary` (15.85:1 on `bg.sunken`), `type-body` in the app / `type-body-lg` on requester pages, `overflow-wrap: anywhere`, `white-space: pre-line` (keeps the writer's line breaks). Caption `type-small` (app) / `type-body` (requester), `text.secondary`, gap `space-1`.
+- **Variants:** `--leaders-only`: caption gets a `lock` 16px icon and ends "(leaders only)"; `--muted` (withdrawn question): text `text.secondary`, no strike-through; `--hidden` (Administrator): body replaced by `lock` + "Not shown to the Administrator role." (`type-small`, `text.secondary`).
+- **Long text:** in lists of several (Q&A thread, decided panel) clamp at 6 lines with a **Show all** Link button (`size.target-min` row); never clamp on requester pages.
+- **Don't:** use curly-quote glyphs as the only marker; italicize (hard to read at large sizes).
+
+## 36. Message preview (`.message-preview`, "What the requester will read")
+Shows the decider exactly what the requester reads (UX A3, A9). Always WYSIWYG with R15/R18b.
+- **Region:** `<section role="region" aria-labelledby>` with heading "What the requester will read" (`type-label`) + caption "In the email and on their request page" (`type-small`, `text.secondary`), `mail` icon 20px before the heading. After Show contact details it reads "What Doris will read" (Q-170).
+- **Frame:** `bg.surface`, 1.5px **dashed** `border.strong`, `radius-md`, padding `space-4`. Dashed says "not saved yet, a draft render"; it is neutral grey, never the AI violet.
+- **Body:** the requester-page rendering at requester type sizes (`type-body-lg`, `text.primary`): the fixed sentence → "Here's why:" → the message in a §35 quote block (requester variant) → the fixed closing lines (with the deadline date bold). Nothing inside is interactive.
+- **Behaviour:** updates on input with a debounce; `aria-live="off"`. An empty message shows the quote block with `text.tertiary` "Your message will appear here."
+- **<768:** inside a §31 disclosure "What the requester will read", **open by default**. **≥768:** always visible under the message field.
+- **Don't:** render it inside a phone mockup frame or at a reduced scale (the point is legibility).
+
+## 37. Pending-decision notice (undo window, Q-156/Q-176)
+A decision can be undone by the person who recorded it for `{rules.DECISION_UNDO_WINDOW}` (30 minutes; the number comes from the rules module, never a literal).
+- **Component:** `inline-alert--info` compact inside the Decision card, `timer` icon (`tone.info.icon`). Title `type-label` `tone.info.fg`; body `type-small` `text.primary`.
+  - **Decider:** title "Can be undone until 3:45 PM" · body "Nothing has been sent to the requester yet." (urgent certification adds "Marcus and Andre were alerted right away.") · action **Undo decision…** (Secondary md, `undo-2` icon; opens the undo sheet). `aria-label` "Undo the approval of HAM #047".
+  - **Everyone else:** title "Decision pending (Pastor Ruth, can be undone until 3:45 PM)" · body "You can't decide while it can still be undone." No action.
+- **Time:** always an absolute local time in a `<time datetime>` (never a ticking countdown: a live countdown is noisy for screen readers and fails the spirit of 2.2.1). When the window passes while the page is open, the notice is removed on the next minute tick and a polite status says "The time to undo has passed. The decision stands."
+- **In rows and cards:** a `.marker` with `timer` icon: "Undo until 3:45 PM" (decider) / "Decision pending" (others), `type-small`, `text.secondary`.
+- **Don't:** use the attention or danger tone (nothing is wrong); hide the outcome chip during the window (the decision is real, only reversible).
+
+## 38. Question thread (`.qa-thread`)
+The "Questions and answers" section on A1 (and the requester's own Q&A on R10).
+- `ol` of items, gap `space-4`, each item a `li` with no box (group by space):
+  1. Meta line: `message-circle-question` 16px + "Andre Whitfield asked · Oct 6, 3:02 PM" (`type-small`, `text.secondary`; requester side: "From HAM · Oct 6", no names, Q-171).
+  2. The question (§35).
+  3. State row, one of:
+     - **Open:** `.marker--attention` `hourglass` "Waiting for the requester's answer · 2 days" + actions (wrap row, Secondary sm ≥1024 / Secondary md <1024): **Record their answer** · **Withdraw** (asker, Director, AD).
+     - **Answered:** meta `message-circle` "The requester answered · Oct 7, 9:12 AM" (or "Answer taken by phone · Marcus Bell · Oct 7, 6:40 PM") + the answer (§35).
+     - **Answered, Administrator:** "Answered on Oct 7" only; no answer text, no hidden-block placeholder beyond one `lock` line (Q-124/Q-151).
+     - **Withdrawn:** `text.tertiary` meta "Withdrawn · no longer needed" (automatic on a decision) or "Withdrawn by Andre W. · Oct 7"; the question in the `--muted` quote variant.
+  4. A **new** answer (not yet opened by the asker) gets a `.marker` "New" (`message-circle`, `tone.attention.fg`) before the meta line; it clears on view.
+- Heading "Questions and answers ({n})" `type-h2` (`type-h3` in the split pane). Empty: the section is omitted; "Ask a question" lives in the Decision card.
+- Items are immutable: no edit or delete affordances ever.
+
+## 39. Side sheet (≥1024; extends §14 and §32)
+Decision sheets on desktop open from the right edge, so the request stays in view behind a light scrim and the sheet sits where the Decision card was.
+- **Frame:** `role="dialog"` `aria-modal="true"` `aria-labelledby` its h2. Anchored right, from under the app bar to the viewport bottom, width `size.modal-sm` (approve, undo, question, phone answer, category, not urgent, take-over approve) or `size.modal-md` (decline and reconsideration decline, which carry the preview), max `100vw - size.sidebar-collapsed`. `bg.surface-raised`, `shadow-lg`, left corners `radius-lg`. Scrim `bg.scrim` over the rest, click on scrim = Cancel (not for the undo sheet).
+- **Header:** h2 (`type-h2`) + request line "HAM #047 · Roof or ceiling" (`type-small`, `text.secondary`) + ✕ icon button (48×48, `aria-label="Close"`), padding `space-5`, bottom 1px `border.subtle` only while the body is scrolled.
+- **Body:** scrolls; padding `space-5`; fields `space-6` apart.
+- **Footer (sticky at the sheet bottom):** top 1px `border.default`, padding `space-4` / `space-5`. Consequence line (`type-small`, `text.primary`, `info` 16px icon) on its own row, then `[Cancel (Ghost)] … [Primary]` right-aligned (`justify-content: flex-end`, gap `space-3`).
+- **Motion:** enter slide from the right `space-8` + fade over `duration-base` `easing-enter`; exit `duration-fast` `easing-exit`; reduced motion = fade only (tokens already drop to 0ms).
+- **768–1023:** the same content as a centered modal (§14) at the same width, max-height 90vh, sticky footer.
+- **<768:** the §32 full-screen sheet: **no bottom nav** (the sheet covers it; z `--ham-z-sheet`), header ✕ left + title `type-h3`, body scroll, and the §22 action bar as footer. In the bar at ≥22em: the consequence line (`type-small`, max 2 lines) above `[Cancel (Ghost)] [Primary flex 1]`. **Under 22em** the consequence line and Cancel move into the flow as the last items of the body (Cancel as a full-width Ghost), and the bar holds **only the primary** (≤ 18% of the viewport). The body is a flex column with `flex: 1`, so on short sheets the bar is pinned to the viewport bottom.
+- **Focus:** on open, the h2 (`tabindex="-1"`); Tab order header ✕ → body fields → consequence → Cancel → Primary; Esc and ✕ return focus to the trigger button (or, after a successful record, to the Decision card h2).
+
+## 40. Urgent banner (`.urgent-banner`, formalizes step 2)
+App-wide, under the app bar, above the impersonation banner. One banner row at most: several items collapse into a count ("2 urgent requests need a pastor" + **Open list**).
+| Variant | Audience | Tone | Icon | Text | Actions | Dismiss |
+|---|---|---|---|---|---|---|
+| `--needs-pastor` | Pastors | `tone.danger` | `siren` | "Urgent request needs a pastor · HAM #048 Plumbing or water" | **Open** (Secondary sm) · **I've seen this** (Ghost sm) | Hides for this person only; returns on the next new urgent request. Clears for all when decided, certified or left for normal review |
+| `--approved` | Director, AD | `tone.danger` | `siren` | "Urgent request approved · HAM #048 Plumbing or water. Arrange the site visit." | **Open** · **Got it** | Must acknowledge (§10, Q-161): stays until **Got it** or Open |
+| `--undone` | Director, AD | `tone.attention` | `undo-2` | "The urgent approval of HAM #048 was undone by Pastor Ruth A. It's waiting for a decision again." | **Open** · **Got it** | Until Got it; replaces an unacknowledged `--approved` for the same request |
+- **Box:** `-bg` fill, bottom 1px `-border`, padding `space-3` / `space-4`, icon 24px in `-icon`, text `type-label` `text.primary` with the HAM # `nowrap`; actions wrap to their own row (`flex: 1 1 16em` text, `min-width: 0`, step-2 N5).
+- **Sticky** under the app bar at ≥22em. The banner sits in a slot that is a size container; under `22em` the banner is `position: static`, so at 200% text it scrolls away instead of eating the viewport.
+- **A11y:** `role="region"` `aria-label="Urgent"`; the first arrival is announced once through a separate polite live region, never by making the whole banner live.
+- Leadership only. Text never contains a name, address or circumstance (Q-132).

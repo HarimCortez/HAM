@@ -19,3 +19,13 @@
 - Requester field labels type-h3, helpers type-body (never type-small), inputs type-body-lg at control-lg.
 - L10 Close request uses the Danger button (only Danger in intake). R9 "Take a photo" is Secondary; Done is primary.
 - Icons: app uses hand-drawn Lucide-style symbols in ham/web/static/web/icons.svg; new icons must be added there.
+
+## v1.4 (step 3 approvals, 2026-09-29) — components only, tokens unchanged at 1.3.0
+- Spec: `design-system/screens/approvals.md`. Owner box in docs/ux/approvals.md + docs/architecture/approvals.md overrides both bodies (undo 30 min, 14-day window, Q-154 reason labels, "the requester" until reveal, change category Dir/AD only, one "Why approved (leaders only)" note on approval only, take-over = tick + decide in one sheet).
+- New components C§26a (requester chips: Approved=success circle-check, Not approved=neutral circle-x, Taking another look=info rotate-ccw, Closed=neutral ban), C§33 Decision card, C§34 Decision pair (Approve/Decline both Secondary, same icons colour; urgent = Primary "Approve as urgent" + Secondary Decline; Decline never Danger), C§35 quote block (figure/figcaption/blockquote, bg.sunken, left accent bar border.strong), C§36 message preview (dashed border.strong, requester type sizes, aria-live off), C§37 pending-decision notice (inline-alert--info + timer, absolute time, no ticking countdown), C§38 Q&A thread, C§39 side sheet (right, modal-sm/md, ≥1024), C§40 urgent banner variants (needs-pastor / approved must-ack / undone).
+- "Rejected · Final" = Rejected chip + reason line, never a new chip.
+- Undo lives in the Decision card + small confirm sheet, never in a toast (P§4 v1.4).
+- Requests split view 1280–1535 uses the sidebar RAIL; detail is a size container, two columns at 42em (main 1fr + size.aside), Decision card sticky only in two-column mode and when viewport height >= breakpoint.short.
+- <768: decision buttons rendered in card + sticky bar; under 22em a normal pair leaves the bar (no primary to keep), urgent keeps only the Primary. Sheets: consequence line + Cancel move into flow under 22em.
+- Requester R13: Send answer stays inside the card (no mirrored sticky bar for textarea cards). R16: "Not now" in the flow <1024, bar holds only the primary.
+- Open visual questions OQ-1..OQ-8 at the end of the spec (requester page during undo window, rail at 1280, etc.).
