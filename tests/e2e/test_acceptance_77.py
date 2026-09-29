@@ -15,7 +15,11 @@ CHECKLIST (update alongside the PRD trace table each time a step is implemented)
     3.  done     -- requests: submit with photos/video             (step 2 (Intake) slice;
         photo fully processed; video degrades to "processing_unavailable" in this sandbox,
         which has no ffmpeg/ffprobe installed -- see tests/media/test_processing.py)
-    4.  pending  -- requests: pastor/Board approval route          (needs: requests)
+    4.  done     -- requests: pastor/Board approval route          (real HTTP POSTs through
+        `request_approve`: pastoral route, Board route, and the urgent "Certify and approve"
+        one-step path; asserts the immediate, never-held `RequestUrgentApproval` alert to
+        Director/AD is PII-free and the held `RequestApproved` effects only release at
+        `effective_at`, approvals.md/approvals-contracts.md §4, Q-153/Q-160/Q-161/Q-176)
     5.  pending  -- projects: site assessment scheduling+complete  (needs: projects)
     6.  pending  -- projects: assessment captures skills/tools/... (needs: projects)
     7.  pending  -- projects: Director approves/refines scope      (needs: projects)
@@ -43,8 +47,12 @@ CHECKLIST (update alongside the PRD trace table each time a step is implemented)
         tests/authz + tests/audit, unchanged since step 1; PLUS, now that step 2 (Intake)
         gives it a real request to attach to, a request-scoped assertion in this file:
         actor+UTC time on every request.* AuditEvent, no PII in before/after/context/reason,
-        and project_id = request id from intake onward. Extend again, don't just mark done
-        again, once step 3 (projects) adds a real Project row.)
+        and project_id = request id from intake onward. PLUS (step 3, Approvals): the
+        decision actors themselves -- a real pastoral `request.approve`/`request.reject`
+        HTTP POST each get their own `request.approved`/`request.rejected` AuditEvent with
+        `actor_user_id` = the deciding pastor and no PII, including the rejection's own kind
+        message (Q-050). Extend again, don't just mark done again, once step 4 (projects)
+        adds a real Project row.)
     29. pending  -- ai: post-project report                        (needs: ai, reporting)
     30. pending  -- privacy: no unauthorized exposure end-to-end   (needs: all of the above;
         this step re-checks §68 threading through every module, not just step 1's slice --
@@ -431,8 +439,169 @@ class TestAcceptance77:
         assert "address" in match.reasons
         assert "email" not in match.reasons  # different emails: only phone/address matched
 
-    def test_04_pastor_or_board_approves(self):
-        _pending(4, "A pastor or Board route approves it.", "requests")
+    @pytest.mark.django_db(transaction=True)
+    def test_04_pastor_or_board_approves(self, client, run_due_jobs_now, make_user):
+        """PRD §77 step 4: "A pastor or Board route approves it." Real HTTP-driven (POSTs
+        through `ham/web/views_requests.py::request_approve`, the same view a browser hits),
+        not a service-layer shortcut, per approvals.md/approvals-contracts.md (owner box
+        Q-153-Q-161). Covers both routes plus the urgent path in one pass:
+          1. a normal pastoral-route approval;
+          2. a Board-route approval (Board rep records the Board's own decision);
+          3. an urgent request, "Certify and approve" in one step -- the held
+             `RequestApproved` fires only after `Approval.effective_at` runs
+             (approvals-contracts.md §4), while the immediate, never-held
+             `RequestUrgentApproval` alert reaches Director/AD's Inbox right away, PII-free
+             (§68/Q-132: HAM # + category only, never the distinctive requester identity).
+        """
+        from django.urls import reverse
+
+        from ham.identity.models import RoleAssignment, SharedIdentityProfile
+        from ham.notifications.models import Notification
+        from ham.platform import otp
+        from ham.platform.clock import now as clock_now
+        from ham.requester_portal.models import RequesterVerificationChallenge
+        from ham.requests.models import Approval, ApprovalOutcome, ApprovalRoute, AssistanceRequest
+        from ham.requests.states import RequestStatus
+
+        def _login(role: str, *, email: str, full_name: str):
+            user = make_user(email)
+            SharedIdentityProfile.objects.create(user=user, full_name=full_name)
+            RoleAssignment.objects.create(user=user, role=role, granted_at=clock_now())
+            c = client.__class__()
+            c.force_login(user)
+            session = c.session
+            session["ham_mfa_satisfied"] = True
+            session.save()
+            return c, user
+
+        def _submit_via_http(email: str, *, urgent: bool = False) -> AssistanceRequest:
+            c = client.__class__()
+            overrides = {"email": email}
+            _fill_and_submit_form(c, reaching_you_overrides=overrides)
+            if urgent:
+                # Re-post the "need" step with the urgency fields set, mirroring the R1-R6
+                # wizard's own field names (ham/web/views_requester.py).
+                need = _step_payload()["need"]
+                c.post(
+                    reverse("web:request_help_step", kwargs={"step": "need"}),
+                    {
+                        **need,
+                        "urgent_requested": "on",
+                        "urgency_reason": "water_or_damage",
+                        "urgency_justification": "It is getting worse every hour.",
+                    },
+                    follow=True,
+                )
+            mail.outbox.clear()
+            c.post(
+                reverse("web:request_help_step", kwargs={"step": "review"}),
+                {"attested_statements": ["owner_authority", "responsibility"]},
+                follow=True,
+            )
+            run_due_jobs_now()
+            challenge = RequesterVerificationChallenge.objects.get(
+                purpose="intake", email_key=otp.hash_value(email)
+            )
+            code = "".join(str((hash(email) + i) % 10) for i in range(6))
+            challenge.code_hash = otp.hash_value(code)
+            challenge.save(update_fields=["code_hash"])
+            c.post(reverse("web:request_help_verify"), {"code": code}, follow=True)
+            run_due_jobs_now()  # the duplicate-check job -> AWAITING_APPROVAL
+            request = AssistanceRequest.objects.get(requester__email=email)
+            assert request.status == RequestStatus.AWAITING_APPROVAL.value
+            return request
+
+        # --- 1. Pastoral route -----------------------------------------------------------
+        pastoral_request = _submit_via_http("step4.pastoral." + DISTINCTIVE_EMAIL)
+        pastor_client, pastor = _login(
+            "PASTOR", email="ruth.step4@example.org", full_name="Ruth Alvarez"
+        )
+        resp = pastor_client.post(
+            reverse("web:request_approve", args=[pastoral_request.id]), {"route": "pastoral"}
+        )
+        assert resp.status_code == 302
+        pastoral_request.refresh_from_db()
+        assert pastoral_request.status == RequestStatus.APPROVED.value
+        pastoral_approval = Approval.objects.get(request_id=pastoral_request.id)
+        assert pastoral_approval.route == ApprovalRoute.PASTORAL.value
+        assert pastoral_approval.outcome == ApprovalOutcome.APPROVED.value
+        assert pastoral_approval.decided_by_user_id == pastor.id
+
+        # --- 2. Board route ----------------------------------------------------------------
+        board_request = _submit_via_http("step4.board." + DISTINCTIVE_EMAIL)
+        board_client, board_rep = _login(
+            "BOARD_REPRESENTATIVE", email="samuel.step4@example.org", full_name="Samuel Okafor"
+        )
+        resp = board_client.post(
+            reverse("web:request_approve", args=[board_request.id]), {"route": "board"}
+        )  # board_decided_on omitted -- the service itself prefills "today" (Q-163)
+        assert resp.status_code == 302
+        board_request.refresh_from_db()
+        assert board_request.status == RequestStatus.APPROVED.value
+        board_approval = Approval.objects.get(request_id=board_request.id)
+        assert board_approval.route == ApprovalRoute.BOARD.value
+        assert board_approval.decided_by_user_id == board_rep.id
+
+        # --- 3. Urgent: "Certify and approve" in one step (§10, Q-160/Q-161) --------------
+        urgent_request = _submit_via_http("step4.urgent." + DISTINCTIVE_EMAIL, urgent=True)
+        urgent_request.refresh_from_db()
+        director_client, director = _login(
+            "HAM_DIRECTOR", email="marcus.step4@example.org", full_name="Marcus Bell"
+        )
+        _login("ASSISTANT_DIRECTOR", email="andre.step4@example.org", full_name="Andre Whitfield")
+        resp = pastor_client.post(
+            reverse("web:request_approve", args=[urgent_request.id]),
+            {"route": "pastoral", "mode": "urgent"},
+        )
+        assert resp.status_code == 302
+        urgent_approval = Approval.objects.get(request_id=urgent_request.id)
+        assert urgent_approval.urgent_approval is True
+        # `transaction=True` (real commits) is required for this test so the outbox's
+        # `transaction.on_commit`-deferred dispatch (`ham/outbox/api.py::emit`) actually
+        # enqueues a job at all -- under the ordinary rolled-back `django_db` transaction the
+        # other §77 steps use, `on_commit` callbacks never fire, so nothing would ever be
+        # there for `run_due_jobs_now` to find.
+        run_due_jobs_now()
+
+        # The urgent-approval alert to Director/AD is never held (approvals-contracts.md §4):
+        # it must already be in the Inbox right now, before the undo window/held-effects job
+        # ever runs, and it must never leak the distinctive requester identity.
+        director_notices = Notification.objects.filter(
+            recipient_user_id=director.id, kind__icontains="urgent"
+        )
+        assert director_notices.exists(), "Director got no immediate urgent-approval alert"
+        for notice in director_notices:
+            assert DISTINCTIVE_NAME not in notice.title
+            assert "step4.urgent" not in notice.title
+            assert urgent_request.display_number in notice.title
+
+        # `request.status` itself moves to APPROVED synchronously, inside the deciding
+        # command's own transaction -- only the *outbox* `RequestApproved` event (and the
+        # side effects that ride on it: the requester email, closing photo batches,
+        # withdrawing open questions, the "decision" in-app update to other leaders) is held
+        # until `Approval.effective_at` (approvals-contracts.md §4). `RequestUrgentApproval`
+        # above is the one, deliberately different, exception to that hold.
+        urgent_request.refresh_from_db()
+        assert urgent_request.status == RequestStatus.APPROVED.value
+        from ham.outbox.models import OutboxEvent
+
+        assert not OutboxEvent.objects.filter(
+            event_type="RequestApproved", aggregate_id=urgent_request.id
+        ).exists(), "RequestApproved must stay held until effective_at, not fire at decide time"
+
+        # The actual release is a Procrastinate job row scheduled for exactly
+        # `Approval.effective_at` and only `run_due_jobs_now` picks it up once real wall-clock
+        # time (`WHERE scheduled_at <= now()`, `ham/jobs/__init__.py`) reaches it -- a
+        # `FixedClock` in this Python process can't move Postgres's own `now()`. This mirrors
+        # `tests/requests/test_s32_decisions.py::TestHeldEffects`'s own pattern: call the
+        # held-effects function directly, the same body the deferred job itself runs at
+        # `effective_at`, rather than trying to fast-forward Postgres's clock.
+        from ham.requests.services_decisions import run_held_decision_effects
+
+        run_held_decision_effects(urgent_approval.id)
+        assert OutboxEvent.objects.filter(
+            event_type="RequestApproved", aggregate_id=urgent_request.id
+        ).exists()
 
     def test_05_site_assessment_scheduled_and_completed(self):
         _pending(5, "HAM schedules and completes mandatory site assessment.", "projects")
@@ -517,7 +686,9 @@ class TestAcceptance77:
             "reporting",
         )
 
-    def test_28_audit_records_every_consequential_actor(self, client, mailbox, run_due_jobs_now):
+    def test_28_audit_records_every_consequential_actor(
+        self, client, mailbox, run_due_jobs_now, make_user
+    ):
         """PRD §77 step 28: "The audit trail records every consequential actor." Generic
         step-1 coverage (`tests/authz/test_commands.py`, `tests/authz/test_expected_matrix.py`,
         `tests/audit/test_command_registry.py`) already proves every `@command` site is
@@ -572,6 +743,96 @@ class TestAcceptance77:
             # intake.md: project_id = request id from intake onward, even pre-Project.
             if event.action in {"request.submitted", "request.status_changed"}:
                 assert event.project_id == request.id
+
+        # --- step 3 (Approvals) extension: the decision actors themselves. Not "re-marking
+        # done" -- a genuinely new assertion, per the module docstring's own instruction,
+        # now that step 3 gives this harness a real decider to check (still pending the
+        # matching *Project*-stage extension once step 4/projects lands). Covers a pastoral
+        # approval and a rejection, both real HTTP POSTs, and both actors must show up with
+        # their own `actor_user_id`, never a PII value, and the rejection's kind message must
+        # never leak into audit rows either (Q-050). ---
+        from ham.identity.models import RoleAssignment, SharedIdentityProfile
+
+        pastor = make_user("ruth.step28@example.org")
+        SharedIdentityProfile.objects.create(user=pastor, full_name="Ruth Step28")
+        RoleAssignment.objects.create(
+            user=pastor, role="PASTOR", granted_at=dt.datetime.now(dt.UTC)
+        )
+        approve_client = client.__class__()
+        approve_client.force_login(pastor)
+        session = approve_client.session
+        session["ham_mfa_satisfied"] = True
+        session.save()
+        resp = approve_client.post(
+            reverse("web:request_approve", args=[request.id]), {"route": "pastoral"}
+        )
+        assert resp.status_code == 302
+
+        decision_events = list(
+            AuditEvent.objects.filter(
+                target_id=str(request.id), target_type="request", action="request.approved"
+            )
+        )
+        assert decision_events, "no request.approved AuditEvent for the pastoral decision"
+        for event in decision_events:
+            assert event.actor_type == "user"
+            assert event.actor_user_id == pastor.id
+            assert event.occurred_at.tzinfo is not None
+            assert event.occurred_at.utcoffset() == dt.timedelta(0)
+            for blob in (event.before, event.after, event.context, event.reason):
+                text = str(blob)
+                assert DISTINCTIVE_NAME not in text
+                assert DISTINCTIVE_STREET not in text
+                assert DISTINCTIVE_PHONE not in text
+                assert step28_email not in text
+            assert event.project_id == request.id
+
+        # A second, freshly submitted request, declined this time -- the rejection message
+        # itself (a **C** field, Q-050) must never appear in audit `before`/`after` either.
+        step28_reject_email = "step28-reject." + DISTINCTIVE_EMAIL
+        _fill_and_submit_form(client, reaching_you_overrides={"email": step28_reject_email})
+        client.post(
+            reverse("web:request_help_step", kwargs={"step": "review"}),
+            {"attested_statements": ["owner_authority", "responsibility"]},
+            follow=True,
+        )
+        run_due_jobs_now()
+        reject_challenge = RequesterVerificationChallenge.objects.get(
+            purpose="intake", email_key=otp.hash_value(step28_reject_email)
+        )
+        reject_challenge.code_hash = otp.hash_value("445566")
+        reject_challenge.save(update_fields=["code_hash"])
+        client.post(reverse("web:request_help_verify"), {"code": "445566"}, follow=True)
+        run_due_jobs_now()
+        reject_request_row = AssistanceRequest.objects.get(requester__email=step28_reject_email)
+
+        distinctive_reject_message = "This is a kind but distinctive decline sentence for §77."
+        resp = approve_client.post(
+            reverse("web:request_reject", args=[reject_request_row.id]),
+            {
+                "route": "pastoral",
+                "reason_code": "couldnt_confirm",
+                "message": distinctive_reject_message,
+            },
+        )
+        assert resp.status_code == 302
+
+        reject_events = list(
+            AuditEvent.objects.filter(
+                target_id=str(reject_request_row.id),
+                target_type="request",
+                action="request.rejected",
+            )
+        )
+        assert reject_events, "no request.rejected AuditEvent for the pastoral decline"
+        for event in reject_events:
+            assert event.actor_type == "user"
+            assert event.actor_user_id == pastor.id
+            for blob in (event.before, event.after, event.context, event.reason):
+                text = str(blob)
+                assert distinctive_reject_message not in text
+                assert DISTINCTIVE_NAME not in text
+                assert step28_reject_email not in text
 
     def test_29_ai_generates_post_project_report(self):
         _pending(29, "AI generates post-project report.", "ai, reporting")

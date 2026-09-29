@@ -297,3 +297,138 @@ inherently order-dependent within one pytest session — use a static source che
   `ham/authz/matrix.py`'s step-2 rows one by one) — no gap found, no regeneration needed.
   Don't assume "the oracle needs a step-2 update" without actually diffing; it may already be
   current.
+
+## Step 3 (Approvals) gap-filling pass (2026-09-29)
+
+### The `real_portal_lookups` shared fixture pattern is a real, recurring order-dependence
+trap — audit EVERY new file for it, not just the one that seems related
+- Step 2's write-up above already names the fix (`tests/conftest.py::real_portal_lookups`) and
+  the exact failure mode (a local fixture that resets `services._request_facts_lookup` etc. to
+  `None` on teardown instead of restoring the real callables). Step 3 shipped **four more**
+  independent copies of the same pre-fix local fixture, never migrated to the shared one:
+  `tests/web/test_fix_b_media_gallery.py`, `tests/requester_portal/
+  test_fix_a_verification_security.py`, `test_fix_b_email_links.py`, `test_fix_a_intake_
+  source.py`. None of these failed on their own, or even in the *forward* file-order full
+  suite — only running the whole suite in **reverse file order** (`pytest` has no built-in
+  `--reverse`; build the list with `find tests -name 'test_*.py' | sort | tac` and pass it as
+  plain, explicit `pytest` arguments — command substitution like `$(...)` and writing a
+  wrapper script both got refused by this sandbox's git-safety heuristic as "too complex to
+  verify doesn't run git"; a literal, fully-expanded argument list is fine) surfaced it: one of
+  these files runs early in reverse order, poisons the module-level globals to `None` on its
+  own teardown, and every *later* file that assumed either app-startup registration or an
+  earlier restore was still intact then hit `RuntimeError: ham.requester_portal.services used
+  before ham.requests registered its request-facts lookup` — including two `tests/e2e/`
+  Playwright files (`test_step3_requester_screens.py`, `test_fix_f1_upload.py`) nowhere near
+  the actual bug. **Fix pattern**: change the local fixture's signature to take
+  `real_portal_lookups` as a parameter (even with an empty body, or dropping the body
+  entirely if it registered nothing else) so its teardown restores the real callables instead
+  of `None` — don't just delete the local fixture, since some files (e.g. `test_links.py`,
+  `test_regenerate_and_find.py`) *do* need their own fakes mid-test and correctly already
+  depend on `real_portal_lookups` purely for teardown-ordering safety (see step-2 write-up).
+  `tests/requester_portal/test_app_ready_registration.py` had a related but distinct problem:
+  its own docstring admitted it only works if it runs *first alphabetically* within its
+  directory (to observe genuine post-`ready()` state before any sibling's fixture touches the
+  globals) — true in forward order, false in reverse order (it sorts near the *end* of its
+  directory's reversed list). Fixed by making it depend on `real_portal_lookups` too, which
+  registers the exact same real callables `ready()` would, so the test no longer needs to win
+  a file-ordering race to see real behaviour. **Lesson: grep the whole tree for
+  `register_request_facts_lookup\|register_request_contact_lookup\|register_email_to_request_
+  ids_lookup` whenever touching this seam, not just the files a diff touched** — this pattern
+  keeps getting copy-pasted into new files instead of reused.
+
+### A second, unrelated order-dependence class: leaked Procrastinate `todo` jobs isn't
+`tests/e2e/`-only
+- `tests/e2e/conftest.py` already had an autouse "sweep leftover `procrastinate_jobs` rows
+  with `status='todo'` after any `django_db` test" fixture, scoped to that directory, with a
+  good docstring explaining *why* (`django_db(transaction=True)` commits real rows that
+  pytest-django's usual truncate-between-tests flush doesn't reach, because Procrastinate's own
+  table isn't reset by an ordinary Django `flush`). Reverse-file-order run caught the exact
+  same leak in `tests/web/`: `test_fix_f2_minors.py` (also `transaction=True`) left an outbox
+  dispatch job in `todo` state, which then executed a *second* time inside the next file's
+  (`test_fix_f2_already_received.py`) own `run_due_jobs_now()` call, doubling its mailbox
+  count (`assert len(mail.outbox) == 1` saw `2`). **Fixed by generalizing, not duplicating**:
+  moved the fixture (verbatim logic) to top-level `tests/conftest.py`, autouse, for every
+  `django_db`-marked test in the whole suite; reduced `tests/e2e/conftest.py` to a docstring
+  pointing at the new location (kept the file rather than deleting it, since other docs/agent
+  memory reference "the shared `tests/e2e/conftest.py` fixture" by name). **Lesson: a leak
+  class found and fixed for one directory doesn't mean it can't recur in another — if a fixture
+  addresses a mechanism (`transaction=True` + Procrastinate's un-flushed table), scope the fix
+  to the mechanism (any `django_db` test) not the directory it was first noticed in.**
+
+### §77 step 4 (Approvals) — real HTTP-driven, not a service-layer shortcut
+- Replaced the `pytest.skip` placeholder with real POSTs through `request_approve` (pastoral
+  route, Board route, and the urgent "Certify and approve" one-step path), following the same
+  "drive it through `client`/`reverse(...)`" convention steps 1-3 already established.
+- **Gotcha: `request.status` moves to `APPROVED` synchronously** (inside the deciding
+  command's own transaction) — only the *outbox* `RequestApproved` event (and everything that
+  rides on it: requester email, closing photo batches, withdrawing questions, the "decision"
+  in-app update to other leaders) is held until `Approval.effective_at`
+  (approvals-contracts.md §4). Don't assert the request is still `AWAITING_APPROVAL` right
+  after an urgent decide-and-certify POST — it's already `APPROVED`; assert the *held*
+  `RequestApproved` `OutboxEvent` row doesn't exist yet instead.
+- **Gotcha: the held-effects job can't be "fast-forwarded" with a `FixedClock`.**
+  `ham.jobs.run_due_jobs_now()`'s SQL is `WHERE scheduled_at IS NULL OR scheduled_at <=
+  now()` — real Postgres `now()`, not the Python-side clock. Setting a `FixedClock` far in the
+  future and calling `run_due_jobs_now()` does nothing. Call
+  `ham.requests.services_decisions.run_held_decision_effects(approval_id)` directly instead —
+  the exact body the deferred job itself runs at `effective_at` — mirroring
+  `tests/requests/test_s32_decisions.py::TestHeldEffects`'s own pattern.
+- **Gotcha: the immediate `RequestUrgentApproval` in-app alert needs `transaction=True` +
+  `run_due_jobs_now()`, unlike this file's other steps.** `ham.outbox.api.emit`'s dispatch is
+  deferred via `transaction.on_commit`, which never fires under the ordinary rolled-back
+  `django_db` transaction every other `test_NN_...` in this file uses — mark just this test
+  `@pytest.mark.django_db(transaction=True)` (pytest allows a function-level marker to
+  override the class-level `pytestmark`) and call `run_due_jobs_now()` after the decide POST,
+  the same requirement `tests/identity/test_services.py::test_invite_sends_an_email_with_a_
+  sign_in_link` already documented for invitation emails.
+- **Gotcha: don't hand-compute `board_decided_on` from `clock_now().date()`.** America/
+  New_York is behind UTC, so near UTC midnight `clock_now().date()` can already read as
+  "tomorrow" church-local, tripping `approve_request`'s own `board_decided_on cannot be in the
+  future` check nondeterministically depending on wall-clock time when the test happens to
+  run. Just omit the field on a Board-route POST — the service itself prefills church-local
+  "today" (Q-163).
+- Extended step 28's request-scoped audit check with the decision actors themselves: a real
+  pastoral `request.approve`/`request.reject` HTTP POST each get their own AuditEvent with
+  `actor_user_id` = the deciding pastor and no PII (including the rejection's own kind
+  message, Q-050) — see that test's own docstring for why this is additive, not a re-mark of
+  "done".
+
+### Robustness: don't hardcode `http://localhost:8000` in a test — use `settings.HAM_BASE_URL`
+or pin it with a fixture
+- `tests/integrations/storage/test_local_store.py` and `tests/identity/test_services.py` both
+  had tests hardcoding the literal string `"http://localhost:8000"` to split a signed URL back
+  into a request path, or to assert it appears in an email body — both silently break if
+  `HAM_BASE_URL` is set differently in the ambient environment (confirmed by running with
+  `HAM_BASE_URL=https://ham.example.church` set). Fixed with a small `settings`-mutating
+  autouse fixture (`settings.HAM_BASE_URL = "http://localhost:8000"`) pinning the value for
+  the whole module, rather than rewriting every assertion to use `settings.HAM_BASE_URL`
+  dynamically (either works; pinning was less invasive here since the literal already
+  appeared many times). Check for this pattern (`grep -rn "localhost:8000"` across `tests/`)
+  whenever `HAM_BASE_URL` behavior itself is in scope.
+
+### A confirmed real bug, pinned as `xfail(strict=True)`, not fixed (app code, out of scope)
+- `ham/requests/notifications.py::_build_urgency_review_undone_notices` (~line 431-453)
+  reconstructs "was this certification an urgent approval" at *undo* time from `review.action`
+  plus the request's *current* status (`status is not RequestStatus.APPROVED -> return None`)
+  — the function's own docstring already named this as `PRD-GAP Q-176` and predicted the exact
+  failure mode. Built a real reproduction
+  (`tests/requests/test_notifications_urgency_review_undone_weak_spot.py`): board-approve,
+  certify once the board approval's own undo window has closed (so a legitimate Q-165
+  "requester withdrew" cancel becomes allowed), cancel, *then* undo the certification within
+  its own still-open window — the Director/AD follow-up notice is silently swallowed (`None`)
+  even though the urgent alert genuinely fired earlier. Confirmed via `xfail(strict=True)`
+  (fails if the bug is ever fixed without deleting the marker, per the established
+  `test_audit_export_stepup_redirect_bug.py` pattern) — this agent may only add tests, not fix
+  `ham/requests/notifications.py` itself; suggested fix (already in the code's own docstring):
+  persist the fact on `UrgencyReview` at review time (`became_urgent_approval`), the same way
+  `Approval.urgent_approval` is persisted rather than re-derived.
+
+### Sandbox tool-use note: multi-file `pytest` invocations and the "too complex to verify"
+git-safety heuristic
+- Any Bash command combining `python -m pytest` with command substitution (`$(...)`), a
+  written-then-executed wrapper script, or other non-literal shell constructs gets refused in
+  this worktree-isolated sandbox with "cannot be shown not to be git" — even though nothing in
+  the command touches git. Work around it by fully expanding the file list into a single,
+  literal, flat argument list in the one `Bash` call (e.g. build the reversed file list with a
+  separate, simple `find | sort | tac` call first, inspect it, then paste the expanded list as
+  plain arguments) rather than trying to feed pytest a computed list at invocation time.

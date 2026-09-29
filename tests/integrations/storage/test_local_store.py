@@ -12,6 +12,20 @@ from django.test import Client, override_settings
 
 from ham.integrations.storage.local import LocalObjectStore
 
+# Robustness (test-engineer pass, step 3): every test below that builds a presigned URL and
+# then strips a base URL back off it to get a request `path` must strip the *same* base the
+# view will actually be served under, or it silently mis-splits (or errors) whenever
+# `HAM_BASE_URL` differs from the code default -- e.g. a developer's shell exporting
+# `HAM_BASE_URL` for local Playwright/manual testing before running `pytest`. Pinning it here,
+# module-wide, makes every test in this file independent of the ambient environment rather
+# than each test hardcoding the literal string by hand.
+pytestmark = pytest.mark.usefixtures("_pin_ham_base_url")
+
+
+@pytest.fixture
+def _pin_ham_base_url(settings):
+    settings.HAM_BASE_URL = "http://localhost:8000"
+
 
 @pytest.fixture
 def store(tmp_path, settings):

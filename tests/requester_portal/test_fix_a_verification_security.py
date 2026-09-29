@@ -21,7 +21,6 @@ from ham.platform import otp
 from ham.platform.clock import FixedClock, set_clock
 from ham.requester_portal import drafts, services, verification
 from ham.requester_portal.models import RequesterVerificationChallenge
-from ham.requests import queries as requests_queries
 from ham.requests.models import Requester
 from ham.rules import RULES
 
@@ -38,18 +37,13 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture(autouse=True)
-def _real_portal_lookups():
-    def _facts_lookup(request_id: uuid.UUID) -> services.RequestLinkFacts:
-        facts = requests_queries.request_facts_for_portal(request_id)
-        return services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
-
-    services.register_request_facts_lookup(_facts_lookup)
-    services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
-    services.register_email_to_request_ids_lookup(requests_queries.request_ids_for_portal_email)
-    yield
-    services._request_facts_lookup = None  # noqa: SLF001
-    services._request_contact_lookup = None  # noqa: SLF001
-    services._email_to_request_ids_lookup = None  # noqa: SLF001
+def _real_portal_lookups(real_portal_lookups):
+    """Order-dependence fix (test-engineer pass, step 3): used to re-register its own copy of
+    the real lookups and reset the globals to `None` on teardown rather than restoring them --
+    confirmed (running the suite in reverse file order) to leak a `RuntimeError` into later,
+    unrelated files. Depending on the shared `tests/conftest.py::real_portal_lookups` fixture
+    keeps this file's own behavior identical (same real callables) while its teardown
+    restores them instead of `None`."""
 
 
 def _base_payload(**overrides) -> dict:

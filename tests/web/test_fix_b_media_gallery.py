@@ -25,29 +25,22 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _real_portal_lookups():
-    """Some sibling test modules register fakes for `ham.requester_portal.services`'s
-    cross-app lookups and reset the globals to `None` on teardown rather than restoring the
-    real ones (see `tests/requester_portal/test_notifications.py`'s identical fixture) -- this
-    module calls `ham.requester_portal.services.issue_link` directly (N11's secure-page
-    tests), so it can't rely on `RequesterPortalConfig.ready()`'s startup registration still
-    being in place when the full suite runs."""
-    from ham.requester_portal import services as portal_services
-    from ham.requests import queries as requests_queries
-
-    def _facts_lookup(request_id):
-        facts = requests_queries.request_facts_for_portal(request_id)
-        return portal_services.RequestLinkFacts(status=facts.status, closed_at=facts.closed_at)
-
-    portal_services.register_request_facts_lookup(_facts_lookup)
-    portal_services.register_request_contact_lookup(requests_queries.request_contact_for_portal)
-    portal_services.register_email_to_request_ids_lookup(
-        requests_queries.request_ids_for_portal_email
-    )
-    yield
-    portal_services._request_facts_lookup = None  # noqa: SLF001 - test isolation
-    portal_services._request_contact_lookup = None  # noqa: SLF001
-    portal_services._email_to_request_ids_lookup = None  # noqa: SLF001
+def _real_portal_lookups(real_portal_lookups):
+    """Order-dependence fix (test-engineer pass, step 3): this module used to register its
+    *own* copy of the real lookups and reset the globals to `None` on teardown rather than
+    restoring them -- exactly the pre-shared-fixture pattern `tests/conftest.py::
+    real_portal_lookups`'s own docstring describes and was written to replace (a `None`
+    teardown is only safe if this happens to be the *last* portal-touching test to run in the
+    process; running the suite in reverse file order confirmed it is not: this file sits
+    early in `tests/web/`'s reverse order and its `None` teardown poisoned every later file
+    that assumed the app-startup registration, or an earlier file's own restore, was still
+    intact -- `tests/e2e/test_step3_requester_screens.py` and `tests/e2e/test_fix_f1_
+    upload.py` both failed with `RuntimeError: ham.requester_portal.services used before
+    ham.requests registered its request-facts lookup` as a direct result). This module calls
+    `ham.requester_portal.services.issue_link` directly (N11's secure-page tests), so it still
+    can't rely on `RequesterPortalConfig.ready()`'s startup registration alone -- depending on
+    the shared fixture keeps that guarantee while also restoring the real callables on
+    teardown instead of `None`."""
 
 
 def _requester_ctx():

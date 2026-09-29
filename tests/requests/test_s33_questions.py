@@ -44,6 +44,23 @@ from .conftest import actor_ctx, make_payload, no_email_payload
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def _real_portal_lookups(real_portal_lookups):
+    """Order-dependence fix (test-engineer pass, step 3): `_resolve_context` below calls
+    `ham.requester_portal.services.issue_link`, which needs the real
+    `ham.requests`-registered lookup globals (`register_request_facts_lookup` et al.,
+    normally wired once at `RequesterPortalConfig.ready()`). This file used to rely on
+    another test file registering them first purely by import-time luck -- confirmed by
+    running the whole suite in reverse file order (per `tests/e2e/conftest.py`'s own
+    "leaked Procrastinate jobs" note and `.claude/agent-memory/ham-test-engineer/
+    conventions.md`'s step-2 write-up of this *exact* failure mode): with `tests/requests/
+    test_s33_questions.py` running before any `tests/requester_portal/*` file, every test
+    here raised `RuntimeError: ham.requester_portal.services used before ham.requests
+    registered its request-facts lookup`. Depending on the shared `real_portal_lookups`
+    fixture (`tests/conftest.py`) makes this file's own tests independent of what ran
+    before them, per that fixture's own documented usage pattern."""
+
+
 def _make_request(requester_ctx):
     return submit_request(
         requester_ctx,
