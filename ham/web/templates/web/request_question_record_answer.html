@@ -19,29 +19,26 @@
       </div>
     {% endif %}
 
-    <figure class="quote-block">
-      <figcaption>{{ asked_by }} asked &middot; {{ question.asked_at|church_time }}</figcaption>
-      <blockquote>{{ question.question }}</blockquote>
-    </figure>
-
-    {% if revealed %}
-      <div class="masked-block masked-block--revealed">
-        <p>{{ revealed.full_name }}</p>
-        <p>
-          <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
-          <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
-        </p>
-      </div>
-    {% else %}
-      {% comment %}Security M4: an explicit tap, never on GET.{% endcomment %}
-      <form method="post">
-        {% csrf_token %}
-        <button class="btn btn--secondary" type="submit" name="show_contact" value="1">Show contact details</button>
-      </form>
-    {% endif %}
-
     <form method="post">
       {% csrf_token %}
+      <figure class="quote-block">
+        <figcaption>{{ asked_by }} asked &middot; {{ question.asked_at|church_time }}</figcaption>
+        <blockquote>{{ question.question }}</blockquote>
+      </figure>
+
+      {% if revealed %}
+        <div class="masked-block masked-block--revealed">
+          <p>{{ revealed.full_name }}</p>
+          <p>
+            <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+            <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+          </p>
+        </div>
+      {% else %}
+        {% comment %}Security M4: an explicit tap, never on GET.{% endcomment %}
+        <button class="btn btn--secondary" type="submit" name="show_contact" value="1" formnovalidate>Show contact details</button>
+      {% endif %}
+
       <div class="form-field">
         <label for="id_answer">What did they say?</label>
         <textarea id="id_answer" name="answer" rows="4" maxlength="{{ max_chars }}" required>{{ answer }}</textarea>

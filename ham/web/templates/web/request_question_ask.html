@@ -19,15 +19,15 @@
       </div>
     {% endif %}
 
-    {% if open_question %}
-      <div class="inline-alert inline-alert--info">
-        <p>A question is already open on {{ request_row.display_number }} and hasn't been answered yet.</p>
-        <figure class="quote-block"><blockquote>{{ open_question.question }}</blockquote></figure>
-      </div>
-    {% endif %}
-
     <form method="post">
       {% csrf_token %}
+      {% if open_question %}
+        <div class="inline-alert inline-alert--info">
+          <p>A question is already open on {{ request_row.display_number }} and hasn't been answered yet.</p>
+          <figure class="quote-block"><blockquote>{{ open_question.question }}</blockquote></figure>
+        </div>
+      {% endif %}
+
       <div class="form-field">
         <label for="id_question">What would you like to ask the requester?</label>
         <p class="form-field__help">One clear question works best. The requester sees exactly what you write. Don't include anyone else's details. Need photos? Use Ask for more photos instead.</p>

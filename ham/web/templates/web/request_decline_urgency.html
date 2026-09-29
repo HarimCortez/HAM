@@ -11,11 +11,11 @@
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Not urgent: leave for normal review</h1>
     <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
-    <p>{{ request_row.display_number }} will stay with the pastors and Board as a normal request.
-      The Urgent label comes off and it moves into the normal order. The requester's page
-      switches to the normal wording. No one is emailed.</p>
     <form method="post">
       {% csrf_token %}
+      <p>{{ request_row.display_number }} will stay with the pastors and Board as a normal request.
+        The Urgent label comes off and it moves into the normal order. The requester's page
+        switches to the normal wording. No one is emailed.</p>
       <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
