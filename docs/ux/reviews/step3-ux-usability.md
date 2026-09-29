@@ -296,3 +296,61 @@ Totals: **2 Blockers, 15 Majors, 20+ Minors.**
 - **ham-privacy-security-reviewer:** M14 (automatic reveals), B2 (effects inside the undo window), m10 (impersonation and category change).
 - **ham-prd-guardian:** M4 (Q-164), m10 (Q-172), M6 (D2 email body content), and M10 (the Board date dropped on reconsideration).
 - **ham-ui-designer:** m13 (the two-column detail at 1280), M15 (the Decision card order at 200% text), m23 (two Primary buttons).
+
+---
+
+## Re-check at 089473e
+
+Reviewer: ham-ux-designer · 2026-09-29 · after FIX-3A (logic) and FIX-3B (screens).
+Walked again as Ruth, Samuel, Marcus, Doris and Mrs. Hall against the templates, views, email builders and `docs/ux/screenshots/step3/`.
+
+**Screenshot caveat:** `leader-decline-sheet-390.png` still shows "ask us to reconsider, once, within the next 14 days". That string no longer exists in `request_reject.html`, so this screenshot was not regenerated. The other screenshots match the current templates.
+
+**Result:** 1 Blocker is still open (B1, partly fixed). 6 Majors are fixed, 7 are partly fixed and 3 are not fixed. There are 2 new Majors.
+
+### Blockers and Majors
+
+| ID | Verdict | Evidence |
+|---|---|---|
+| B1 | **Partially fixed. Still a Blocker.** | Fixed: the card (`attention.py:246-263`), the service (`services_decisions.py:795-800`) and the Decision card (`views_requests.py:389-451`) now use the latest live approval at either stage. The A9 "already told by phone" tick exists (`request_reconsideration_decide.html:91-96`). **Still open:** the A11 view still loads only `stage=INITIAL` (`views_requests.py:1602-1608`). As a result, after a reconsideration *approves*, Marcus's script (`request_decision_phoned.html:18-24`) reads the first decline plus "You can ask us to reconsider once, until …". After a final decline, it reads the first message and an expired reconsider offer. Mark as told now succeeds, so he records that he gave Mrs. Hall the wrong news. |
+| B2 | Fixed | `attention.py:262` (`effective_at <= now`); `views_requests.py:443` (`window_closed`); the service refuses inside the window (`services_decisions.py:808-809`). During the window, Dir/AD see the pending line (`_decision_card.html:143-146`). |
+| M1 | Partially fixed | The tab keys are correct (`attention.py:91,125,137,241,272,304`), so the cards no longer land on the wrong tab. Not done: a card with a count of 1 still doesn't deep-link to the request. "Call to share a decision" lands on the whole Decided tab, and no row shows which request needs the call (see N2), so Marcus has to open each row to find it. |
+| M2 | Fixed (Minor residue) | `pending` is now computed for every viewer (`views_requests.py:402`). Non-deciders see the read-only line (`_decision_card.html:138-146`). "Next: site assessment", Ask a question and Change category are hidden while the decision is pending (`:180`, `:204`; `views_requests.py:509-513`). Residue: the caption still reads "What we told the requester" while the email is held (`_decision_card.html:151`). |
+| M3 | Fixed | `request_approve.html:82,86` now say "The HAM Director and Assistant Director". |
+| M4 | Fixed | Nothing is preselected (`request_approve.html:39-40`, `request_reject.html:30-31`, `views_requests.py:1146`). A missing route is refused with a 422 (`:1074-1088`, `:1268-1270`). Minor: the Board date field still shows for both routes rather than only for "The Board's decision" (`request_approve.html:55-61`, `request_reject.html:34-37`). |
+| M5 | Fixed | A "Replace or keep mine" prompt (`request_reject.html:59-64`), and the message is overwritten only when it is still clean (`:124-138`). Minor: after a 422 re-render, `lastPrefill` holds her own posted text (`:112`), so the next reason change overwrites it without asking. |
+| M6 | Partially fixed | E10 now uses `decline_outcome_text` (`requester_portal/notifications.py:388-396`), which adds "once", the real date and the phone line (`presentation.py:211-223`). **However, the A3 preview is still hand-written** (`request_reject.html:75-82`) **and has already drifted:** it promises "We know this isn't the answer you hoped for.", and the email doesn't contain that line. Also still missing: the pointer "Ask us to reconsider is on your request page", E13's "Your request page stays open until {date}", and the fix for the double punctuation in `Here's why: "…".` (`presentation.py:208`, `:222`). **Judgement on FIX-3A's note:** not calling the shared builder is not a technicality. The drift it risks has already happened. Fix: have `decline_outcome_text` return parts (`opening`, `message`, `closing`), include the sympathy line in `closing`, and render the preview from those parts. JS then swaps only the message. |
+| M7 | Partially fixed | Posted values now come back on A2 (`views_requests.py:1076-1088`), A3 (`:1308-1321`), A9 (`:1465-1546`), A4 (`:1702-1703`), A5 (`:1752`) and A12 (`:1587`). A3 validates the Board date inline (`:1283-1290`). Still open: A2 and A9 don't check for a future Board date inline (A9 only checks `is None`, `:1498`). The service refuses it, `_decision_error_redirect` (`:976-992`) runs, and the typed reason is lost. The A13 message still doesn't say who decided or when, and offers no "See what you wrote" (`:985-989`). A2 doesn't re-check `told_by_phone` on re-render (`request_approve.html:73`). |
+| M8 | Not fixed | `requester-questions.js:58-60` still clears storage on submit. `views_requester.py:1136-1138` still sends empty, too-long and failed answers to the same "It's still here" message (`r10_secure_page.html:105-108`), and the textarea still has no `required` (`:114-116`). Doris is still told her answer is saved when the box is empty. |
+| M9 | Partially fixed | Declining now clears the pastors' banner (`services_decisions.py:332-334`, `notifications.py:278-285`). Undoing an urgent approval clears the Dir/AD banner and restores the pastors' banner (`notifications.py:463,476,495,508,512-539`). Gap: undoing a **decline** of an urgent request restores nothing, because `_build_decision_undone_notices` returns early when `urgent_approval_emitted` is false (`:457`). The request is back to urgent and awaiting a pastor, but no pastor sees the banner. Fix: restore the pastors' banner on any undo that leaves the request `AWAITING_APPROVAL` + `AWAITING_CERTIFICATION`. |
+| M10 | Partially fixed | The heading is fixed (`request_reconsideration_decide.html:18-24`). The Board date is now passed through (`views_requests.py:1497,1511`). The "This is final" line is present (`:86-88`). Still missing: decline mode has no reason prefill, no helper text and no preview of the final wording (`:70-89`). The prefills are in the context (`views_requests.py:1536`) but no script uses them. This is the last message Doris receives. |
+| M11 | **Not fixed** | `request_decision_undo.html:22` still always says "Nothing has been sent to the requester. Their email is cancelled." **Judgement on FIX-3A's note:** this remains a Major. The "I've already told them by phone" tick now exists on A2, A3 and A9, so this path is real. If Ruth ticks it and then undoes, she is told nothing reached the requester, but Mrs. Hall already has the wrong news. The new decision's phone card won't appear until someone decides again, which could be days later. Fix: pass `has_email` and `approval.requester_phoned_at/by` to the sheet. No email and not phoned: "They don't use email, so nothing was sent." Phoned: "You told them by phone at 2:16 PM. Please call them back to say the decision is being looked at again." Also list the requester on the Dir/AD "Call to share a decision" card as needing a call-back. |
+| M12 | Not fixed | Neither sheet says "{name}'s question will be withdrawn" (`request_approve.html`, `request_reject.html`). The row marker is not rendered (see N2). |
+| M13 | Partially fixed | A "Why it's urgent" block exists (`_request_detail.html:67-75`), placed after the Decision card rather than first (acceptable). Still open: the A2n "Not urgent" sheet doesn't repeat the reason (`request_decline_urgency.html:12-16`; the view passes only `request_row`, `views_requests.py:1186`). The ≥1280 split view doesn't pass `urgency_line` into the include (`requests_list.html:135`), so at a desk Ruth can decide "Not urgent" without ever seeing why it was marked urgent. The label and the requester's words are still joined in one quote (`presentation.py:319-328`). |
+| M14 | Fixed | No reveal on GET. `_reveal_on_post` (`views_requests.py:995-1007`) is used by A4 (`:1667-1669`), A5 (`:1725`) and A11 (`:1612`). This introduced N1. |
+| M15 | Fixed | Header actions move after the Decision card below 1024 (`_request_detail.html:33-48,77-93`; `shell.css:3137-3149`). `leader-decision-390.png` shows Approve and Decline before "Ask for more photos". |
+
+### New Majors
+
+**N1. A4 (no-email): tapping "Show contact details" wipes the typed question, or is blocked by `required`.**
+- **Where:** `request_question_ask.html:55` puts a submit button (`name="show_contact"`) inside the main form. The question field is `required` (`:34`). The view reads `question` and `phone_answer` only when `show_contact != "1"` (`views_requests.py:1672-1674`).
+- **Impact:** Marcus types his question and then taps Show contact details to call. If the field is empty, the browser blocks the tap ("Please fill out this field"). If it's filled, the page reloads with the number and an empty question box, plus an empty "What did they say?" box.
+- **Fix:** Always echo `question` and `phone_answer` from POST, add `formnovalidate` to the show-contact button, or move the reveal above the textarea as its own form, as A5 does (`request_question_record_answer.html:37-41`).
+
+**N2. List-row markers never render: the template and the row object disagree.**
+- **Where:** `requests_list.html:72` and `:91-102` read `row.line2_text` and `row.markers`. `RequestListRow` (`queries.py:94-118`) provides `undo_pending`, `question_open` and `reconsideration_deadline`, but no `markers` or `line2_text`. Django resolves missing attributes to an empty string, so nothing shows. `leader-requests-tabs-1280.png` confirms it: "Waiting on requester 5" appears next to 4 awaiting rows, and none of them shows "Question open".
+- **Impact:** None of the step-3 row cues appear: Undo until, Question open, Can ask until, and Call to share a decision. This is the other half of M12, and it turns M1's "Call to share a decision" landing into a hunt through the Decided tab.
+- **Fix:** Build `markers` (icon, label, attention) and `line2_text` in the list query or the view from the existing booleans. Add a `needs_phone_call` flag using the same predicate as `decision_phone_card`. Add a template test that renders a row with an open question and asserts "Question open".
+
+### Minors spot-checked
+- **Fixed:** m6 (`_decision_card.html:128`, `can_undo`), m13 (the two-column layout at 1280, `leader-undo-window-1280.png`), m16 (`request_reject.html:74`), m17 (`request_approve.html:40-42`).
+- **Still open:**
+  - m3: toasts lack the time and the undo deadline (`views_requests.py:1113`).
+  - m7: "30 minutes" is still hard-coded (`request_decision_undo.html:17`).
+  - m8: "Elder" is still hard-coded (`_decision_card.html:97`).
+  - m9: "Not shown to the Administrator role." (`:69`, `:99`).
+  - m15: the Board route still reads "Decline" (`request_reject.html:13,98`).
+  - m21: the Urgent chip shows after a decision (`r10_secure_page.html:37`).
+  - m22: the photo and close lines show on declined pages (`:182`, `:255`).
+  - m25: `Good news, there:` (`requester_portal/notifications.py:50,339`).
+- **New Minor:** after a standalone "Not urgent" review, the undo button reads "Undo certification" (`request_decision_undo.html:38`). Use "Undo" or "Undo 'not urgent'".
