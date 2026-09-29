@@ -89,3 +89,27 @@ Mediums and Lows:
 The FIX-3B banner and messages overrides are OK, and `need_category_label` is OK.
 
 **Resolution note (orchestrator):** the owner's Q-176 rule allows urgency certification during another decision's undo window. M2's "refuse review_urgency during any window" is reverted to that rule. The undo follow-up instead keys on stored `urgent_approval_emitted` facts across the request, so undoing a Board approval after a later certification still sends the Director/AD "urgent approval was undone" follow-up.
+
+## Final confirmation at `810210a`
+
+Every proof of concept in poc5 was re-run, and new ones were added in poc6.
+
+| Item | Status |
+|---|---|
+| N1, N2, N3, M3-residual | Fixed |
+| L7, M-a, L-a, L-b, L-d | Fixed |
+| H1 | Still fixed |
+| M2 under the owner's Q-176 carve-out | Fixed (normal delivery order) |
+| L-c | Mostly fixed |
+| A11y announcement of a new must-acknowledge alert | Not fixed |
+
+**Critical and High:** none.
+
+New findings:
+- **NEW-1 (Medium):** a late-delivered "decision undone" event acknowledges a newer, live urgent alert, because `_any_urgent_alert_emitted_since` and `_clear_urgent_approval_banner` have no upper time bound.
+  - **Fix:** bound the lookup by the undone approval's `decided_at` to `undone_at`; exclude records that were already undone; clear only the alerts created before `undone_at`; apply the same bound to the pastor-banner restore; add an out-of-order delivery test.
+- **NEW-2 (Low):** a duplicate "urgent approval undone" notice. The NEW-1 fix covers it.
+- **NEW-3 (Low):** `phone_callback_card` runs one query per row and nothing clears it. See Q-184.
+- **NEW-4 (Low):** the A11 phone sheet opens for requesters who have email.
+- **NEW-5 (Low):** Director/AD get a duplicate "Approved" notice when an urgent alert already went out during the window.
+- **NEW-6 (Low):** migration 0008 has no backfill. Acceptable.
