@@ -32,6 +32,7 @@ from .models import (
     Reconsideration,
     RejectionReason,
     Requester,
+    UrgencyReview,
 )
 from .states import RequestStatus, VerificationMethod, decision_is_undoable
 
@@ -106,6 +107,15 @@ class RequestListRow:
     # S3.2 (docs/ux/approvals.md L1 status chips): a plain word, never more than the status
     # already implies -- "" for a status with no decision chip of its own.
     decision_chip: str = ""
+    # Fix 3A (coordinator: visual QA follow-up) -- row markers a list template can render
+    # without a per-row detail lookup. `undo_pending`: the latest live decision on this
+    # request can still be undone (Q-181, same predicate as `decision_undo_open`).
+    # `question_open`: at least one open (unanswered, not withdrawn) HAM question.
+    # `reconsideration_deadline`: the REJECTED-and-open "can ask us to reconsider until"
+    # date, None once final or not applicable.
+    undo_pending: bool = False
+    question_open: bool = False
+    reconsideration_deadline: dt.datetime | None = None
 
 
 # S3.2 (approvals.md §6 L1 "New status chips Approved / Not approved / Taking another look").
@@ -120,10 +130,11 @@ _DECISION_CHIPS: dict[str, str] = {
 VIEW_STATUS_FILTERS: dict[str, tuple[str, ...]] = {
     "awaiting_approval": (RequestStatus.AWAITING_APPROVAL.value,),
     "reconsideration": (RequestStatus.RECONSIDERATION_PENDING.value,),
+    # Visual QA M4: Cancelled is a separate, unrelated outcome (spam/duplicate/withdrawn) --
+    # "Decided" means a pastor/Board decision was recorded (approved or rejected).
     "decided": (
         RequestStatus.APPROVED.value,
         RequestStatus.REJECTED.value,
-        RequestStatus.CANCELLED.value,
     ),
 }
 
@@ -170,6 +181,30 @@ def list_requests(
     duplicate_ids = (
         set(qs.filter(matches__isnull=False).values_list("id", flat=True)) if show_marker else set()
     )
+    rows = list(qs)
+    now = clock_now()
+    # Fix 3A: the same `Exists()` shape `queries_questions.waiting_on_requester` uses (visual
+    # QA M5) -- a plain `filter(questions__answered_at__isnull=True, ...)` would wrongly match
+    # a request with no questions at all (a LEFT OUTER JOIN pitfall, see that module).
+    open_question_ids = set(
+        AssistanceRequest.objects.filter(
+            id__in=[r.id for r in rows],
+            questions__answered_at__isnull=True,
+            questions__closed_at__isnull=True,
+        )
+        .filter(questions__isnull=False)
+        .values_list("id", flat=True)
+    )
+    undo_pending_ids: set[UUID] = set()
+    seen_request_ids: set[UUID] = set()
+    for approval in Approval.objects.filter(
+        request_id__in=[r.id for r in rows], undone_at__isnull=True
+    ).order_by("request_id", "-decided_at"):
+        if approval.request_id in seen_request_ids:
+            continue  # only the latest (first seen per request, ordered above) matters
+        seen_request_ids.add(approval.request_id)
+        if decision_is_undoable(approval.decided_at, now, approval.undone_at):
+            undo_pending_ids.add(approval.request_id)
     return [
         RequestListRow(
             id=r.id,
@@ -181,8 +216,15 @@ def list_requests(
             submitted_at=r.submitted_at,
             has_possible_duplicate=r.id in duplicate_ids,
             decision_chip=_DECISION_CHIPS.get(r.status, ""),
+            undo_pending=r.id in undo_pending_ids,
+            question_open=r.id in open_question_ids,
+            reconsideration_deadline=(
+                r.reconsideration_deadline_at
+                if r.status == RequestStatus.REJECTED.value and r.closed_at is None
+                else None
+            ),
         )
-        for r in qs
+        for r in rows
     ]
 
 
@@ -252,6 +294,32 @@ def _latest_live_approval(request_id: UUID) -> Approval | None:
         .order_by("-decided_at")
         .first()
     )
+
+
+def _latest_live_urgency_review(request_id: UUID) -> UrgencyReview | None:
+    return (
+        UrgencyReview.objects.filter(request_id=request_id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
+
+
+def decision_undo_open(request_id: UUID, now: dt.datetime | None = None) -> bool:
+    """Fix 3A / Q-176 / Q-181: true while the request's latest live decision -- an ``Approval``
+    (approve/reject/reconsider) or a standalone ``UrgencyReview`` (certify/decline urgency) --
+    can still be undone by the person who recorded it. One predicate, used everywhere a
+    service or a view needs to know "is this request's decision still pending": other
+    approvers must see it as pending, not final; several actions (asking for reconsideration,
+    recording one by phone, a standalone urgency review, asking a question) must refuse while
+    it's true; phone-outcome cards/actions must stay hidden until it's false."""
+    now = now or clock_now()
+    approval = _latest_live_approval(request_id)
+    if approval is not None and decision_is_undoable(approval.decided_at, now, approval.undone_at):
+        return True
+    review = _latest_live_urgency_review(request_id)
+    if review is not None and decision_is_undoable(review.decided_at, now, review.undone_at):
+        return True
+    return False
 
 
 def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow | None:
@@ -331,6 +399,9 @@ class PriorRequestOutcome:
     decision_reason_code: str = ""
     decision_reason_label: str = ""
     decision_message: str = ""
+    # PRD guardian M3: the "Why approved (leaders only)" note (Q-169), same gating as
+    # `decision_message` -- never the Administrator.
+    decision_approval_note: str = ""
 
 
 _REJECTION_REASON_LABELS: dict[str, str] = dict(RejectionReason.choices)
@@ -369,6 +440,11 @@ def outcome_summary(request: AssistanceRequest) -> list[PriorRequestOutcome]:
                 decision_message=(
                     decision.reason
                     if decision and decision.outcome == ApprovalOutcome.REJECTED.value
+                    else ""
+                ),
+                decision_approval_note=(
+                    decision.approval_note
+                    if decision and decision.outcome == ApprovalOutcome.APPROVED.value
                     else ""
                 ),
             )

@@ -161,6 +161,8 @@ class TestApprovalConstraints:
 
     def test_takeover_requires_unavailable_confirmed(self, requester_ctx):
         req = _make_request(requester_ctx)
+        # Fix 3A / Q-183: a take-over always needs `took_over_basis`, whether or not it also
+        # carries the tick.
         with pytest.raises(IntegrityError), transaction.atomic():
             _make_approval(
                 req,
@@ -168,14 +170,35 @@ class TestApprovalConstraints:
                 reason="We looked again",
                 took_over_from_user_id=uuid.uuid4(),
             )
-        # With the tick, it's fine.
+        # With the tick and a matching basis, it's fine.
         _make_approval(
             req,
             stage=ApprovalStage.RECONSIDERATION.value,
             reason="We looked again",
             took_over_from_user_id=uuid.uuid4(),
             unavailable_confirmed=True,
+            took_over_basis="unavailable_ticked",
         )
+
+    def test_takeover_role_ended_needs_no_tick(self, requester_ctx):
+        """Fix 3A / Q-183: `basis="role_ended"` never carries `unavailable_confirmed`."""
+        req = _make_request(requester_ctx)
+        _make_approval(
+            req,
+            stage=ApprovalStage.RECONSIDERATION.value,
+            reason="We looked again",
+            took_over_from_user_id=uuid.uuid4(),
+            took_over_basis="role_ended",
+        )
+        with pytest.raises(IntegrityError), transaction.atomic():
+            _make_approval(
+                req,
+                stage=ApprovalStage.RECONSIDERATION.value,
+                reason="We looked again",
+                took_over_from_user_id=uuid.uuid4(),
+                unavailable_confirmed=True,
+                took_over_basis="role_ended",
+            )
 
 
 class TestReconsiderationImmutable:

@@ -251,12 +251,54 @@ def _clear_urgent_banner(request_id) -> None:
     request is system-cleared, not just the reviewer's own -- `urgent_banner_for` only ever
     shows an unacknowledged `requires_ack` row, so clearing every row for this request's
     subject makes the banner disappear for everyone at once, matching the UX spec's "the
-    urgent banner clears" rather than "clears once each pastor happens to dismiss it"."""
+    urgent banner clears" rather than "clears once each pastor happens to dismiss it".
+
+    Security H1: scoped to exactly the pastors' own `request_awaiting_approval` must-ack
+    banner (the "Urgent request needs a pastor" card) -- never `request_urgent_approval`
+    (the Director/AD "Urgent request approved" alert, Q-160/Q-161), and never a recipient who
+    isn't a pastor. The two banners are independent must-ack facts; clearing one must never
+    silently acknowledge the other."""
     from ham.notifications.models import Notification
 
+    pastor_ids = [
+        user_id for user_id, _email, _notify_email in notification_recipients((roles.PASTOR,))
+    ]
+    if not pastor_ids:
+        return
     Notification.objects.filter(
         subject_type="request",
         subject_id=request_id,
+        kind="request_awaiting_approval",
+        recipient_user_id__in=pastor_ids,
+        requires_ack=True,
+        acknowledged_at__isnull=True,
+    ).update(acknowledged_at=clock_now())
+
+
+def clear_pastor_urgent_banner_on_decline(request_id) -> None:
+    """UX M9: `reject_request` (an urgent request declined, not certified/reviewed) calls
+    this directly -- declining emits no `UrgencyCertified`/`UrgencyNotCertified` event of its
+    own for `_clear_urgent_banner` to hang off, but the requirement is the same: once ANY
+    decision has been recorded on an urgent request, the other pastors' "needs a pastor"
+    must-ack banner is stale and must clear, alarm-fatigue reasoning identical to a
+    certify/decline urgency review."""
+    _clear_urgent_banner(request_id)
+
+
+def _clear_urgent_approval_banner(request_id) -> None:
+    """UX M9: undoing an urgent approval clears the Director/AD "Urgent request approved"
+    must-ack banner (it's no longer true) -- the mirror-image scoping of `_clear_urgent_
+    banner` above, for the *other* must-ack kind and the *other* recipient set."""
+    from ham.notifications.models import Notification
+
+    dir_ad_ids = [user_id for user_id, _email, _notify_email in notification_recipients(_DIR_AD)]
+    if not dir_ad_ids:
+        return
+    Notification.objects.filter(
+        subject_type="request",
+        subject_id=request_id,
+        kind="request_urgent_approval",
+        recipient_user_id__in=dir_ad_ids,
         requires_ack=True,
         acknowledged_at__isnull=True,
     ).update(acknowledged_at=clock_now())
@@ -404,19 +446,24 @@ def _build_urgent_approval_emails(event: OutboxEvent) -> list[NotificationEmail]
 # `urgent_approval` flag in the payload itself.
 # ---------------------------------------------------------------------------------------
 def _build_decision_undone_notices(event: OutboxEvent) -> list[InAppNotice] | None:
+    """Security M2: keyed on the stored `Approval.urgent_approval_emitted` fact -- set once,
+    at the moment `RequestUrgentApproval` was actually emitted for this exact decision --
+    never re-derived from the request's current status (which may have moved on since, e.g.
+    a later re-decision or cancel)."""
     from .models import Approval
 
     approval_id = event.payload.get("approval_id")
     approval = Approval.objects.filter(id=approval_id).first()
-    if approval is None or not approval.urgent_approval:
+    if approval is None or not approval.urgent_approval_emitted:
         return None
     row = _request_row(event.aggregate_id)
     if row is None:
         return None
     request, _status = row
+    _clear_urgent_approval_banner(request.id)  # UX M9
     category = _category_label(request)
     title = f"Urgent approval undone · {request.display_number} {category}"
-    return [
+    notices = [
         InAppNotice(
             recipient_user_id=user_id,
             kind="request_urgent_approval_undone",
@@ -425,36 +472,30 @@ def _build_decision_undone_notices(event: OutboxEvent) -> list[InAppNotice] | No
             title=title,
         )
         for user_id, _email, _notify_email in notification_recipients(_DIR_AD)
-    ] or None
+    ]
+    notices += _restore_pastor_urgent_banner(request)  # UX M9
+    return notices or None
 
 
 def _build_urgency_review_undone_notices(event: OutboxEvent) -> list[InAppNotice] | None:
-    """PRD-GAP Q-176: a standalone `UrgencyReview` carries no `urgent_approval` flag of its
-    own (only `Approval` does) -- a certify review only ever fires `RequestUrgentApproval`
-    when the request is already Approved at review time (`becomes_urgent_approval`,
-    approvals-contracts.md §4), and `review_urgency` never touches request status, so the
-    request being `APPROVED` right now is a reliable stand-in for "this certification was
-    the one that made it an urgent approval" -- unless something else changed the request's
-    status between the review and this undo (e.g. a later Director/AD cancel), which would
-    read as a false negative here. Flagged rather than silently guessed at; a future slice
-    could close this by storing the fact on `UrgencyReview` itself, the same way `Approval.
-    urgent_approval` already does."""
+    """Security M2: a standalone `UrgencyReview` now carries its own `urgent_approval_emitted`
+    fact (set at creation time inside `review_urgency`, same shape as `Approval`'s) -- no more
+    re-deriving "was this the certification that made it an urgent approval" from the
+    request's live status at undo/dispatch time, which could be wrong by then."""
     from .models import UrgencyReview
-    from .states import RequestStatus, UrgencyAction
 
     review_id = event.payload.get("review_id")
     review = UrgencyReview.objects.filter(id=review_id).first()
-    if review is None or review.action != UrgencyAction.CERTIFY_URGENCY.value:
+    if review is None or not review.urgent_approval_emitted:
         return None
     row = _request_row(event.aggregate_id)
     if row is None:
         return None
-    request, status = row
-    if status is not RequestStatus.APPROVED:
-        return None
+    request, _status = row
+    _clear_urgent_approval_banner(request.id)  # UX M9
     category = _category_label(request)
     title = f"Urgent approval undone · {request.display_number} {category}"
-    return [
+    notices = [
         InAppNotice(
             recipient_user_id=user_id,
             kind="request_urgent_approval_undone",
@@ -463,7 +504,40 @@ def _build_urgency_review_undone_notices(event: OutboxEvent) -> list[InAppNotice
             title=title,
         )
         for user_id, _email, _notify_email in notification_recipients(_DIR_AD)
-    ] or None
+    ]
+    notices += _restore_pastor_urgent_banner(request)  # UX M9
+    return notices or None
+
+
+def _restore_pastor_urgent_banner(request) -> list[InAppNotice]:
+    """UX M9: undoing an urgent approval/certification puts the request back to urgent and
+    awaiting a pastor -- every pastor's must-ack "Urgent request needs a pastor" banner comes
+    back, the same shape `_build_awaiting_approval_notices` creates it in the first place.
+    Only when the request is, right now, genuinely back to that state (an undo that landed
+    somewhere else -- e.g. urgency was independently declined again in between -- restores
+    nothing)."""
+    from .states import RequestStatus, UrgencyStatus
+
+    request.refresh_from_db(fields=["status", "urgency_status"])
+    if (
+        request.status != RequestStatus.AWAITING_APPROVAL.value
+        or request.urgency_status != UrgencyStatus.AWAITING_CERTIFICATION.value
+    ):
+        return []
+    category = _category_label(request)
+    title = f"Urgent request needs a pastor · {request.display_number} {category}"
+    return [
+        InAppNotice(
+            recipient_user_id=user_id,
+            kind="request_awaiting_approval",
+            subject_type="request",
+            subject_id=request.id,
+            title=title,
+            urgent=True,
+            requires_ack=True,
+        )
+        for user_id, _email, _notify_email in notification_recipients((roles.PASTOR,))
+    ]
 
 
 # ---------------------------------------------------------------------------------------
@@ -498,34 +572,16 @@ def _build_urgency_certified_notices(event: OutboxEvent) -> list[InAppNotice] | 
 
 
 def _build_urgency_not_certified_notices(event: OutboxEvent) -> list[InAppNotice] | None:
+    """PRD guardian M8 (owner box): "Not urgent" sends no in-app update at all -- only the
+    silent pastors' banner clear (H1-scoped, above). Returns `None` unconditionally; kept as
+    a registered builder (rather than removed) so the banner-clearing side effect still runs
+    on every `UrgencyNotCertified` delivery."""
     row = _request_row(event.aggregate_id)
     if row is None:
         return None
     request, _status = row
     _clear_urgent_banner(request.id)
-    category = _category_label(request)
-    title = f"Not urgent · {request.display_number} {category}"
-    notices = [
-        InAppNotice(
-            recipient_user_id=user_id,
-            kind="request_urgency_not_certified",
-            subject_type="request",
-            subject_id=request.id,
-            title=title,
-        )
-        for user_id, _email, _notify_email in notification_recipients(_DIR_AD)
-    ]
-    notices += [
-        InAppNotice(
-            recipient_user_id=user_id,
-            kind="request_urgency_not_certified",
-            subject_type="request",
-            subject_id=request.id,
-            title=title,
-        )
-        for user_id, _email, _notify_email in notification_recipients((roles.PASTOR,))
-    ]
-    return notices or None
+    return None
 
 
 # ---------------------------------------------------------------------------------------

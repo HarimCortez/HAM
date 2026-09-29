@@ -365,6 +365,9 @@ class TestReviewUrgency:
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
         approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
+        # Security M2: `review_urgency` refuses while the live approval it's certifying is
+        # still undoable -- advance past the Board approval's own window first.
+        set_clock(FixedClock(approval.effective_at + timedelta(seconds=1)))
         request_row = review_urgency(pastor_ctx, request_id=req.id, certify=True)
         assert request_row.urgency_status == UrgencyStatus.CERTIFIED.value
         event = OutboxEvent.objects.get(event_type="UrgencyCertified")
@@ -400,6 +403,10 @@ class TestReconsideration:
             message="Sorry",
         )
         req.refresh_from_db()
+        # Security M1/Q-181: a reconsideration may not be requested/recorded while the
+        # decline that started this window can still be undone -- advance past it, same as
+        # every other test in this module that reaches a state past the decider's own undo.
+        set_clock(FixedClock(approval.effective_at + timedelta(seconds=1)))
         return req, approval
 
     def test_requester_requests_reconsideration(self, requester_ctx, system_ctx, pastor_ctx):
@@ -576,7 +583,9 @@ class TestPhoneAndCategory:
         self, requester_ctx, system_ctx, pastor_ctx, director_ctx
     ):
         req = _no_email_awaiting(requester_ctx, system_ctx, director_ctx)
-        approve_request(pastor_ctx, request_id=req.id, route="pastoral")
+        approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
+        # Security M3/UX B2/Q-181: refused while the decision can still be undone.
+        set_clock(FixedClock(approval.effective_at + timedelta(seconds=1)))
         record_decision_phoned(director_ctx, request_id=req.id)
         approval = Approval.objects.get(request_id=req.id)
         assert approval.requester_phoned_at is not None
@@ -718,6 +727,9 @@ class TestHeldEffects:
     def test_effects_release_when_not_undone(self, requester_ctx, system_ctx, pastor_ctx):
         req = _awaiting(requester_ctx, system_ctx)
         approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
+        # Security L1: a run before `effective_at` re-defers instead of releasing -- advance
+        # to the real scheduled instant, same as production.
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
         approval.refresh_from_db()
         assert approval.effects_ran_at is not None
@@ -733,6 +745,7 @@ class TestHeldEffects:
         req = _awaiting(requester_ctx, system_ctx)
         approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
         undo_decision(pastor_ctx, approval_id=approval.id)
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
         approval.refresh_from_db()
         assert approval.effects_ran_at is not None
@@ -741,6 +754,7 @@ class TestHeldEffects:
     def test_held_effects_job_is_idempotent(self, requester_ctx, system_ctx, pastor_ctx):
         req = _awaiting(requester_ctx, system_ctx)
         approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
         run_held_decision_effects(approval.id)
         assert OutboxEvent.objects.filter(event_type="RequestApproved").count() == 1
@@ -755,10 +769,13 @@ class TestHeldEffects:
             request=req, asked_by_user_id=director_ctx.user_id, asked_at=clock_now(), question="?"
         )
         approval = approve_request(pastor_ctx, request_id=req.id, route="pastoral")
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
         question = RequestQuestion.objects.get(request=req)
         assert question.closed_at is not None
-        assert question.close_reason == "request_closed"
+        # PRD guardian minor 2 / Q-162: a decision-driven withdrawal, distinct from
+        # `cancel_request`'s own `request_closed`.
+        assert question.close_reason == "request_decided"
 
     def test_held_effects_job_is_deferred_for_effective_at(
         self, requester_ctx, system_ctx, pastor_ctx

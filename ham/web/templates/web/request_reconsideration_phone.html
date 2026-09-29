@@ -16,7 +16,7 @@
       {% csrf_token %}
       <div class="form-field">
         <label for="id_note">What did they say? <span class="form-field__optional">(optional)</span></label>
-        <textarea id="id_note" name="note" rows="4" maxlength="{{ max_chars }}"></textarea>
+        <textarea id="id_note" name="note" rows="4" maxlength="{{ max_chars }}">{{ note }}</textarea>
       </div>
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="confirmed" required>

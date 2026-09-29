@@ -161,7 +161,66 @@ REJECTION_REASON_PREFILLS: dict[str, str] = {
     RejectionReason.ANOTHER_REASON.value: "",
 }
 
-DECLINE_MESSAGE_MAX_CHARS = 600
+# Fix 3A / L4 / Q-179 (owner decision, 2026-09-28): the decline message the requester reads
+# is 1,000 characters (same as the reconsideration note); the "Why approved (leaders only)"
+# note is 200. Form-validation constants, not `ham.rules` entries (approvals.md §2.4 "Text
+# limits ... don't go in the rules module").
+DECLINE_MESSAGE_MAX_CHARS = 1000
+APPROVAL_NOTE_MAX_CHARS = 200
+
+
+# Fix 3A / UX M6 / PRD guardian minor 1: the leadership preview (A3 "What the requester will
+# read") must render EXACTLY what the requester email sends -- one shared builder, called by
+# both `ham.requester_portal.notifications._build_rejected_email` (E10, prefixed with "Hi
+# {first}, ") and `ham.web.views_requests`'s decline sheet context (which passes
+# `greeting="Hi there"` as a stand-in, since the requester's first name is never shown to
+# leaders, Q-170). Real deadline date and reconsideration count come from the caller (never a
+# literal "14 days" typed into a template).
+def reconsideration_preview_deadline_text(now) -> str:
+    """The church-local date a decline recorded right now would print on E10/A3 -- same
+    format (`"Tue, Oct 20"`) and same calendar-day math (`.states.reconsideration_deadline`)
+    as the email actually sent once the decision is recorded, so the preview's date is never
+    off by the time a leader spends filling in the sheet."""
+    from zoneinfo import ZoneInfo
+
+    from ham.platform.church import church_profile
+
+    from .states import reconsideration_deadline
+
+    zone = ZoneInfo(church_profile().time_zone)
+    deadline = reconsideration_deadline(now, zone)
+    return deadline.astimezone(zone).strftime("%a, %b %-d")
+
+
+def decline_outcome_text(
+    message: str,
+    *,
+    final: bool,
+    deadline_text: str = "",
+    church_phone: str = "",
+) -> str:
+    """The body of E10 (still reconsiderable) or E13 (final) -- Q-154's kind message plus the
+    sympathy line, the "once" reconsideration offer with its real deadline, and the church
+    phone line when one is on file."""
+    if final:
+        return (
+            "we looked at your request again, and we're sorry, we're still not able to "
+            f"help with this one. Here's why: \"{message}\". You're welcome to send a new "
+            "request in the future if things change."
+        )
+    reconsider_clause = (
+        f" If you think we've missed something, you can ask us to reconsider, once, "
+        f"until {deadline_text}."
+        if deadline_text
+        else ""
+    )
+    phone_clause = (
+        f" Or call us at {church_phone} -- we're glad to talk it through." if church_phone else ""
+    )
+    return (
+        "we're sorry. After looking carefully at your request, we aren't able to help with "
+        f'this one. Here\'s why: "{message}".{reconsider_clause}{phone_clause}'
+    )
 
 
 def rejection_reason_label(value: str) -> str:

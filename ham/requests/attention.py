@@ -26,7 +26,7 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
-from .models import Approval, ApprovalRoute, ApprovalStage, AssistanceRequest, Reconsideration
+from .models import Approval, ApprovalRoute, AssistanceRequest, Reconsideration
 from .presentation import need_category_label
 from .queries import (
     RequestListRow,
@@ -88,7 +88,7 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
                 count=len(rows),
                 urgent=False,
                 actionable=False,
-                href="/requests?status=AWAITING_APPROVAL",
+                href="/requests?tab=awaiting",
             )
         ]
 
@@ -122,7 +122,7 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
                 count=len(extra_urgent),
                 urgent=True,
                 actionable=True,
-                href="/requests?status=AWAITING_APPROVAL",
+                href="/requests?tab=awaiting",
             )
         )
     if other_rows:
@@ -134,7 +134,7 @@ def awaiting_approval_cards(ctx: ActorContext) -> list[AttentionCard]:
                 count=len(other_rows),
                 urgent=False,
                 actionable=True,
-                href="/requests?status=AWAITING_APPROVAL",
+                href="/requests?tab=awaiting",
             )
         )
     return cards
@@ -238,22 +238,29 @@ def reconsideration_cards(ctx: ActorContext) -> list[AttentionCard]:
             count=len(mine),
             urgent=False,
             actionable=True,
-            href="/requests?view=reconsideration",
+            href="/requests?tab=reconsideration",
         )
     ]
 
 
 def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
     """S3.2 (approvals.md §4, Q-159): DIR/AD "Call to share a decision" -- a no-email
-    request's live initial decision with `requester_phoned_at` still null."""
+    request's latest LIVE decision, at either stage (Q-182), with `requester_phoned_at` still
+    null and the decision no longer inside its own undo window (security M3/B2, Q-181): the
+    requester must not be called before the decision has actually taken effect."""
     if not (ctx.effective_roles & _DIR_AD):
         return None
-    count = Approval.objects.filter(
-        stage=ApprovalStage.INITIAL.value,
-        undone_at__isnull=True,
-        requester_phoned_at__isnull=True,
-        request__requester__email__isnull=True,
-    ).count()
+    now = clock_now()
+    candidates = AssistanceRequest.objects.filter(requester__email__isnull=True)
+    count = 0
+    for request in candidates.only("id"):
+        latest = (
+            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+            .order_by("-decided_at")
+            .first()
+        )
+        if latest is not None and latest.requester_phoned_at is None and latest.effective_at <= now:
+            count += 1
     if not count:
         return None
     return AttentionCard(
@@ -262,19 +269,30 @@ def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
         count=count,
         urgent=False,
         actionable=True,
-        href="/requests?view=decided",
+        href="/requests?tab=decided",
     )
 
 
 def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
     """S3.2 (approvals.md §2.2/§10, Q-160/Q-161): a Board approval of an urgent request left
-    urgency awaiting certification -- pastors only."""
+    urgency awaiting certification -- pastors only. Security M2: hidden while the live
+    approval that produced this state is still inside its own undo window."""
     if roles.PASTOR not in ctx.effective_roles:
         return None
-    count = AssistanceRequest.objects.filter(
+    now = clock_now()
+    candidates = AssistanceRequest.objects.filter(
         status=RequestStatus.APPROVED.value,
         urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value,
-    ).count()
+    )
+    count = 0
+    for request in candidates.only("id"):
+        latest = (
+            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+            .order_by("-decided_at")
+            .first()
+        )
+        if latest is not None and latest.effective_at <= now:
+            count += 1
     if not count:
         return None
     return AttentionCard(
@@ -283,7 +301,7 @@ def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
         count=count,
         urgent=True,
         actionable=True,
-        href="/requests?view=decided",
+        href="/requests?tab=decided",
     )
 
 

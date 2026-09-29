@@ -452,7 +452,7 @@ def test_reject_reconsideration_and_decide_flow(client, make_user):
     user = _login(
         client, make_user, email="ruth@example.org", full_name="Ruth Alvarez", role="PASTOR"
     )
-    reject_request(
+    approval = reject_request(
         _ctx_for(user, "PASTOR"),
         request_id=req.id,
         route="pastoral",
@@ -463,6 +463,8 @@ def test_reject_reconsideration_and_decide_flow(client, make_user):
     from ham.requests.services_decisions import request_reconsideration
 
     req.refresh_from_db()
+    # Security M1/Q-181: refused while the decline can still be undone.
+    set_clock(FixedClock(approval.effective_at))
     request_reconsideration(RequesterContext(request_id=req.id), note="Please look again.")
     req.refresh_from_db()
     assert req.status == RequestStatus.RECONSIDERATION_PENDING.value

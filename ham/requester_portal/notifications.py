@@ -381,22 +381,19 @@ def _build_rejected_email(event: OutboxEvent) -> NotificationEmail | None:
     message = approval.reason.strip() if approval else ""
     first = _first_name(requester.full_name)
 
-    if final:
-        # Q-154: the requester's kind message goes in the body; subject stays neutral.
-        text = (
-            f"Hi {first}, we looked at your request again, and we're sorry, we're still "
-            f"not able to help with this one. Here's why: \"{message}\". You're welcome to "
-            "send a new request in the future if things change."
-            f"\n\nOpen my request page: {link_url}"
-        )
-    else:
-        deadline = _reconsideration_deadline_text(request)
-        deadline_clause = f" You can ask us to reconsider until {deadline}." if deadline else ""
-        text = (
-            f"Hi {first}, we're sorry. After looking carefully at your request, we aren't "
-            f'able to help with this one. Here\'s why: "{message}".{deadline_clause}'
-            f"\n\nOpen my request page: {link_url}"
-        )
+    # Fix 3A / UX M6 / PRD guardian minor 1: the same builder the leadership preview uses
+    # (`ham.requests.presentation.decline_outcome_text`), so the preview promises exactly
+    # what this email sends -- Q-154's kind message, the sympathy line, the real deadline
+    # date and "once", and the church phone line when one is on file.
+    from ham.requests.presentation import decline_outcome_text
+
+    body = decline_outcome_text(
+        message,
+        final=final,
+        deadline_text=_reconsideration_deadline_text(request),
+        church_phone=church_profile().phone,
+    )
+    text = f"Hi {first}, {body}\n\nOpen my request page: {link_url}"
     return NotificationEmail(
         to=requester.email,
         subject=f"Update on your {request.display_number}",

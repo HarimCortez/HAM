@@ -158,6 +158,20 @@ class RequesterChannel(models.TextChoices):
 class QuestionCloseReason(models.TextChoices):
     WITHDRAWN = "withdrawn", "Withdrawn"
     REQUEST_CLOSED = "request_closed", "Request closed"
+    # Fix 3A / PRD guardian minor 2 (Q-162): an open question auto-withdrawn because a
+    # decision (approve/reject/reconsideration/finalize) was recorded, distinct from a
+    # genuine `cancel_request` close -- `REQUEST_CLOSED` stays for the latter.
+    REQUEST_DECIDED = "request_decided", "Request decided"
+
+
+class TakeOverBasis(models.TextChoices):
+    """Q-157/Q-183: why a reconsideration was decided by someone other than the original
+    pastor. ``UNAVAILABLE_TICKED`` -- the original pastor still holds the role, and the
+    decider ticked the required confirmation. ``ROLE_ENDED`` -- the original pastor no
+    longer holds an active Pastor role, so no tick is required or recorded."""
+
+    UNAVAILABLE_TICKED = "unavailable_ticked", "Marked unavailable"
+    ROLE_ENDED = "role_ended", "Original pastor's role ended"
 
 
 class AssistanceRequest(models.Model):
@@ -574,6 +588,19 @@ class Approval(AppendOnlyOnceMixin, models.Model):
     # insert, together with `took_over_from_user_id` (never one without the other, see the
     # CHECK constraint below); NOT a `ONCE_FIELDS` entry (it is never set *after* insert).
     unavailable_confirmed = models.BooleanField(default=False)
+    # Fix 3A / Q-183: which of the two reasons a take-over happened -- blank when this
+    # decision wasn't a take-over. Set once, at insert, together with
+    # `took_over_from_user_id`. `unavailable_confirmed` is True only for
+    # `UNAVAILABLE_TICKED`; `ROLE_ENDED` never carries a tick.
+    took_over_basis = models.CharField(  # noqa: DJ001
+        max_length=24, choices=TakeOverBasis.choices, blank=True, default=""
+    )
+    # Fix 3A / security M2: whether `RequestUrgentApproval` was actually emitted for this
+    # decision -- the Q-176 "urgent approval was undone" follow-up keys on this stored fact,
+    # never on re-reading the request's live status at undo/dispatch time (an approval that
+    # was itself later undone, or a request whose status has since moved on, must not change
+    # whether the follow-up fires for what *was* emitted).
+    urgent_approval_emitted = models.BooleanField(default=False)
     # Q-159 ("I've already told them by phone", no-email requests): ONCE_FIELDS, set once
     # together, from null.
     requester_phoned_at = models.DateTimeField(null=True, blank=True)
@@ -594,6 +621,7 @@ class Approval(AppendOnlyOnceMixin, models.Model):
             "undone_at",
             "undone_by_user_id",
             "effects_ran_at",
+            "urgent_approval_emitted",
         }
     )
 
@@ -645,12 +673,21 @@ class Approval(AppendOnlyOnceMixin, models.Model):
                 ),
                 name="approval_board_decided_on_required_for_board_route",
             ),
+            # Fix 3A / Q-183: a take-over always carries a basis; only `unavailable_ticked`
+            # also carries the tick (`role_ended` never does -- the original pastor no longer
+            # holds the role, so there is nothing to confirm).
             models.CheckConstraint(
                 condition=(
-                    models.Q(took_over_from_user_id__isnull=True)
-                    | models.Q(unavailable_confirmed=True)
+                    models.Q(took_over_from_user_id__isnull=True) | ~models.Q(took_over_basis="")
                 ),
-                name="approval_takeover_requires_unavailable_confirmed",
+                name="approval_takeover_requires_basis",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(unavailable_confirmed=False)
+                    | models.Q(took_over_basis=TakeOverBasis.UNAVAILABLE_TICKED.value)
+                ),
+                name="approval_unavailable_confirmed_matches_basis",
             ),
             models.CheckConstraint(
                 condition=(
@@ -712,8 +749,12 @@ class UrgencyReview(AppendOnlyOnceMixin, models.Model):
     effective_at = models.DateTimeField()
     undone_at = models.DateTimeField(null=True, blank=True)
     undone_by_user_id = models.UUIDField(null=True, blank=True)
+    # Fix 3A / security M2: same stored fact as `Approval.urgent_approval_emitted` -- this
+    # review's own certification made the request an urgent approval and
+    # `RequestUrgentApproval` was actually emitted for it.
+    urgent_approval_emitted = models.BooleanField(default=False)
 
-    ONCE_FIELDS = frozenset({"undone_at", "undone_by_user_id"})
+    ONCE_FIELDS = frozenset({"undone_at", "undone_by_user_id", "urgent_approval_emitted"})
 
     class Meta:
         db_table = "requests_urgency_review"
