@@ -354,3 +354,53 @@ Walked again as Ruth, Samuel, Marcus, Doris and Mrs. Hall against the templates,
   - m22: the photo and close lines show on declined pages (`:182`, `:255`).
   - m25: `Good news, there:` (`requester_portal/notifications.py:50,339`).
 - **New Minor:** after a standalone "Not urgent" review, the undo button reads "Undo certification" (`request_decision_undo.html:38`). Use "Undo" or "Undo 'not urgent'".
+
+---
+
+## Final re-check at 810210a
+
+Reviewer: ham-ux-designer · 2026-09-29 · after FIX-3C, FIX-3D and FIX-3E.
+Walked again as Ruth, Marcus, Doris and Mrs. Hall. I checked templates, views, JS and email builders; no code was run.
+
+**Screenshots:** `leader-decline-sheet-390.png` has been regenerated and now matches the shared decline wording, so the earlier caveat is closed. `leader-requests-tabs-1280.png` and `leader-home-cards-1280.png` are also new, but the seed data has no open question, no no-email decision and no single-count card. They can't show N2, M1 or N-A below. No screenshot covers A4, A9, A11, the A2n sheet or the undo sheet after a phone call. The verdicts below rest on code.
+
+**Result:** B1 is fixed. Of the other 12 open items, 11 are fixed, some with Minor residue. N1 is only partly fixed and is still a Major. There are 2 new Majors (N-A, N-B) and no new Blockers.
+
+| ID | Verdict | Evidence |
+|---|---|---|
+| B1 | **Fixed** | A11 now reads the latest live approval at either stage, and only after its window closes (`views_requests.py:1722`; `queries.py:402-415`). The reconsider offer appears only for an open initial-stage decline (`views_requests.py:1754-1760`), and the approval script comes from the actual outcome (`request_decision_phoned.html:20-26`). Minor: a final decline's script has no "You're welcome to send a new request" closing. |
+| N1 | **Partially fixed. Still a Major.** | Both fields are now echoed on every POST (`views_requests.py:1796-1801`; `request_question_ask.html:34,60`). The show-contact button still has no `formnovalidate` (`request_question_ask.html:55`), and the question is `required` (`:34`). The sheet itself tells Marcus to "Call them to ask, then record" (`:43`), so he taps Show contact details first, and the browser blocks him with "Please fill out this field." Fix: add `formnovalidate`, as A11 already does (`request_decision_phoned.html:42`). |
+| N2 | Fixed (see N-B) | `RequestListRow.markers` / `line2_text` exist (`queries.py:132-164`) and are filled from the list query, including `needs_phone_call` (`:244-287`). The template renders them (`requests_list.html:72-78,100-102`). |
+| M1 | Fixed | `_single_or` deep-links cards with a count of 1 (`attention.py:186-196,138,390`). Reconsideration, Call to share a decision and Certify urgent are now one card per request, linking straight to it (`:225-261,293-301,325-335,355-364`). Residue: see N-A (the new call-back card links to the wrong tab). |
+| M2 | Fixed | The caption reads "What we'll tell the requester" while the decision is pending (`_decision_card.html:171`). |
+| M6 | Fixed (Minor residue) | One source: `DeclineOutcomeParts` (`presentation.py:196-251`). E10/E13 use it (`requester_portal/notifications.py:389-398`), and so do the A3 preview (`views_requests.py:1411-1416`; `request_reject.html:75-78`) and the A9 preview (`views_requests.py:1660`; `request_reconsideration_decide.html:101-107`). Residue (Minor): no "Ask us to reconsider is on your request page" pointer and no E13 "Your request page stays open until {date}". The phone clause uses a literal `--` in the email (`presentation.py:240`); use a full stop. |
+| M7 | Fixed (Minor residue) | A9 now checks for a future Board date inline and keeps the typed reason (`views_requests.py:1598-1609`). The A13 message now names who decided and when (`:1016-1029`). Residue (Minor): A2 still sends a future Board date to the generic redirect (`:1148-1151`), which loses the optional note. A2 doesn't re-tick `told_by_phone` on re-render (`request_approve.html:75`). A13 still has no "See what you wrote". |
+| M8 | Fixed (Minor residue) | The draft is now cleared only on `?answered=` (`requester-questions.js:99-104`). Empty and too-long answers are told apart (`views_requester.py:1137-1146`; `r10_secure_page.html:105-113`). Residue (Minor): the empty-answer message still says "It's still here" (`:108`). The textarea has no `required` (`:120-122`). Any other `ValueError` is labelled "too long" (`views_requester.py:1140-1142`). |
+| M9 | Fixed | A decline stores `banner_cleared` (`services_decisions.py:339`). Undoing it restores the pastors' banner from that stored fact (`notifications.py:503-507,546-578`). Undoing an urgent approval clears the Dir/AD banner (`:489-502`). |
+| M10 | Fixed | Decline mode has reason radios, prefill with Replace / Keep mine, helper text, the live final-wording preview (which becomes "What to tell them by phone" when there's no email) and "This is final" (`request_reconsideration_decide.html:72-111,139-195`; `views_requests.py:1645,1660`). Minor: the preview opens with an empty quote until a reason is chosen. |
+| M11 | Fixed (see N-A) | The sheet now branches on phoned / no email / email (`request_decision_undo.html:26-32`; `views_requests.py:1499-1524`). Minor: it says "You told them… (Marcus Reed)" when someone else made the call. Say "{name} told them" in that case. Minor: during the window, the Decision card still says "Nothing has been sent to the requester yet" after the phone tick (`_decision_card.html:151`). |
+| M12 | Fixed (Minor residue) | Both sheets now say "The open question will be withdrawn." (`request_approve.html:93-95`; `request_reject.html:81-83`; `views_requests.py:1168-1174`). The row marker "Question open" renders (`queries.py:142-145`). Residue (Minor): the line is small grey text below the consequence block. Move it into the block and name the asker: "Andre's question to the requester will be withdrawn." |
+| M13 | Fixed (Minor residue) | The A2n sheet repeats "Why it was marked urgent" (`request_decline_urgency.html:14-19`; `views_requests.py:1240-1245`). The split view gets `urgency_line` from `_build_detail_context` (`views_requests.py:624-626` → `requests_list.html:135`). Residue (Minor): the label and the requester's words are still one string (`presentation.py:347-356`). |
+
+### New Majors
+
+**N-A. The "Call them back · decision changed" card has no way to clear and links to the wrong tab.**
+- **Where:** `attention.py:394-425`. The card clears only when a later `Approval` is marked phoned (`:411-415`). No screen or action records "called back". The only mention is on the undo sheet (`request_decision_undo.html:27`); the detail page and the Decision card say nothing. When there are two or more, the link goes to `?tab=decided` (`:424`), but after an undo the request is back in **Awaiting approval**.
+- **Impact:** Marcus calls Mrs. Hall back and the card stays on Home for days, until someone decides again and marks the new decision as told. If the request is closed without a new decision, the card never clears. Opening it (count 1) shows a detail page with no call-back instruction. With two or more, he lands on a tab that doesn't list them. The same dead end M1 fixed has come back. "Decision changed" is also inaccurate: the decision was undone, not changed.
+- **Fix:**
+  - On the Decision card, for Dir/AD, show "{name} told the requester by phone at 2:16 PM, then the decision was undone. Call them back to say it's being looked at again." Add an action, **I've called them back**, that records actor + UTC + an audit event and clears the card.
+  - Also clear the card when the request closes.
+  - Link a card with two or more to `?tab=awaiting`.
+  - Retitle the card "Call back · decision undone · HAM #NNN", one card per request, like the other phone cards.
+
+**N-B. List rows lose their status chip and repeat each marker twice.**
+- **Where:** `requests_list.html:72-78`. When `row.line2_text` is non-empty, line 2 shows the joined marker labels *instead of* the status chip and age. `requests_list.html:100-102` then renders the same labels again as marker chips. `line2_text` is just those labels (`queries.py:160-164`).
+- **Impact:**
+  - On the Decided tab, every open decline carries "Can ask to reconsider". Those rows lose the "Not approved" chip, so they can't be told apart from approvals. The rows needing a call lose it too.
+  - On Awaiting, a row with an open question loses its age ("waiting 3 days").
+  - Screen readers hear "Question open, Question open".
+  - This breaks "make status obvious" (§52) on the list Ruth and Marcus scan most.
+- **Fix:** Return `""` from `line2_text` until there is real tab-specific wording (for example "Pastor Ruth A. · Sep 28"), so line 2 always keeps the status chip and age and the markers appear once. Better still, add the time to the undo marker: "Can be undone until 2:45 PM". Add a template test: a declined row with an open question shows "Not approved" once and "Question open" once.
+
+### Minors still open from earlier rounds (spot-checked, not re-verified in full)
+m3, m8, m9, m15, m21, m22 and m25 were not in FIX-3C/3D/3E scope and are assumed still open. m7 is fixed (`undo_minutes` from the rules module, `request_decision_undo.html:17`; `views_requests.py:1525`). The earlier "Undo certification" Minor is fixed (`request_decision_undo.html:44`).
