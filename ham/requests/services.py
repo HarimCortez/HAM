@@ -33,8 +33,11 @@ from ham.platform.clock import now as clock_now
 from ham.requests import certifications
 from ham.requests.matching import MatchKeys, find_matches, match_keys
 from ham.requests.models import (
+    Approval,
     AssistanceRequest,
     Property,
+    QuestionCloseReason,
+    Reconsideration,
     RequestContactVerification,
     Requester,
     RequestMatch,
@@ -47,6 +50,7 @@ from ham.requests.states import (
     RequestStatus,
     VerificationMethod,
     check_transition,
+    decision_is_undoable,
     initial_urgency_status,
 )
 from ham.rules import RULES
@@ -467,19 +471,39 @@ def cancel_request(
     ctx: ActorContext, *, request_id: UUID, reason_code: str, note: str = ""
 ) -> CommandResult:
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+
+    # S3.2 (approvals.md §2.2 CANCEL extended row, Q-165): cancelling from APPROVED/
+    # RECONSIDERATION_PENDING is only allowed once the decision that produced that state can
+    # no longer be undone -- `check_transition` needs `now`/`closed_at`/`decision_undo_open`
+    # to enforce ALREADY_FINAL and DECISION_UNDO_WINDOW_OPEN, which this call never passed
+    # before step 3 introduced closable post-decision states.
+    decision_undo_open = False
+    latest_approval = (
+        Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
+    if latest_approval is not None:
+        decision_undo_open = decision_is_undoable(
+            latest_approval.decided_at, now, latest_approval.undone_at
+        )
+
     decision = check_transition(
         RequestAction.CANCEL,
         request.status,
         actor_roles=ctx.effective_roles,
         is_impersonating=ctx.is_impersonating,
         reason=reason_code,
+        now=now,
+        closed_at=request.closed_at,
+        decision_undo_open=decision_undo_open,
     )
     if not decision.allowed:
         raise ValueError(f"request.cancel refused: {decision.refusal}")
     assert decision.target is not None
 
     before_status = request.status
-    now = clock_now()
     request.status = decision.target.value
     request.status_changed_at = now
     request.closed_at = now
@@ -498,6 +522,12 @@ def cancel_request(
             "requester_access_ends_at",
         ]
     )
+
+    # S3.2/coordinator note: every closing edge auto-closes open questions in the same
+    # transaction (approvals.md §2.2, §2.5).
+    from .services_questions import close_open_questions
+
+    close_open_questions(request.id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
 
     transition = decision.transition
     assert transition is not None
@@ -725,6 +755,20 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
     # `save()` refuses any update) -- `erase_value_keys_for_retention` is the one named,
     # centralized escape hatch for a genuine system-level erasure (see its own docstring).
     RequestContactVerification.objects.erase_value_keys_for_retention(request)
+
+    # S3.2 (approvals-contracts.md §1.2-§1.4, Q-127/Q-145): the same 7-year purge also blanks
+    # decision messages/notes, the reconsideration note and question text/answers -- codes
+    # (`reason_code`, `outcome`, `route`), dates and ids are kept (outcome reporting).
+    # `erase_question_text` (S3.3, coordinator note) is the one call site for the question
+    # side -- a thin, request-id-keyed wrapper around `RequestQuestion.objects.
+    # erase_text_for_retention` this module never calls directly, so there is exactly one
+    # legal caller of that manager method (mirrors `RequestContactVerification`'s own
+    # single-call-site convention above).
+    from .services_questions import erase_question_text
+
+    Approval.objects.erase_text_for_retention(request)
+    Reconsideration.objects.erase_text_for_retention(request)
+    erase_question_text(request.id)
 
     return CommandResult(
         value=request,

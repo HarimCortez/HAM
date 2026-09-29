@@ -128,6 +128,15 @@ EXPECTED_PERIODIC_JOBS: list[tuple[str, str, Path, str, Path]] = [
         "requests.retention_sweep",
         BASE_DIR / "ham/requests/apps.py",
     ),
+    (
+        # S3.2 (approvals.md §2.4, Q-155/Q-174): hourly, finalizes a rejection past its
+        # reconsideration deadline with none filed.
+        "requests.finalize_rejections",
+        "jobs",
+        BASE_DIR / "ham/requests/jobs.py",
+        "requests.finalize_rejections",
+        BASE_DIR / "ham/requests/apps.py",
+    ),
 ]
 
 # Carved out here (rather than silently passing) so this enumeration test still catches any

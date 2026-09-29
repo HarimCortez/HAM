@@ -11,11 +11,13 @@ owner-decisions box, turned into literal model fields, function signatures and m
 names. Where the box and the plan body disagree, this file follows the box (noted at each such
 spot below).
 
-## 1. Models (`ham/requests/models.py`, migration `requests/0004`)
+## 1. Models (`ham/requests/models.py`, migrations `requests/0004`, `0006`)
 
-All three new models plus the `AssistanceRequest` additions and the two fixed CHECKs are in
-**one** migration (`0004_approval_reconsideration_requestquestion_and_more`), so S3.1-S3.7
-never collide on a `requests` migration of their own.
+All three original new models plus the `AssistanceRequest` additions and the two fixed CHECKs
+are in **one** migration (`0004_approval_reconsideration_requestquestion_and_more`), so
+S3.1-S3.7 never collide on a `requests` migration of their own. `requests/0006` (coordinator
+fix round, 2026-09-29, depends on S3.3's `0005`) adds `Approval.prior_urgency`/
+`.accompanying_urgency` and the new `UrgencyReview` model (§1.2, §1.2a).
 
 ### 1.1 `AssistanceRequest` additions
 
@@ -65,13 +67,16 @@ this and §4's held-effects design interact).
 | `requester_phoned_at` / `requester_phoned_by_user_id` | `DateTimeField`/`UUIDField`, null | Q-159; **`ONCE_FIELDS`**, set together, once, from null |
 | `undone_at` / `undone_by_user_id` | `DateTimeField`/`UUIDField`, null | Q-156/Q-176; **`ONCE_FIELDS`**, set together, once, from null |
 | `effects_ran_at` | `DateTimeField`, null | held-effects job idempotency marker (§4); **`ONCE_FIELDS`**, set once |
+| `prior_urgency` | `UrgencyStatus`, null | **coordinator fix round (2026-09-29), Q-176/Q-178**: the request's urgency right before this decision — set together with `accompanying_urgency`, only when this same decision also bundled a certify/decline (`approve_request(certify_urgent=True/decline_urgency=True)`); set once, at insert (not a `ONCE_FIELDS` entry — never changes after insert) |
+| `accompanying_urgency` | `UrgencyAction`, null | ditto: `certify_urgency` \| `decline_urgency`, the review this decision bundled; null/null together with `prior_urgency` |
 
 Constraints: `UNIQUE(request, stage) WHERE undone_at IS NULL` (partial, see above);
 `outcome=rejected ⇒ reason_code≠'' AND reason≠''`;
 `stage=reconsideration ⇒ reason≠''`; `urgent_approval ⇒ outcome=approved`;
 `route=board ⇒ board_decided_on IS NOT NULL`; `took_over_from_user_id IS NOT NULL ⇒
 unavailable_confirmed`; `undone_at`/`undone_by_user_id` set together; `requester_phoned_at`/
-`requester_phoned_by_user_id` set together.
+`requester_phoned_by_user_id` set together; `prior_urgency`/`accompanying_urgency` set
+together (both null, or both set).
 
 Append-only (`AppendOnlyOnceMixin`, generalizes `RequestContactVerification`'s single-field
 guard): any `save()` after insert must pass `update_fields=[...]` naming only fields in
@@ -80,8 +85,35 @@ guard): any `save()` after insert must pass `update_fields=[...]` naming only fi
 never back, never twice. `delete()` always raises.
 
 Retention (Q-127/Q-145): `Approval.objects.erase_text_for_retention(request)` blanks
-`reason`/`approval_note` only — `reason_code`/`outcome`/`route`/dates/ids are kept for
-reporting. Declared here (S3.0); not yet called from `purge_expired_request` (S3.2 wires it).
+`reason`/`approval_note` only — `reason_code`/`outcome`/`route`/dates/ids (including
+`prior_urgency`/`accompanying_urgency`, both codes, not free text) are kept for reporting.
+Wired from `ham.requests.services.purge_expired_request` (S3.2).
+
+### 1.2a `UrgencyReview` (`requests_urgency_review`) — coordinator fix round (2026-09-29)
+
+A **standalone** urgency certify/decline (`ham.requests.services_decisions.review_urgency`,
+not bundled with an approval — see `Approval.prior_urgency`/`.accompanying_urgency` above for
+that case) gets its own append-only, undoable record. Q-176 lists "urgency certification and
+'Not urgent'" among the decisions a pastor may undo within
+`RULES.approvals.DECISION_UNDO_WINDOW`; there is no way to reconstruct "the urgency right
+before this review" after the fact without persisting it at review time, and no
+`Approval` row exists for a standalone review to hang the fact off of.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `UUID7Field` (PK) | |
+| `request` | FK → `AssistanceRequest`, `related_name="urgency_reviews"` | |
+| `action` | `UrgencyAction` | `certify_urgency` \| `decline_urgency` |
+| `prior_urgency` | `UrgencyStatus` | the urgency right before this review |
+| `decided_by_user_id` / `decided_at` | | |
+| `effective_at` | `DateTimeField` | `= decided_at + RULES.approvals.DECISION_UNDO_WINDOW`, same "computed and stored once" shape as `Approval.effective_at` — but **no held effects** hang off it (`review_urgency`'s own outbox events are always immediate); it exists purely so the undo window's own end is read back, not recomputed |
+| `undone_at` / `undone_by_user_id` | `DateTimeField`/`UUIDField`, null | **`ONCE_FIELDS`**, set together, once, from null |
+
+Constraints: `undone_at`/`undone_by_user_id` set together. Distinct from `Approval`: no
+`(request, stage)`-shaped uniqueness — a request's urgency may legitimately be reviewed more
+than once over its life (e.g. declined, then later certified, Q-160), so more than one live
+`UrgencyReview` row per request is normal and expected. No retention erasure method (no free
+text on this model to blank).
 
 ### 1.3 `Reconsideration` (`requests_reconsideration`)
 
@@ -180,6 +212,32 @@ def withdraw_question(ctx, *, question_id) -> None: ...
 def close_open_questions(request_id, *, reason) -> int: ...
 ```
 
+**Real signatures, as implemented (S3.2 + coordinator fix round, 2026-09-29) — both stub
+tables above are now fully wired; kept as the historical S3.0 declaration, amended here rather
+than rewritten, per the "additive, not silently changed" convention `submit_request`'s own
+module docstring set in step 2.** Every `services_decisions.py` function is now a real
+`@command`-wrapped body (`services_questions.py`'s four remain S3.3's, unchanged from the
+table above). The only signature changes, both strictly additive or a documented split:
+
+```python
+def approve_request(
+    ctx, *, request_id, route, board_decided_on=None, certify_urgent=False,
+    decline_urgency=False, approval_note="", told_by_phone=False,
+) -> Approval: ...  # decline_urgency (Q-178), approval_note (Q-169), told_by_phone (Q-159)
+
+# undo_decision now takes EITHER an Approval id or an UrgencyReview id (coordinator fix round,
+# gap 2) -- exactly one of the two keywords, never both/neither.
+def undo_decision(ctx, *, approval_id: UUID | None = None, review_id: UUID | None = None) -> Approval | UrgencyReview: ...
+```
+
+`change_category`, `record_decision_phoned`, `finalize_rejection`, `request_reconsideration`,
+`record_reconsideration_by_phone`, `decide_reconsideration` are unchanged from the table
+above. `review_urgency`'s own signature/return type (`AssistanceRequest`) is unchanged, but it
+now also creates an `UrgencyReview` row as a side effect (§1.2a) and, when the certification
+alone makes the request an urgent approval, hand-emits `RequestUrgentApproval` (§6) inside its
+own transaction — the same "primary `CommandResult` + hand-written extra outbox event"
+shape `approve_request`/`complete_intake_checks` already use.
+
 `close_open_questions` is implemented today (S3.0), not a stub: it is a **plain function**,
 not `@command`-wrapped, always called from *inside* another command's own transaction (a
 decision, a cancel) as one of that command's own side effects — never a standalone
@@ -219,7 +277,13 @@ Finer rules the matrix can't express (enforced/tested in the service or `states.
 approvals.md §3): route vs. held role; original pastor or explicit takeover
 (`may_decide_reconsideration`, S3.1); only the asker/DIR/AD may withdraw a question; only the
 person who *recorded* a decision may undo it, and only before `effective_at`; an
-impersonating Administrator never unmasks (Q-151, unchanged from step 2).
+impersonating Administrator never unmasks (Q-151, unchanged from step 2). **Coordinator fix
+round (2026-09-29), gap 2:** `request.decision.undo` is reused (not a new matrix row) for
+undoing a standalone `UrgencyReview` too — `undo_decision(ctx, *, approval_id=None,
+review_id=None)` takes exactly one of the two, and the service-layer "only the recorder,
+only within the window" check applies identically to either record kind; a pastor's own
+`UrgencyReview` and a Board rep's `Approval` are both covered by the same PAS/BRD actor set
+already declared for this action.
 
 `_AUDITED_ON_DENIAL` (`ham/authz/commands.py`) gained: `request.approve`, `request.reject`,
 `request.decision.undo`, `request.urgency.review`, `request.reconsideration.decide`,
@@ -234,13 +298,16 @@ Q-165/Q-172 rows, not copied from the matrix. Regenerate after any further chang
 
 ## 4. Held effects (undo, Q-156/Q-176)
 
-**Design: a scheduled job, not an outbox/effects table.** Every decision command
-(`approve_request`, `reject_request`, `decide_reconsideration`, and `review_urgency` when it
-makes urgency "urgent approval") computes `effective_at = decided_at +
-RULES.approvals.DECISION_UNDO_WINDOW` and stores it on the `Approval` row, then (S3.2) defers
-one job — `run_held_decision_effects(approval_id)` — for `effective_at`, mirroring
-`ham.requests.jobs.defer_complete_intake_checks`'s existing "defer a job for later, from
-inside the same transaction as the row write" shape.
+**Design: a scheduled job, not an outbox/effects table.** Every decision command that
+creates an `Approval` row (`approve_request`, `reject_request`, `decide_reconsideration`)
+computes `effective_at = decided_at + RULES.approvals.DECISION_UNDO_WINDOW` and stores it on
+that row, then (S3.2) defers one job — `run_held_decision_effects(approval_id)` — for
+`effective_at`, mirroring `ham.requests.jobs.defer_complete_intake_checks`'s existing "defer
+a job for later, from inside the same transaction as the row write" shape. `review_urgency`
+(a standalone urgency review, not bundled with an approval) creates no `Approval` row and has
+no held effects of its own — its outbox event (`UrgencyCertified`/`UrgencyNotCertified`) is
+always immediate (see below); its own undo window is tracked on `UrgencyReview.effective_at`
+(§1.2a) purely for the undo check, not a held-effects job.
 
 When that job runs, it:
 1. re-fetches the `Approval` row;
@@ -266,14 +333,29 @@ not apply to these specific events for this reason; the deciding command's own a
 every consequential action is audited when it happens, undo or not — only the *side effects*,
 not the audit trail, are held).
 
-**Not held (Q-176, safety, §3.5):** the urgent-approval alert to Director/AD
-(`UrgencyCertified`/`RequestApproved` with `urgent_approval=True`) is emitted **immediately**,
-at decision time, by the deciding command itself, through the normal `@command` outbox path —
-never through the held-effects job. On undo, the deciding command's `undo_decision` (S3.2)
-emits a *separate*, immediate `RequestDecisionUndone` event; S3.5's leadership notification
-builder turns an undo of an already-alerted urgent approval into the Q-176 in-app "urgent
-approval was undone" follow-up (a normal, unheld outbox subscriber reaction — not part of the
-held-effects mechanism above).
+**Not held (Q-176, safety, §3.5) — coordinator fix round (2026-09-29), gap 3: a DISTINCT
+event, not a second delivery of `RequestApproved`.** `RequestApproved` is now **exclusively**
+the held copy, emitted only by `run_held_decision_effects` at `effective_at`, never at decide
+time — an earlier revision of this slice emitted `RequestApproved` a second time,
+immediately, whenever a decision produced an urgent approval, which meant the *same* event
+type was delivered twice for one decision (once immediate, once held) and every subscriber
+for it would have needed to be a safe no-op on a repeat. Fixed: the urgent-approval alert to
+Director/AD is `RequestUrgentApproval {request_id, approval_id}` — its own, dedicated event,
+emitted **immediately**, at decision time, by the deciding command itself (`approve_request`,
+`decide_reconsideration`) or by `review_urgency` when a standalone certification alone tips an
+already-`APPROVED` request urgent, through the normal `@command` outbox path, never through
+the held-effects job. `UrgencyCertified`/`UrgencyNotCertified` (also always immediate,
+unrelated to being held) no longer carry an `urgent_approval` flag — `RequestUrgentApproval`
+is the one canonical trigger for the Director/AD alert; leadership notification builders
+should not infer it from `UrgencyCertified`'s payload.
+
+On undo, `undo_decision` emits a *separate*, immediate follow-up event depending on which kind
+of record it undid: `RequestDecisionUndone` (an `Approval` — approve/reject/reconsider) or
+`RequestUrgencyReviewUndone` (an `UrgencyReview` — a standalone certify/decline, coordinator
+fix round gap 2). S3.5's leadership notification builder turns an undo of an already-alerted
+urgent approval into the Q-176 in-app "urgent approval was undone" follow-up by looking up the
+undone `Approval`/`UrgencyReview` by the id in either event's payload — neither payload
+repeats an `urgent_approval` flag itself (ids/codes only, per the outbox PII rule).
 
 **During the window:** while the pending `Approval` row is still live (`undone_at IS NULL`),
 `decide_reconsideration`/`approve_request`/`reject_request` refuse a second decision on the
@@ -287,28 +369,44 @@ ordinary insert and succeeds (coordinator correction, 2026-09-29 — see §9). T
 what makes undo a genuine "fix a mistake and let it be re-decided", not merely a "mark this
 wrong" flag on an otherwise permanently-blocking row.
 
+**Undo restores urgency too (coordinator fix round, 2026-09-29, gap 1, Q-176/Q-178):**
+`Approval.prior_urgency`/`.accompanying_urgency` (§1.2) let `undo_decision` pass both to
+`states.check_undo`, which restores the pre-decision urgency status on the request alongside
+the pre-decision request status, whenever the undone decision bundled a certify/decline. An
+earlier revision of this slice restored status only, flagged as a gap rather than guessed at
+— now fixed since the schema has somewhere to persist the fact.
+
 ## 5. Audit (`ham/audit/labels.py`)
 
 New `ACTION_GROUPS` entries "Approvals" (`request.approved`, `request.rejected`,
 `request.decision_undone`, `request.reconsideration_requested`,
 `request.reconsideration_decided`, `request.rejection_finalized`,
-`request.urgency_certified`, `request.urgency_not_certified`, `request.category_changed`,
-`request.decision_phoned`) and "HAM questions" (`request.question_asked`,
-`request.question_answered`, `request.question_withdrawn`). Matching `ACTION_LABELS` entries
-added. `request.approved`/`.rejected`'s `after` carries `route`, `stage`, `reason_code`,
-`urgent_approval`, `approval_id` — **never** the message/note/reason text (Q-050, unchanged
-convention from step 2's `requester_pii.reveal`).
+`request.urgency_certified`, `request.urgency_not_certified`,
+`request.urgency_review_undone`, `request.category_changed`, `request.decision_phoned`) and
+"HAM questions" (`request.question_asked`, `request.question_answered`,
+`request.question_withdrawn`). Matching `ACTION_LABELS` entries added. `request.approved`/
+`.rejected`'s `after` carries `route`, `stage`, `reason_code`, `urgent_approval`,
+`approval_id` — **never** the message/note/reason text (Q-050, unchanged convention from
+step 2's `requester_pii.reveal`). `request.urgency_review_undone`'s `after` carries
+`review_id` only.
 
 ## 6. Outbox events (IDs and codes only, `ham.outbox.validation` still applies)
 
+**Coordinator fix round (2026-09-29), gap 3:** `RequestApproved` is now exclusively the held
+copy — the urgent-approval alert is its own, distinct, always-immediate event
+(`RequestUrgentApproval`), not a second delivery of `RequestApproved` (see §4). Every event
+below is delivered **exactly once** per occurrence; none is intentionally double-delivered.
+
 | Event | Payload | Timing |
 |---|---|---|
-| `RequestApproved` | `request_id`, `stage`, `route`, `urgent_approval` | held (§4), except the urgent-approval alert path |
+| `RequestApproved` | `request_id`, `stage`, `route`, `urgent_approval` | held only (§4) — never emitted at decide time |
 | `RequestRejected` | `request_id`, `stage`, `route`, `reason_code`, `final` | held (§4) |
-| `RequestDecisionUndone` | `request_id`, `approval_id`, `stage` | immediate, at undo |
+| `RequestUrgentApproval` | `request_id`, `approval_id` | immediate, never held (§4) — the Director/AD safety alert; emitted by `approve_request`/`decide_reconsideration` when their own decision produces an urgent approval, or by `review_urgency` when a standalone certification alone tips an already-`APPROVED` request urgent |
+| `RequestDecisionUndone` | `request_id`, `approval_id`, `stage` | immediate, at undo of an `Approval` |
+| `RequestUrgencyReviewUndone` | `request_id`, `review_id` | immediate, at undo of a standalone `UrgencyReview` (coordinator fix round, gap 2) |
 | `ReconsiderationRequested` | `request_id`, `reconsideration_id`, `route`, `via` | immediate |
 | `RequestRejectionFinalized` | `request_id` | immediate (system job) |
-| `UrgencyCertified` | `request_id`, `urgent_approval` | immediate (never held, §4) |
+| `UrgencyCertified` | `request_id` | immediate (never held, §4) — **no longer carries `urgent_approval`**; use `RequestUrgentApproval` for the alert |
 | `UrgencyNotCertified` | `request_id` | immediate |
 | `RequestCategoryChanged` | `request_id`, `need_category` | immediate |
 | `RequesterQuestionAsked` | `request_id`, `question_id` | immediate |
@@ -386,3 +484,22 @@ truth — keep both in sync):
   owner's Q-156 decision superseded it) — `RequestDecisionUndone` here is this slice's own
   naming, not copied from an existing table. S3.5 should treat the payload shape above as a
   proposal, confirmed at merge, not a locked contract.
+- **RESOLVED (coordinator fix round, 2026-09-29), gap 1: undo restores urgency too.** Was
+  flagged here as a genuine schema gap (`Approval` stored no "urgency before this decision"
+  field, so a decision that bundled `certify_urgent`/`decline_urgency` couldn't have that
+  choice reconstructed on undo). Fixed: `Approval.prior_urgency`/`.accompanying_urgency`
+  (§1.2, migration `requests/0006`) persist the fact at decision time; `undo_decision` now
+  passes both to `states.check_undo`, which already supported this exact shape (S3.1 had
+  built it ahead of the persistence existing to feed it).
+- **RESOLVED (coordinator fix round, 2026-09-29), gap 2: a standalone urgency review is
+  itself undoable.** Was flagged as unbuilt (`review_urgency` created no record at all, so
+  nothing existed to undo). Fixed: `UrgencyReview` (§1.2a, migration `requests/0006`) — its
+  own append-only, undoable record; `undo_decision(ctx, *, approval_id=None, review_id=None)`
+  now dispatches to either kind.
+- **RESOLVED (coordinator fix round, 2026-09-29), gap 3: `RequestApproved` was
+  double-delivered for an urgent approval.** The original design emitted `RequestApproved`
+  a second time, immediately, whenever a decision produced an urgent approval (in addition to
+  the held copy at `effective_at`) — every subscriber for that event type would have needed
+  to be a safe no-op on a repeat delivery. Fixed: the immediate alert is its own event,
+  `RequestUrgentApproval {request_id, approval_id}` (§4, §6); `RequestApproved` is now
+  exclusively the held copy, delivered exactly once per decision.
