@@ -1916,3 +1916,51 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   note as "the specific gap it names," not as blanket license to unwind a documented,
   deliberate design difference elsewhere — when genuinely unsure whether it's one or the
   other, that's a "stop and report the conflict" moment, not a silent pick.
+
+## S3.2 coordinator fix round (undo restores urgency; standalone urgency review undoable; no double-delivered RequestApproved)
+- **When a pure rules function (`states.py`) already accepts a parameter your service layer
+  never passes, check whether the rules layer quietly anticipated a fact your model doesn't
+  persist yet** — `check_undo`'s `prior_urgency`/`accompanying_urgency` params, and its whole
+  `isinstance(kind, UrgencyAction)` branch, were already built and tested by S3.1 *before*
+  `Approval` had anywhere to store "urgency before this decision" or before any
+  standalone-urgency-review record existed at all. Once the two missing columns
+  (`Approval.prior_urgency`/`.accompanying_urgency`) and the new `UrgencyReview` model landed,
+  zero changes were needed in `states.py` — the fix was entirely "persist the fact at decision
+  time, then pass it through", not new pure-function logic. Don't assume a flagged gap needs
+  rules-layer work without first re-reading the rules function's own signature for params your
+  service never uses.
+- **A record that's "undoable within a window" but has no held effects of its own still wants
+  the same `effective_at = decided_at + DECISION_UNDO_WINDOW`, computed-and-stored-once
+  shape** as a record that does (`Approval`) — `UrgencyReview.effective_at` exists purely so
+  `decision_is_undoable`/the undo-window check reads a stored value, never recomputes from a
+  possibly-since-changed rule, even though nothing is ever deferred to run *at* that instant.
+  Don't skip the field just because "there's no job to schedule" — the undo-window contract
+  and the held-effects contract are two separate reasons to store the same kind of timestamp.
+- **"Emit event X's payload flag to drive a later notification" and "emit a whole second copy
+  of event X" are different fixes for the same underlying need, and only one of them avoids
+  double delivery.** The pre-fix design used `RequestApproved(urgent_approval=True)` as an
+  *immediate* alert AND relied on the exact same event type as the *held* copy for
+  batch-close/question-close/leader-update — meaning any urgent decision produced two
+  deliveries of one event type, silently requiring every subscriber to be repeat-safe. The
+  fix was a **dedicated event type** for the immediate-only concern (`RequestUrgentApproval`),
+  never reusing the held event's name for an out-of-band emission. When a coordinator says
+  "don't double-deliver X", check whether the immediate and held paths are using the *same*
+  event type before assuming a payload-shape tweak is enough — if they are, the real fix is
+  splitting the event, not deduping payload fields.
+- **Two different "kinds of undoable record" sharing one action code
+  (`request.decision.undo`) is cleanest as one `@command` function with two private,
+  same-shaped helpers it dispatches to** (`_undo_approval`/`_undo_urgency_review`), not two
+  separate `@command("request.decision.undo")` sites — `tests/audit/test_command_registry.py`
+  explicitly forbids the same action string being wired twice (`test_no_command_action_is_
+  defined_twice_with_different_wiring`), so "reuse the matrix action, extend the function
+  signature to take either id (exactly one)" is the only shape that both reuses the action and
+  keeps the one-write-path invariant. `ctx.effective_roles`/impersonation-block/step-up all
+  still apply uniformly across both record kinds for free, since they're evaluated before the
+  dispatch, at the matrix-action level.
+- **Coordinator fix-round workflow that actually proves the fix:** write the new/updated
+  tests first, run them against the pre-fix code to confirm they fail for the *right* reason
+  (not a typo), then implement, then re-run to green, then run the *whole* existing suite
+  (not just the new tests) since a payload/event-shape change ripples into every earlier test
+  that asserted the old shape (`test_s32_decisions.py` had three tests asserting the old
+  `RequestApproved(urgent_approval=True)`/`UrgencyCertified(urgent_approval=True)` payloads
+  that needed updating alongside the fix, not just new gap-specific tests).

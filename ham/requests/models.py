@@ -13,7 +13,13 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import connection, models
 
 from ham.platform.ids import UUID7Field
-from ham.requests.states import CancelReason, RequestStatus, UrgencyStatus, VerificationMethod
+from ham.requests.states import (
+    CancelReason,
+    RequestStatus,
+    UrgencyAction,
+    UrgencyStatus,
+    VerificationMethod,
+)
 
 REFERENCE_NUMBER_SEQUENCE = "requests_reference_number_seq"
 
@@ -551,6 +557,18 @@ class Approval(AppendOnlyOnceMixin, models.Model):
     # Q-169: optional one-line "Why approved (leaders only)" note, approval only.
     approval_note = models.TextField(blank=True, default="")  # C
     urgent_approval = models.BooleanField(default=False)
+    # Coordinator fix round (Q-176/Q-178): set together, at insert only, exactly when this
+    # decision also bundled a certify/decline urgency review (`approve_request(certify_urgent
+    # =True/decline_urgency=True)`) -- the urgency status right before that review, and which
+    # review action it was. `states.check_undo`'s `prior_urgency`/`accompanying_urgency`
+    # params need both to restore urgency on undo, not just the request status. Null/null
+    # when this decision didn't touch urgency at all.
+    prior_urgency = models.CharField(  # noqa: DJ001
+        max_length=24, choices=[(s.value, s.value) for s in UrgencyStatus], null=True, blank=True
+    )
+    accompanying_urgency = models.CharField(  # noqa: DJ001
+        max_length=24, choices=[(a.value, a.value) for a in UrgencyAction], null=True, blank=True
+    )
     took_over_from_user_id = models.UUIDField(null=True, blank=True)  # Q-157
     # Q-157: the required tick "Pastor X isn't available to decide this" -- set once, at
     # insert, together with `took_over_from_user_id` (never one without the other, see the
@@ -653,10 +671,65 @@ class Approval(AppendOnlyOnceMixin, models.Model):
                 ),
                 name="approval_phoned_fields_set_together",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(prior_urgency__isnull=True, accompanying_urgency__isnull=True)
+                    | models.Q(prior_urgency__isnull=False, accompanying_urgency__isnull=False)
+                ),
+                name="approval_prior_urgency_fields_set_together",
+            ),
         ]
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"Approval({self.request_id}, {self.stage}, {self.outcome})"
+
+
+class UrgencyReview(AppendOnlyOnceMixin, models.Model):
+    """Coordinator fix round (Q-176): a *standalone* urgency certify/decline (not bundled
+    with an approval, i.e. `ham.requests.services_decisions.review_urgency`) gets its own
+    append-only, undoable record -- Q-176 lists "urgency certification and 'Not urgent'" among
+    the decisions a pastor may undo within `RULES.approvals.DECISION_UNDO_WINDOW`, and there
+    is no way to reconstruct "the urgency right before this review" later without persisting
+    it at the time. Distinct from `Approval` (no held effects, no `(request, stage)`
+    uniqueness -- a request's urgency may legitimately be reviewed more than once over its
+    life, e.g. declined then later certified, Q-160) but the same append-only/undo shape.
+    """
+
+    id = UUID7Field()
+    request = models.ForeignKey(
+        AssistanceRequest, on_delete=models.CASCADE, related_name="urgency_reviews"
+    )
+    action = models.CharField(max_length=24, choices=[(a.value, a.value) for a in UrgencyAction])
+    prior_urgency = models.CharField(
+        max_length=24, choices=[(s.value, s.value) for s in UrgencyStatus]
+    )
+    decided_by_user_id = models.UUIDField()
+    decided_at = models.DateTimeField()
+    # Same shape/reasoning as `Approval.effective_at` -- the undo window's end, computed and
+    # stored at write time. No held effects hang off this record (review_urgency's own
+    # outbox events are always immediate, never held), so this field exists purely so the undo
+    # window's own end can be read back without recomputing it from a possibly-changed rule.
+    effective_at = models.DateTimeField()
+    undone_at = models.DateTimeField(null=True, blank=True)
+    undone_by_user_id = models.UUIDField(null=True, blank=True)
+
+    ONCE_FIELDS = frozenset({"undone_at", "undone_by_user_id"})
+
+    class Meta:
+        db_table = "requests_urgency_review"
+        indexes = [models.Index(fields=["request", "decided_at"], name="urgrev_request_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(undone_at__isnull=True, undone_by_user_id__isnull=True)
+                    | models.Q(undone_at__isnull=False, undone_by_user_id__isnull=False)
+                ),
+                name="urgrev_undone_fields_set_together",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"UrgencyReview({self.request_id}, {self.action})"
 
 
 class ReconsiderationManager(models.Manager):

@@ -178,11 +178,10 @@ class TestApproveRequest:
         assert AuditEvent.objects.filter(action="request.urgency_certified").count() == 1
         urgent_events = OutboxEvent.objects.filter(event_type="UrgencyCertified")
         assert urgent_events.count() == 1
-        assert urgent_events.first().payload == {
-            "request_id": str(req.id),
-            "urgent_approval": True,
-        }
-        # The urgent alert is immediate; the full RequestApproved is still held.
+        assert urgent_events.first().payload == {"request_id": str(req.id)}
+        # The dedicated immediate alert fires once, distinct from the held RequestApproved.
+        alert = OutboxEvent.objects.get(event_type="RequestUrgentApproval")
+        assert alert.payload == {"request_id": str(req.id), "approval_id": str(approval.id)}
         assert not OutboxEvent.objects.filter(event_type="RequestApproved").exists()
 
     def test_decline_urgency_while_approving_emits_urgencynotcertified_immediately(
@@ -198,16 +197,16 @@ class TestApproveRequest:
         assert OutboxEvent.objects.filter(event_type="UrgencyNotCertified").count() == 1
         assert not OutboxEvent.objects.filter(event_type="RequestApproved").exists()
 
-    def test_approving_an_already_certified_request_emits_requestapproved_immediately(
+    def test_approving_an_already_certified_request_emits_the_dedicated_alert_not_requestapproved(
         self, requester_ctx, system_ctx, pastor_ctx, board_rep_ctx
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
         approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
         assert approval.urgent_approval is True
-        immediate = OutboxEvent.objects.filter(event_type="RequestApproved")
-        assert immediate.count() == 1
-        assert immediate.first().payload["urgent_approval"] is True
+        assert not OutboxEvent.objects.filter(event_type="RequestApproved").exists()
+        alert = OutboxEvent.objects.get(event_type="RequestUrgentApproval")
+        assert alert.payload == {"request_id": str(req.id), "approval_id": str(approval.id)}
 
     def test_message_and_note_text_never_appear_in_audit_or_outbox(
         self, requester_ctx, system_ctx, pastor_ctx
@@ -365,11 +364,13 @@ class TestReviewUrgency:
         self, requester_ctx, system_ctx, pastor_ctx, board_rep_ctx
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
-        approve_request(board_rep_ctx, request_id=req.id, route="board")
+        approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
         request_row = review_urgency(pastor_ctx, request_id=req.id, certify=True)
         assert request_row.urgency_status == UrgencyStatus.CERTIFIED.value
         event = OutboxEvent.objects.get(event_type="UrgencyCertified")
-        assert event.payload == {"request_id": str(req.id), "urgent_approval": True}
+        assert event.payload == {"request_id": str(req.id)}
+        alert = OutboxEvent.objects.get(event_type="RequestUrgentApproval")
+        assert alert.payload == {"request_id": str(req.id), "approval_id": str(approval.id)}
 
     def test_decline_urgency_not_certified_is_immediate(
         self, requester_ctx, system_ctx, pastor_ctx

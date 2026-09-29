@@ -6,23 +6,30 @@ action with its own actor) and the small private helpers.
 
 **Held effects (Q-156/Q-176, approvals-contracts.md §4).** `approve_request`, `reject_request`
 and `decide_reconsideration` never emit `RequestApproved`/`RequestRejected` themselves at
-decide time (except the urgent-approval alert path below) -- they store `Approval.
-effective_at` and defer `run_held_decision_effects` for exactly that instant
-(`ham.requests.jobs.defer_held_decision_effects`). The decision's own audit event
-(`request.approved`/`.rejected`/`.reconsideration_decided`) still fires immediately, every
-time, undone or not (§3.3: the audit trail is never held, only the side effects are).
+decide time -- they store `Approval.effective_at` and defer `run_held_decision_effects` for
+exactly that instant (`ham.requests.jobs.defer_held_decision_effects`). The decision's own
+audit event (`request.approved`/`.rejected`/`.reconsideration_decided`) still fires
+immediately, every time, undone or not (§3.3: the audit trail is never held, only the side
+effects are). `RequestApproved` is therefore **never** emitted at decide time, only by the
+held-effects job -- see the next paragraph for the dedicated immediate event.
 
-**Urgent-approval alert (Q-160/Q-161, never held).** Whichever action makes
-`states.becomes_urgent_approval`/`is_urgent_approval` true first emits the alert immediately,
-through the normal `@command` outbox path: `UrgencyCertified(urgent_approval=True)` when the
-same command also certifies urgency (`approve_request(certify_urgent=True)`,
-`review_urgency(certify=True)`), or `RequestApproved(urgent_approval=True)` when the approval
-alone is what tips it (urgency was already certified earlier). Either emission additionally
-means the *held* copy of the same event, released later by the effects job, repeats the
-`urgent_approval` flag -- S3.4/S3.5's subscribers for `RequestApproved` must treat a second
-delivery for the same `request_id`/`stage` as a no-op (media close and question auto-close
-already are; the leader "decision" in-app update should dedupe on `(user_id, request_id,
-stage)` -- flagged in the handback, not silently assumed).
+**Urgent-approval alert (Q-160/Q-161, never held; coordinator fix round -- was briefly a
+second, immediate delivery of `RequestApproved` itself, which double-delivered that event;
+fixed to a distinct event type).** Whichever action first makes
+`states.becomes_urgent_approval`/`is_urgent_approval` true emits `RequestUrgentApproval
+{request_id, approval_id}` immediately, through the normal `@command` outbox path, in addition
+to (never instead of) whatever event that same action already emits for the urgency review
+itself (`UrgencyCertified`/`UrgencyNotCertified`, also always immediate). `RequestApproved`
+stays exclusively the held copy at `effective_at` -- exactly one delivery per decision, ever.
+
+**Undo restores urgency too (Q-176/Q-178, coordinator fix round).** `Approval.prior_urgency`/
+`.accompanying_urgency` (set together, only when the same command also reviewed urgency --
+`approve_request(certify_urgent=True/decline_urgency=True)`) let `undo_decision` pass both to
+`states.check_undo`, which restores the pre-decision urgency alongside the pre-decision status.
+A *standalone* urgency review (`review_urgency`, not bundled with an approval) gets its own
+append-only, undoable `UrgencyReview` record (Q-176: "urgency certification and 'Not urgent'"
+are themselves undoable within the same window) -- `undo_decision` now takes either
+`approval_id` or `review_id` (exactly one).
 """
 
 from __future__ import annotations
@@ -51,6 +58,7 @@ from .models import (
     QuestionCloseReason,
     Reconsideration,
     RequesterChannel,
+    UrgencyReview,
 )
 from .states import (
     RequestAction,
@@ -132,6 +140,16 @@ def approve_request(
     assert decision.target is not None and decision.urgency_after is not None
     assert ctx.user_id is not None  # a staff actor always has a user_id
 
+    # Coordinator fix round (Q-176/Q-178): record what urgency was, and which review action
+    # this decision bundled, so `undo_decision` can restore both later -- `states.check_undo`
+    # already accepted these two facts; only the persistence was missing.
+    accompanying_urgency = None
+    if certify_urgent:
+        accompanying_urgency = UrgencyAction.CERTIFY_URGENCY.value
+    elif decline_urgency:
+        accompanying_urgency = UrgencyAction.DECLINE_URGENCY.value
+    prior_urgency = before_urgency if accompanying_urgency is not None else None
+
     approval = Approval.objects.create(
         request=request,
         stage=ApprovalStage.INITIAL.value,
@@ -143,6 +161,8 @@ def approve_request(
         board_decided_on=board_decided_on,
         approval_note=approval_note,
         urgent_approval=decision.urgent_approval,
+        prior_urgency=prior_urgency,
+        accompanying_urgency=accompanying_urgency,
         requester_phoned_at=now if told_by_phone else None,
         requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
     )
@@ -171,7 +191,7 @@ def approve_request(
             "UrgencyCertified",
             aggregate_type="request",
             aggregate_id=request.id,
-            payload={"request_id": str(request.id), "urgent_approval": True},
+            payload={"request_id": str(request.id)},
         )
     elif decline_urgency:
         audit_record(
@@ -189,19 +209,17 @@ def approve_request(
             aggregate_id=request.id,
             payload={"request_id": str(request.id)},
         )
-    elif decision.urgent_approval:
-        # Urgency was already CERTIFIED earlier; this approval alone tips it into an urgent
-        # approval -- the alert fires now, immediately (never held, §4).
+
+    if decision.urgent_approval:
+        # Coordinator fix round (gap 3): a DISTINCT immediate event, never `RequestApproved`
+        # itself -- that stays exclusively the held copy at `effective_at` (§4). Fires here
+        # whichever way this decision produced the urgent approval: bundled with
+        # `certify_urgent` above, or an approval alone tipping an already-certified request.
         outbox_emit(
-            "RequestApproved",
+            "RequestUrgentApproval",
             aggregate_type="request",
             aggregate_id=request.id,
-            payload={
-                "request_id": str(request.id),
-                "stage": "initial",
-                "route": route,
-                "urgent_approval": True,
-            },
+            payload={"request_id": str(request.id), "approval_id": str(approval.id)},
         )
 
     from .jobs import defer_held_decision_effects
@@ -323,6 +341,7 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
     if not decision.allowed:
         raise ValueError(f"request.urgency.review refused: {decision.refusal}")
     assert decision.target is not None and decision.transition is not None
+    assert ctx.user_id is not None  # a staff actor always has a user_id
 
     before_urgency = request.urgency_status
     request.urgency_status = decision.target.value
@@ -332,9 +351,38 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
         update_fields=["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
     )
 
-    payload: dict[str, object] = {"request_id": str(request.id)}
-    if certify:
-        payload["urgent_approval"] = decision.becomes_urgent_approval
+    # Coordinator fix round (gap 2, Q-176): a standalone urgency review is itself undoable --
+    # give it its own append-only record, the same "decided_at + DECISION_UNDO_WINDOW"
+    # `effective_at` shape as `Approval` (no held effects hang off it; this is only so the
+    # undo window has something to check against).
+    UrgencyReview.objects.create(
+        request=request,
+        action=action.value,
+        prior_urgency=before_urgency,
+        decided_by_user_id=ctx.user_id,
+        decided_at=now,
+        effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+    )
+
+    if certify and decision.becomes_urgent_approval:
+        # Coordinator fix round (gap 3): the dedicated immediate alert event -- hand-emitted
+        # (the `complete_intake_checks`/`approve_request` precedent: `@command`'s wrapper
+        # already has a `transaction.atomic()` open around this function body, so a second
+        # outbox event here still lands atomically with the primary one below) -- referencing
+        # the live `Approval` this urgency certification just made urgent (the request is
+        # already APPROVED for `becomes_urgent_approval` to be true at all).
+        live_approval = (
+            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+            .order_by("-decided_at")
+            .first()
+        )
+        assert live_approval is not None
+        outbox_emit(
+            "RequestUrgentApproval",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "approval_id": str(live_approval.id)},
+        )
 
     return CommandResult(
         value=request,
@@ -348,7 +396,7 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
             decision.transition.outbox_event,
             aggregate_type="request",
             aggregate_id=request.id,
-            payload=payload,
+            payload={"request_id": str(request.id)},
         ),
     )
 
@@ -560,16 +608,13 @@ def decide_reconsideration(
     request.save(update_fields=update_fields)
 
     if decision.urgent_approval:
+        # Coordinator fix round (gap 3): the dedicated immediate event, never `RequestApproved`
+        # itself (see `approve_request`'s matching comment).
         outbox_emit(
-            "RequestApproved",
+            "RequestUrgentApproval",
             aggregate_type="request",
             aggregate_id=request.id,
-            payload={
-                "request_id": str(request.id),
-                "stage": "reconsideration",
-                "route": recon.route,
-                "urgent_approval": True,
-            },
+            payload={"request_id": str(request.id), "approval_id": str(approval.id)},
         )
 
     from .jobs import defer_held_decision_effects
@@ -716,18 +761,18 @@ def _decision_action_for_approval(approval: Approval) -> RequestAction:
     )
 
 
-@command("request.decision.undo")
-def undo_decision(ctx: ActorContext, *, approval_id: UUID) -> CommandResult:
+def _undo_approval(ctx: ActorContext, approval_id: UUID) -> CommandResult:
     approval = Approval.objects.select_for_update().get(pk=approval_id)
     request = AssistanceRequest.objects.select_for_update().get(pk=approval.request_id)
     now = clock_now()
     kind = _decision_action_for_approval(approval)
 
-    # PRD-GAP: `Approval` stores no "urgency before this decision" field, so a decision that
-    # bundled a certify/decline (approve_request(certify_urgent=True/decline_urgency=True))
-    # cannot have its urgency choice reconstructed and restored here -- undo restores the
-    # REQUEST status only; the urgency review this decision may have bundled is left as-is.
-    # Flagged in the S3.2 handback for the orchestrator, not silently assumed.
+    # Coordinator fix round (gap 1, Q-176/Q-178): `Approval.prior_urgency`/
+    # `.accompanying_urgency` (set only when this decision also bundled a certify/decline)
+    # let `check_undo` restore urgency alongside status, not status alone.
+    accompanying_urgency = (
+        UrgencyAction(approval.accompanying_urgency) if approval.accompanying_urgency else None
+    )
     outcome = check_undo(
         kind,
         actor_id=str(ctx.user_id) if ctx.user_id else None,
@@ -737,6 +782,8 @@ def undo_decision(ctx: ActorContext, *, approval_id: UUID) -> CommandResult:
         undone_at=approval.undone_at,
         current_status=request.status,
         current_urgency=request.urgency_status,
+        prior_urgency=approval.prior_urgency,
+        accompanying_urgency=accompanying_urgency,
         is_impersonating=ctx.is_impersonating,
     )
     if not outcome.allowed:
@@ -750,6 +797,11 @@ def undo_decision(ctx: ActorContext, *, approval_id: UUID) -> CommandResult:
     request.status = outcome.restore_status.value
     request.status_changed_at = now
     update_fields = ["status", "status_changed_at"]
+    if outcome.restore_urgency is not None:
+        request.urgency_status = outcome.restore_urgency.value
+        request.urgency_reviewed_at = None
+        request.urgency_reviewed_by_user_id = None
+        update_fields += ["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
     if outcome.reopens_request:
         request.closed_at = None
         request.closed_by_user_id = None
@@ -778,6 +830,79 @@ def undo_decision(ctx: ActorContext, *, approval_id: UUID) -> CommandResult:
             },
         ),
     )
+
+
+def _undo_urgency_review(ctx: ActorContext, review_id: UUID) -> CommandResult:
+    """Coordinator fix round (gap 2, Q-176): undo a *standalone* urgency review (not bundled
+    with an approval -- see `_undo_approval` above for that case)."""
+    review = UrgencyReview.objects.select_for_update().get(pk=review_id)
+    request = AssistanceRequest.objects.select_for_update().get(pk=review.request_id)
+    now = clock_now()
+    action = UrgencyAction(review.action)
+
+    outcome = check_undo(
+        action,
+        actor_id=str(ctx.user_id) if ctx.user_id else None,
+        decided_by_id=str(review.decided_by_user_id),
+        decided_at=review.decided_at,
+        now=now,
+        undone_at=review.undone_at,
+        current_status=request.status,
+        current_urgency=request.urgency_status,
+        prior_urgency=review.prior_urgency,
+        is_impersonating=ctx.is_impersonating,
+    )
+    if not outcome.allowed:
+        raise ValueError(f"request.decision.undo refused: {outcome.refusal}")
+    assert outcome.restore_urgency is not None
+
+    review.undone_at = now
+    review.undone_by_user_id = ctx.user_id
+    review.save(update_fields=["undone_at", "undone_by_user_id"])
+
+    request.urgency_status = outcome.restore_urgency.value
+    request.urgency_reviewed_at = None
+    request.urgency_reviewed_by_user_id = None
+    request.save(
+        update_fields=["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
+    )
+
+    return CommandResult(
+        value=review,
+        audit_action="request.urgency_review_undone",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"review_id": str(review.id)},
+        # Coordinator fix round: the follow-up event S3.5 turns into the Q-176 in-app "urgent
+        # approval was undone" notice when this review's own certification had produced one
+        # (S3.5 checks by looking up the review and the request's decision history by id --
+        # ids/codes only in the payload itself, per the outbox PII rule).
+        outbox=OutboxSpec(
+            "RequestUrgencyReviewUndone",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "review_id": str(review.id)},
+        ),
+    )
+
+
+@command("request.decision.undo")
+def undo_decision(
+    ctx: ActorContext, *, approval_id: UUID | None = None, review_id: UUID | None = None
+) -> CommandResult:
+    """Undo a decision (Q-156/Q-176). Exactly one of `approval_id` (an `Approval` -- approve/
+    reject/reconsider) or `review_id` (an `UrgencyReview` -- a standalone certify/decline) is
+    required; the two record kinds carry their own undo bookkeeping (see `_undo_approval`/
+    `_undo_urgency_review`)."""
+    if (approval_id is None) == (review_id is None):
+        raise ValueError(
+            "request.decision.undo: exactly one of approval_id or review_id is required"
+        )
+    if approval_id is not None:
+        return _undo_approval(ctx, approval_id)
+    assert review_id is not None
+    return _undo_urgency_review(ctx, review_id)
 
 
 # ------------------------------------------------------------------------------------------
