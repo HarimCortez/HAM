@@ -105,3 +105,19 @@ New findings:
 - **N2 (Major):** the take-over tick is pre-checked from `?take_over=1`. That contradicts Q-157's required tick.
 
 Scope is clean, and migration 0007 is clean.
+
+## Final re-check at `810210a`
+
+| Item | Status |
+|---|---|
+| M4, M5, Minor 1, N1 (Q-176 carve-out), N2 (take-over tick) | Fixed |
+| Church-local date, undo label | Fixed |
+| Board date re-render | Partial: fixed on A9; A3 resets the date to today on a re-render, and A2 has no inline future-date check |
+
+New findings:
+- **Major:** the Director/AD "Call them back" card has no Q row and nothing clears it. Logged as Q-184, with default (b): a one-tick "Called them back", audited.
+- **Minor:** the Board rep gets "Urgent request awaiting a pastor"; suggest "Urgent request waiting for review".
+- **Minor:** FIX-3C edited the already-written migration 0007. Move the new constraint into a new migration.
+- **Minor:** Q-083 (step 1) is only a bullet in the notes; it should become a table row.
+
+Scope is clean: nothing from step 4.
