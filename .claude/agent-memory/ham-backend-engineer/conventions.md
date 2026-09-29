@@ -1914,3 +1914,131 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   already used for CANCELLED in step 2. Every step-3 wording function only ever takes an
   already-known outcome/stage/boolean/date, never an `Approval` row — keeps the "pure, no
   `ham.requests` import" rule from step 2 intact into step 3.
+
+## S3.2 (decisions core: approve/reject/certify/reconsider/undo/held effects)
+- **"First decision wins" concurrency needs no special mechanism beyond the existing
+  `select_for_update()` pattern.** `approve_request`/`reject_request`/`decide_reconsideration`
+  already `select_for_update()` the `AssistanceRequest` row before calling `check_transition`;
+  a second concurrent decider's transaction blocks on that row lock until the first commits,
+  then re-reads a status that's already moved on, so `check_transition` returns `WRONG_STATE`
+  on its own. The `Approval` table's partial unique index (`condition=Q(undone_at__isnull=
+  True)`) is a DB-level backstop for any write path that *doesn't* go through this lock, not
+  the primary mechanism. Testing this for real needs `@pytest.mark.django_db(transaction=True)`
+  + two real `threading.Thread`s (a plain `db` fixture's single wrapping transaction can't
+  demonstrate cross-transaction blocking) — **and that real-commit test must clean up after
+  itself**: every job it deferred (including an unrelated one a shared test helper enqueues,
+  e.g. `submit_request`'s own `defer_complete_intake_checks` even when the test also calls
+  `complete_intake_checks` directly right after) survives the test's DB flush as a real
+  `procrastinate_jobs` row. Don't call `run_due_jobs_now()` to "clean up" — it *executes*
+  every due job, including that unrelated stale one, which can now fail loudly against
+  already-decided state (`wrong_state`) and crash the test. Instead, delete the leftover
+  `todo` rows directly (`DELETE FROM procrastinate_jobs WHERE status = 'todo'`) so nothing
+  survives to be picked up by an unrelated *later* test's own `run_due_jobs_now()` call
+  (confirmed empirically: without this, two unrelated tests two files away failed with
+  `AssistanceRequest.DoesNotExist` purely from running the suite in full vs. deselecting the
+  one `transaction=True` test — order/isolation bugs like this only show up at full-suite
+  scale, never in isolation).
+- **A held-decision-effects job doesn't need its own new outbox/effects table — reuse the
+  decision's own `effective_at` + a same-shaped idempotency marker (`effects_ran_at`,
+  `ONCE_FIELDS`) already declared on the `Approval` row, and `ham.jobs.defer_later(...,
+  schedule_at=...)`** (the existing "defer a job for a specific future instant" primitive,
+  distinct from `periodic_job`'s cron shape). The job itself: re-fetch under
+  `select_for_update()`, check `undone_at` first (still mark `effects_ran_at` even when
+  undone — that's what makes a retried/duplicate invocation provably a no-op either way), then
+  release effects and mark `effects_ran_at`. Release = emit the *same* `RequestApproved`/
+  `RequestRejected` outbox event the deciding command *didn't* emit at decide time (the normal
+  `@command` pattern doesn't apply to this one event for this one purpose) plus call the
+  already-real `close_open_questions(request_id, reason="request_closed")` — never re-derive
+  "what does closing mean" logic in the job; call the one function that already knows.
+- **"The urgent-approval alert is never held" means literally emit the decision's own outbox
+  event (`RequestApproved`/`UrgencyCertified` with `urgent_approval=True`) a second time,
+  immediately, from inside the deciding `@command`'s own transaction** (via `ham.outbox.api.
+  emit` called by hand, same shape as `complete_intake_checks`'s hand-written second audit
+  row) — *not* a new, separate "alert" event type. The held copy still goes out later at
+  `effective_at` for the batch-close/question-close/leader-update side effects; the immediate
+  copy exists purely so the leadership notification builder (a later slice) can react to
+  `urgent_approval=True` right away. This means `RequestApproved` can legitimately be
+  delivered twice for one urgent decision (once immediate, once held) — every subscriber for
+  it must already be a safe no-op on a repeat for the same `request_id`/`stage` (media close
+  and `close_open_questions` already are; flag any new one that isn't in the hand-back rather
+  than silently assuming).
+- **`Approval` stores no "urgency before this decision" field** — a decision that bundled a
+  certify/decline (`approve_request(certify_urgent=True/decline_urgency=True)`) can't have
+  that urgency choice reconstructed and restored by a later `undo_decision` call; undo can
+  only safely restore the request's *status* (and `closed_at`/`reconsideration_deadline_at`
+  where the decision closed/opened the request). Don't invent a reconstruction heuristic
+  (e.g. "certify implies it was AWAITING_CERTIFICATION") — it's genuinely ambiguous (could
+  also have been NOT_CERTIFIED) with today's schema. Flag it as a real gap in the hand-back
+  instead of guessing.
+- **A matrix action declared `ANY` scope with `resource_from` omitted is fine** — `Scope.ANY`
+  never inspects the resource `authorize()` receives, so a command like `request.decision.undo`
+  (looked up by `approval_id`, not `request_id`) doesn't need a `resource_from` at all; don't
+  manufacture one just to match a pattern other commands in the same file happen to use.
+- **Extending an existing edge's actor set to include already-closable states (the CANCEL
+  extension, Q-165) means auditing every existing caller of `check_transition` for that
+  action, not just adding the new source states to `states.py`.** `ham.requests.services.
+  cancel_request` (a different slice's original file) had never passed `now`/`closed_at`/
+  `decision_undo_open` to `check_transition` at all — harmless while CANCEL's only sources
+  were pre-decision statuses (nothing there is ever "closed" or mid-undo-window), but once
+  APPROVED/RECONSIDERATION_PENDING joined the source set those three facts are exactly what
+  gates "not while closed already" (`ALREADY_FINAL`) and "not while the decision that
+  produced this state can still be undone" (`DECISION_UNDO_WINDOW_OPEN`). Grep every call
+  site of an edge before assuming "the rule lives in states.py" is the whole story — a caller
+  built before the edge grew new guards can silently bypass them by omitting the new kwargs
+  (they all default away to "no restriction").
+- **When a coordinator/merge note says "every closing edge must call `close_open_questions`
+  in the same transaction," that's about *immediate* closes (cancel, finalize) — it does
+  *not* override a slice's own already-decided held-effects design for a *different* set of
+  edges (the Approval-driven approve/reject/reconsider-reject closes, which intentionally
+  hold question-closing until `effective_at` per the undo contract).** Read a coordinator
+  note as "the specific gap it names," not as blanket license to unwind a documented,
+  deliberate design difference elsewhere — when genuinely unsure whether it's one or the
+  other, that's a "stop and report the conflict" moment, not a silent pick.
+
+## S3.2 coordinator fix round (undo restores urgency; standalone urgency review undoable; no double-delivered RequestApproved)
+- **When a pure rules function (`states.py`) already accepts a parameter your service layer
+  never passes, check whether the rules layer quietly anticipated a fact your model doesn't
+  persist yet** — `check_undo`'s `prior_urgency`/`accompanying_urgency` params, and its whole
+  `isinstance(kind, UrgencyAction)` branch, were already built and tested by S3.1 *before*
+  `Approval` had anywhere to store "urgency before this decision" or before any
+  standalone-urgency-review record existed at all. Once the two missing columns
+  (`Approval.prior_urgency`/`.accompanying_urgency`) and the new `UrgencyReview` model landed,
+  zero changes were needed in `states.py` — the fix was entirely "persist the fact at decision
+  time, then pass it through", not new pure-function logic. Don't assume a flagged gap needs
+  rules-layer work without first re-reading the rules function's own signature for params your
+  service never uses.
+- **A record that's "undoable within a window" but has no held effects of its own still wants
+  the same `effective_at = decided_at + DECISION_UNDO_WINDOW`, computed-and-stored-once
+  shape** as a record that does (`Approval`) — `UrgencyReview.effective_at` exists purely so
+  `decision_is_undoable`/the undo-window check reads a stored value, never recomputes from a
+  possibly-since-changed rule, even though nothing is ever deferred to run *at* that instant.
+  Don't skip the field just because "there's no job to schedule" — the undo-window contract
+  and the held-effects contract are two separate reasons to store the same kind of timestamp.
+- **"Emit event X's payload flag to drive a later notification" and "emit a whole second copy
+  of event X" are different fixes for the same underlying need, and only one of them avoids
+  double delivery.** The pre-fix design used `RequestApproved(urgent_approval=True)` as an
+  *immediate* alert AND relied on the exact same event type as the *held* copy for
+  batch-close/question-close/leader-update — meaning any urgent decision produced two
+  deliveries of one event type, silently requiring every subscriber to be repeat-safe. The
+  fix was a **dedicated event type** for the immediate-only concern (`RequestUrgentApproval`),
+  never reusing the held event's name for an out-of-band emission. When a coordinator says
+  "don't double-deliver X", check whether the immediate and held paths are using the *same*
+  event type before assuming a payload-shape tweak is enough — if they are, the real fix is
+  splitting the event, not deduping payload fields.
+- **Two different "kinds of undoable record" sharing one action code
+  (`request.decision.undo`) is cleanest as one `@command` function with two private,
+  same-shaped helpers it dispatches to** (`_undo_approval`/`_undo_urgency_review`), not two
+  separate `@command("request.decision.undo")` sites — `tests/audit/test_command_registry.py`
+  explicitly forbids the same action string being wired twice (`test_no_command_action_is_
+  defined_twice_with_different_wiring`), so "reuse the matrix action, extend the function
+  signature to take either id (exactly one)" is the only shape that both reuses the action and
+  keeps the one-write-path invariant. `ctx.effective_roles`/impersonation-block/step-up all
+  still apply uniformly across both record kinds for free, since they're evaluated before the
+  dispatch, at the matrix-action level.
+- **Coordinator fix-round workflow that actually proves the fix:** write the new/updated
+  tests first, run them against the pre-fix code to confirm they fail for the *right* reason
+  (not a typo), then implement, then re-run to green, then run the *whole* existing suite
+  (not just the new tests) since a payload/event-shape change ripples into every earlier test
+  that asserted the old shape (`test_s32_decisions.py` had three tests asserting the old
+  `RequestApproved(urgent_approval=True)`/`UrgencyCertified(urgent_approval=True)` payloads
+  that needed updating alongside the fix, not just new gap-specific tests).

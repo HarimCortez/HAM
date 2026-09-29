@@ -1,40 +1,250 @@
-"""S3.0 seam (approvals.md §8.1; approvals-contracts.md §2): the exact signatures S3.2 (the
-real decisions-core implementation) commits to, so S3.3-S3.7 can code against them while S3.2
-runs in a parallel worktree. Every function below raises ``NotImplementedError`` today; S3.2
-fills in the body (wrapped in ``@command("...")``, per ``ham.authz.commands``'s one write
-path) without changing this signature, or flags a coordination note here if it must.
+"""S3.2: the real decisions-core write path (approvals.md §2.2-§2.4; approvals-contracts.md
+§2, §4). Every function below is `@command`-wrapped except `run_held_decision_effects` (a
+plain function the held-effects job calls, mirroring `services_questions.close_open_questions`
+-- SYSTEM releasing already-decided, already-audited effects is not itself a new consequential
+action with its own actor) and the small private helpers.
 
-Nothing here is authorized/audited yet -- these are plain functions, not yet
-``@command``-wrapped (``tests/audit/test_command_registry.py``'s ``PLACEHOLDER_ACTIONS`` lists
-the matching ``ham.authz.matrix`` action codes as declared-but-unwired for this reason).
+**Held effects (Q-156/Q-176, approvals-contracts.md §4).** `approve_request`, `reject_request`
+and `decide_reconsideration` never emit `RequestApproved`/`RequestRejected` themselves at
+decide time -- they store `Approval.effective_at` and defer `run_held_decision_effects` for
+exactly that instant (`ham.requests.jobs.defer_held_decision_effects`). The decision's own
+audit event (`request.approved`/`.rejected`/`.reconsideration_decided`) still fires
+immediately, every time, undone or not (§3.3: the audit trail is never held, only the side
+effects are). `RequestApproved` is therefore **never** emitted at decide time, only by the
+held-effects job -- see the next paragraph for the dedicated immediate event.
+
+**Urgent-approval alert (Q-160/Q-161, never held; coordinator fix round -- was briefly a
+second, immediate delivery of `RequestApproved` itself, which double-delivered that event;
+fixed to a distinct event type).** Whichever action first makes
+`states.becomes_urgent_approval`/`is_urgent_approval` true emits `RequestUrgentApproval
+{request_id, approval_id}` immediately, through the normal `@command` outbox path, in addition
+to (never instead of) whatever event that same action already emits for the urgency review
+itself (`UrgencyCertified`/`UrgencyNotCertified`, also always immediate). `RequestApproved`
+stays exclusively the held copy at `effective_at` -- exactly one delivery per decision, ever.
+
+**Undo restores urgency too (Q-176/Q-178, coordinator fix round).** `Approval.prior_urgency`/
+`.accompanying_urgency` (set together, only when the same command also reviewed urgency --
+`approve_request(certify_urgent=True/decline_urgency=True)`) let `undo_decision` pass both to
+`states.check_undo`, which restores the pre-decision urgency alongside the pre-decision status.
+A *standalone* urgency review (`review_urgency`, not bundled with an approval) gets its own
+append-only, undoable `UrgencyReview` record (Q-176: "urgency certification and 'Not urgent'"
+are themselves undoable within the same window) -- `undo_decision` now takes either
+`approval_id` or `review_id` (exactly one).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import datetime as dt
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from django.db import transaction
+
+from ham.audit.services import record as audit_record
+from ham.authz.commands import CommandResult, OutboxSpec, command
+from ham.outbox.api import emit as outbox_emit
+from ham.platform.church import church_profile
+from ham.platform.clock import now as clock_now
+from ham.rules import RULES
+
+from .models import (
+    Approval,
+    ApprovalOutcome,
+    ApprovalRoute,
+    ApprovalStage,
+    AssistanceRequest,
+    NeedCategory,
+    QuestionCloseReason,
+    Reconsideration,
+    RequesterChannel,
+    UrgencyReview,
+)
+from .states import (
+    RequestAction,
+    UrgencyAction,
+    check_transition,
+    check_undo,
+    check_urgency_transition,
+    reconsideration_deadline,
+)
 
 if TYPE_CHECKING:
     from ham.authz.context import ActorContext, RequesterContext, SystemContext
 
-    from .models import Approval, AssistanceRequest
+# Form-level text limits (approvals.md §2.4 "Text limits"; not a rules-module business rule --
+# see `ham.requests.states`'s own module docstring "Text length limits ... don't go in the
+# rules module").
+RECONSIDERATION_NOTE_MAX_CHARS = 1000
 
 
+def _resource_request(ctx: Any, *, request_id: UUID, **_: Any) -> AssistanceRequest:
+    return AssistanceRequest.objects.get(pk=request_id)
+
+
+def _resource_requester_ctx(ctx: RequesterContext, *_: Any, **__: Any) -> RequesterContext:
+    return ctx
+
+
+def _church_today(now: dt.datetime) -> dt.date:
+    zone = ZoneInfo(church_profile().time_zone)
+    return now.astimezone(zone).date()
+
+
+def _live_initial_approval(request_id: UUID) -> Approval:
+    return Approval.objects.get(
+        request_id=request_id, stage=ApprovalStage.INITIAL.value, undone_at__isnull=True
+    )
+
+
+# ------------------------------------------------------------------------------------------
+# request.approve
+# ------------------------------------------------------------------------------------------
+@command("request.approve", resource_from=_resource_request)
 def approve_request(
     ctx: ActorContext,
     *,
     request_id: UUID,
     route: str,
-    board_decided_on=None,
+    board_decided_on: dt.date | None = None,
     certify_urgent: bool = False,
-) -> Approval:
-    """`request.approve` (PAS pastoral route, BRD board route; Q-048/Q-153/Q-164).
-    `certify_urgent=True` (pastor only) also writes `request.urgency_certified` and emits
-    `UrgencyCertified` inside the same atomic block (approvals.md §2.2 "one command", the
-    `complete_intake_checks` precedent)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.approve_request")
+    # Additive kwargs beyond the S3.0 stub signature (submit_request's own "strictly
+    # additive" precedent, ham.requests.services module docstring): Q-178, Q-169, Q-159.
+    decline_urgency: bool = False,
+    approval_note: str = "",
+    told_by_phone: bool = False,
+) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+
+    if route == ApprovalRoute.BOARD.value and board_decided_on is None:
+        board_decided_on = _church_today(now)  # Q-163: prefilled today
+    if board_decided_on is not None and board_decided_on > _church_today(now):
+        raise ValueError("request.approve: board_decided_on cannot be in the future")
+
+    before_urgency = request.urgency_status
+    decision = check_transition(
+        RequestAction.APPROVE,
+        request.status,
+        actor_roles=ctx.effective_roles,
+        is_impersonating=ctx.is_impersonating,
+        route=route,
+        urgency=before_urgency,
+        certify_urgent=certify_urgent,
+        decline_urgency=decline_urgency,
+        now=now,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"request.approve refused: {decision.refusal}")
+    assert decision.target is not None and decision.urgency_after is not None
+    assert ctx.user_id is not None  # a staff actor always has a user_id
+
+    # Coordinator fix round (Q-176/Q-178): record what urgency was, and which review action
+    # this decision bundled, so `undo_decision` can restore both later -- `states.check_undo`
+    # already accepted these two facts; only the persistence was missing.
+    accompanying_urgency = None
+    if certify_urgent:
+        accompanying_urgency = UrgencyAction.CERTIFY_URGENCY.value
+    elif decline_urgency:
+        accompanying_urgency = UrgencyAction.DECLINE_URGENCY.value
+    prior_urgency = before_urgency if accompanying_urgency is not None else None
+
+    approval = Approval.objects.create(
+        request=request,
+        stage=ApprovalStage.INITIAL.value,
+        outcome=ApprovalOutcome.APPROVED.value,
+        route=route,
+        decided_by_user_id=ctx.user_id,
+        decided_at=now,
+        effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+        board_decided_on=board_decided_on,
+        approval_note=approval_note,
+        urgent_approval=decision.urgent_approval,
+        prior_urgency=prior_urgency,
+        accompanying_urgency=accompanying_urgency,
+        requester_phoned_at=now if told_by_phone else None,
+        requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
+    )
+
+    request.status = decision.target.value
+    request.status_changed_at = now
+    update_fields = ["status", "status_changed_at"]
+    if decision.urgency_after.value != before_urgency:
+        request.urgency_status = decision.urgency_after.value
+        request.urgency_reviewed_at = now
+        request.urgency_reviewed_by_user_id = ctx.user_id
+        update_fields += ["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
+    request.save(update_fields=update_fields)
+
+    if certify_urgent:
+        audit_record(
+            ctx=ctx,
+            action="request.urgency_certified",
+            target_type="request",
+            target_id=str(request.id),
+            project_id=request.id,
+            before={"urgency_status": before_urgency},
+            after={"urgency_status": request.urgency_status},
+        )
+        outbox_emit(
+            "UrgencyCertified",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id)},
+        )
+    elif decline_urgency:
+        audit_record(
+            ctx=ctx,
+            action="request.urgency_not_certified",
+            target_type="request",
+            target_id=str(request.id),
+            project_id=request.id,
+            before={"urgency_status": before_urgency},
+            after={"urgency_status": request.urgency_status},
+        )
+        outbox_emit(
+            "UrgencyNotCertified",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id)},
+        )
+
+    if decision.urgent_approval:
+        # Coordinator fix round (gap 3): a DISTINCT immediate event, never `RequestApproved`
+        # itself -- that stays exclusively the held copy at `effective_at` (§4). Fires here
+        # whichever way this decision produced the urgent approval: bundled with
+        # `certify_urgent` above, or an approval alone tipping an already-certified request.
+        outbox_emit(
+            "RequestUrgentApproval",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "approval_id": str(approval.id)},
+        )
+
+    from .jobs import defer_held_decision_effects
+
+    defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
+
+    return CommandResult(
+        value=approval,
+        audit_action="request.approved",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={
+            "route": route,
+            "stage": "initial",
+            "urgent_approval": decision.urgent_approval,
+            "approval_id": str(approval.id),
+        },
+    )
 
 
+# ------------------------------------------------------------------------------------------
+# request.reject
+# ------------------------------------------------------------------------------------------
+@command("request.reject", resource_from=_resource_request)
 def reject_request(
     ctx: ActorContext,
     *,
@@ -42,32 +252,295 @@ def reject_request(
     route: str,
     reason_code: str,
     message: str,
-    board_decided_on=None,
-) -> Approval:
-    """`request.reject` (Q-154: `reason_code` one of `RejectionReason`, `message` the kind,
-    editable, pre-filled text the requester reads -- required, never audited/logged)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.reject_request")
+    board_decided_on: dt.date | None = None,
+    told_by_phone: bool = False,
+) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
 
+    if route == ApprovalRoute.BOARD.value and board_decided_on is None:
+        board_decided_on = _church_today(now)
+    if board_decided_on is not None and board_decided_on > _church_today(now):
+        raise ValueError("request.reject: board_decided_on cannot be in the future")
 
-def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> AssistanceRequest:
-    """`request.urgency.review` (PAS only; Q-160). `certify=True` -> CERTIFIED,
-    `certify=False` -> NOT_CERTIFIED (`ham.requests.states`'s urgency sub-machine, S3.1)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.review_urgency")
+    decision = check_transition(
+        RequestAction.REJECT,
+        request.status,
+        actor_roles=ctx.effective_roles,
+        is_impersonating=ctx.is_impersonating,
+        route=route,
+        reason_code=reason_code,
+        message=message,
+        now=now,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"request.reject refused: {decision.refusal}")
+    assert decision.target is not None
+    assert ctx.user_id is not None  # a staff actor always has a user_id
 
+    zone = church_profile().time_zone
+    deadline = reconsideration_deadline(now, zone)
 
-def request_reconsideration(ctx: RequesterContext, *, note: str = "") -> None:
-    """`requester.reconsideration.request` (Q-155/Q-158; own request only, before the
-    deadline, at most once -- `Reconsideration` row's own UNIQUE(request_id))."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.request_reconsideration")
+    approval = Approval.objects.create(
+        request=request,
+        stage=ApprovalStage.INITIAL.value,
+        outcome=ApprovalOutcome.REJECTED.value,
+        route=route,
+        decided_by_user_id=ctx.user_id,
+        decided_at=now,
+        effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+        board_decided_on=board_decided_on,
+        reason_code=reason_code,
+        reason=message,
+        requester_phoned_at=now if told_by_phone else None,
+        requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
+    )
 
+    request.status = decision.target.value
+    request.status_changed_at = now
+    request.reconsideration_deadline_at = deadline
+    request.save(update_fields=["status", "status_changed_at", "reconsideration_deadline_at"])
 
-def record_reconsideration_by_phone(ctx: ActorContext, *, request_id: UUID, note: str = "") -> None:
-    """`request.reconsideration.record_phone` (DIR, AD only; Q-159, no-email requesters)."""
-    raise NotImplementedError(
-        "S3.2: ham.requests.services_decisions.record_reconsideration_by_phone"
+    from .jobs import defer_held_decision_effects
+
+    defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
+
+    return CommandResult(
+        value=approval,
+        audit_action="request.rejected",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={
+            "route": route,
+            "stage": "initial",
+            "reason_code": reason_code,
+            "urgent_approval": False,
+            "approval_id": str(approval.id),
+        },
     )
 
 
+# ------------------------------------------------------------------------------------------
+# request.urgency.review
+# ------------------------------------------------------------------------------------------
+@command("request.urgency.review", resource_from=_resource_request)
+def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+    action = UrgencyAction.CERTIFY_URGENCY if certify else UrgencyAction.DECLINE_URGENCY
+    decision = check_urgency_transition(
+        action,
+        request.urgency_status,
+        request.status,
+        actor_roles=ctx.effective_roles,
+        is_impersonating=ctx.is_impersonating,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"request.urgency.review refused: {decision.refusal}")
+    assert decision.target is not None and decision.transition is not None
+    assert ctx.user_id is not None  # a staff actor always has a user_id
+
+    before_urgency = request.urgency_status
+    request.urgency_status = decision.target.value
+    request.urgency_reviewed_at = now
+    request.urgency_reviewed_by_user_id = ctx.user_id
+    request.save(
+        update_fields=["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
+    )
+
+    # Coordinator fix round (gap 2, Q-176): a standalone urgency review is itself undoable --
+    # give it its own append-only record, the same "decided_at + DECISION_UNDO_WINDOW"
+    # `effective_at` shape as `Approval` (no held effects hang off it; this is only so the
+    # undo window has something to check against).
+    UrgencyReview.objects.create(
+        request=request,
+        action=action.value,
+        prior_urgency=before_urgency,
+        decided_by_user_id=ctx.user_id,
+        decided_at=now,
+        effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+    )
+
+    if certify and decision.becomes_urgent_approval:
+        # Coordinator fix round (gap 3): the dedicated immediate alert event -- hand-emitted
+        # (the `complete_intake_checks`/`approve_request` precedent: `@command`'s wrapper
+        # already has a `transaction.atomic()` open around this function body, so a second
+        # outbox event here still lands atomically with the primary one below) -- referencing
+        # the live `Approval` this urgency certification just made urgent (the request is
+        # already APPROVED for `becomes_urgent_approval` to be true at all).
+        live_approval = (
+            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+            .order_by("-decided_at")
+            .first()
+        )
+        assert live_approval is not None
+        outbox_emit(
+            "RequestUrgentApproval",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "approval_id": str(live_approval.id)},
+        )
+
+    return CommandResult(
+        value=request,
+        audit_action=decision.transition.audit_action,
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        before={"urgency_status": before_urgency},
+        after={"urgency_status": request.urgency_status},
+        outbox=OutboxSpec(
+            decision.transition.outbox_event,
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id)},
+        ),
+    )
+
+
+# ------------------------------------------------------------------------------------------
+# requester.reconsideration.request / request.reconsideration.record_phone
+# ------------------------------------------------------------------------------------------
+def _create_reconsideration(
+    request: AssistanceRequest,
+    *,
+    now,
+    requested_via: str,
+    recorded_by_user_id: UUID | None,
+    note: str,
+) -> Reconsideration:
+    if len(note) > RECONSIDERATION_NOTE_MAX_CHARS:
+        raise ValueError("reconsideration note exceeds the character limit")
+    live_approval = _live_initial_approval(request.id)
+    return Reconsideration.objects.create(
+        request=request,
+        requested_at=now,
+        requested_via=requested_via,
+        recorded_by_user_id=recorded_by_user_id,
+        requester_note=note,
+        route=live_approval.route,
+        original_decider_user_id=live_approval.decided_by_user_id,
+    )
+
+
+@command("requester.reconsideration.request", resource_from=_resource_requester_ctx)
+def request_reconsideration(ctx: RequesterContext, *, note: str = "") -> CommandResult:
+    assert ctx.request_id is not None  # OWN_REQUEST scope already guarantees this
+    request = AssistanceRequest.objects.select_for_update().get(pk=ctx.request_id)
+    now = clock_now()
+    has_reconsideration = Reconsideration.objects.filter(request_id=request.id).exists()
+    decision = check_transition(
+        RequestAction.REQUEST_RECONSIDERATION,
+        request.status,
+        actor_roles=ctx.roles,
+        now=now,
+        reconsideration_deadline_at=request.reconsideration_deadline_at,
+        has_reconsideration=has_reconsideration,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"requester.reconsideration.request refused: {decision.refusal}")
+    assert decision.target is not None
+
+    reconsideration = _create_reconsideration(
+        request,
+        now=now,
+        requested_via=RequesterChannel.SECURE_PAGE.value,
+        recorded_by_user_id=None,
+        note=note,
+    )
+    request.status = decision.target.value
+    request.status_changed_at = now
+    request.save(update_fields=["status", "status_changed_at"])
+
+    return CommandResult(
+        value=reconsideration,
+        audit_action=decision.transition.audit_action,  # type: ignore[union-attr]
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"via": "secure_page"},
+        outbox=OutboxSpec(
+            "ReconsiderationRequested",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={
+                "request_id": str(request.id),
+                "reconsideration_id": str(reconsideration.id),
+                "route": reconsideration.route,
+                "via": "secure_page",
+            },
+        ),
+    )
+
+
+@command("request.reconsideration.record_phone", resource_from=_resource_request)
+def record_reconsideration_by_phone(
+    ctx: ActorContext, *, request_id: UUID, note: str = ""
+) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+    has_reconsideration = Reconsideration.objects.filter(request_id=request.id).exists()
+    decision = check_transition(
+        RequestAction.REQUEST_RECONSIDERATION,
+        request.status,
+        actor_roles=ctx.effective_roles,
+        is_impersonating=ctx.is_impersonating,
+        now=now,
+        reconsideration_deadline_at=request.reconsideration_deadline_at,
+        has_reconsideration=has_reconsideration,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"request.reconsideration.record_phone refused: {decision.refusal}")
+    assert decision.target is not None
+
+    reconsideration = _create_reconsideration(
+        request,
+        now=now,
+        requested_via=RequesterChannel.PHONE.value,
+        recorded_by_user_id=ctx.user_id,
+        note=note,
+    )
+    request.status = decision.target.value
+    request.status_changed_at = now
+    request.save(update_fields=["status", "status_changed_at"])
+
+    return CommandResult(
+        value=reconsideration,
+        audit_action=decision.transition.audit_action,  # type: ignore[union-attr]
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"via": "phone"},
+        outbox=OutboxSpec(
+            "ReconsiderationRequested",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={
+                "request_id": str(request.id),
+                "reconsideration_id": str(reconsideration.id),
+                "route": reconsideration.route,
+                "via": "phone",
+            },
+        ),
+    )
+
+
+# ------------------------------------------------------------------------------------------
+# request.reconsideration.decide
+# ------------------------------------------------------------------------------------------
+def _is_active_pastor(user_id: UUID | None) -> bool:
+    from ham.authz import roles
+    from ham.identity.services import user_holds_global_role
+
+    return user_holds_global_role(user_id, roles.PASTOR)
+
+
+@command("request.reconsideration.decide", resource_from=_resource_request)
 def decide_reconsideration(
     ctx: ActorContext,
     *,
@@ -76,43 +549,406 @@ def decide_reconsideration(
     reason: str,
     reason_code: str = "",
     take_over: bool = False,
-) -> Approval:
-    """`request.reconsideration.decide` (Q-157: `take_over=True` records
-    `Approval.took_over_from_user_id`/`.unavailable_confirmed`; routing -- Board route: any
-    BRD, pastoral route: the original pastor or an explicit takeover -- is
-    `ham.requests.states.may_decide_reconsideration`, S3.1)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.decide_reconsideration")
+) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+    recon = Reconsideration.objects.get(request_id=request.id)
+
+    original_active = True
+    if recon.route == ApprovalRoute.PASTORAL.value:
+        original_active = _is_active_pastor(recon.original_decider_user_id)
+
+    action = RequestAction.RECONSIDER_APPROVE if approve else RequestAction.RECONSIDER_REJECT
+    decision = check_transition(
+        action,
+        request.status,
+        actor_roles=ctx.effective_roles,
+        is_impersonating=ctx.is_impersonating,
+        route=recon.route,
+        reason_code=reason_code,
+        message=reason,
+        urgency=request.urgency_status,
+        actor_id=str(ctx.user_id) if ctx.user_id else None,
+        original_decider_id=str(recon.original_decider_user_id),
+        original_decider_is_active_pastor=original_active,
+        take_over=take_over,
+        decider_unavailable_confirmed=take_over,
+        now=now,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"request.reconsideration.decide refused: {decision.refusal}")
+    assert decision.target is not None
+    assert ctx.user_id is not None  # a staff actor always has a user_id
+
+    outcome = ApprovalOutcome.APPROVED.value if approve else ApprovalOutcome.REJECTED.value
+    approval = Approval.objects.create(
+        request=request,
+        stage=ApprovalStage.RECONSIDERATION.value,
+        outcome=outcome,
+        route=recon.route,
+        decided_by_user_id=ctx.user_id,
+        decided_at=now,
+        effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+        reason_code=reason_code if not approve else "",
+        reason=reason,
+        urgent_approval=decision.urgent_approval,
+        took_over_from_user_id=decision.took_over_from,
+        unavailable_confirmed=bool(decision.took_over_from),
+    )
+
+    request.status = decision.target.value
+    request.status_changed_at = now
+    update_fields = ["status", "status_changed_at"]
+    if decision.closes_request:
+        request.closed_at = now
+        request.closed_by_user_id = ctx.user_id
+        request.requester_access_ends_at = now + RULES.requester_access.REQUESTER_ACCESS_AFTER_CLOSE
+        update_fields += ["closed_at", "closed_by_user_id", "requester_access_ends_at"]
+    request.save(update_fields=update_fields)
+
+    if decision.urgent_approval:
+        # Coordinator fix round (gap 3): the dedicated immediate event, never `RequestApproved`
+        # itself (see `approve_request`'s matching comment).
+        outbox_emit(
+            "RequestUrgentApproval",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "approval_id": str(approval.id)},
+        )
+
+    from .jobs import defer_held_decision_effects
+
+    defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
+
+    return CommandResult(
+        value=approval,
+        audit_action="request.reconsideration_decided",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={
+            "outcome": outcome,
+            "route": recon.route,
+            "took_over": bool(decision.took_over_from),
+            "approval_id": str(approval.id),
+        },
+    )
 
 
-def finalize_rejection(ctx: SystemContext, *, request_id: UUID) -> None:
-    """`system.request.finalize_rejection` (Q-155; the hourly job past
-    `AssistanceRequest.reconsideration_deadline_at` with no `Reconsideration` filed)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.finalize_rejection")
+# ------------------------------------------------------------------------------------------
+# system.request.finalize_rejection (+ hourly job in .jobs)
+# ------------------------------------------------------------------------------------------
+@command("system.request.finalize_rejection")
+def finalize_rejection(ctx: SystemContext, *, request_id: UUID) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+    has_reconsideration = Reconsideration.objects.filter(request_id=request.id).exists()
+    decision = check_transition(
+        RequestAction.FINALIZE_REJECTION,
+        request.status,
+        actor_roles=ctx.roles,
+        now=now,
+        reconsideration_deadline_at=request.reconsideration_deadline_at,
+        has_reconsideration=has_reconsideration,
+        closed_at=request.closed_at,
+    )
+    if not decision.allowed:
+        raise ValueError(f"finalize_rejection refused: {decision.refusal}")
+    assert decision.target is not None and decision.transition is not None
+    assert decision.transition.outbox_event is not None
+
+    request.status = decision.target.value
+    request.closed_at = now
+    request.requester_access_ends_at = now + RULES.requester_access.REQUESTER_ACCESS_AFTER_CLOSE
+    request.status_changed_at = now
+    request.save(
+        update_fields=["status", "closed_at", "requester_access_ends_at", "status_changed_at"]
+    )
+
+    from .services_questions import close_open_questions
+
+    close_open_questions(request.id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
+
+    return CommandResult(
+        value=request,
+        audit_action=decision.transition.audit_action,
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"status": request.status},
+        outbox=OutboxSpec(
+            decision.transition.outbox_event,
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id)},
+        ),
+    )
 
 
-def record_decision_phoned(ctx: ActorContext, *, request_id: UUID) -> None:
-    """`request.decision.record_phoned` (DIR, AD only; Q-159 "Told them by phone" --
-    equivalently the decider's own "I've already told them by phone" tick at decision time,
-    which sets `Approval.requester_phoned_at`/`.requester_phoned_by_user_id` directly inside
-    `approve_request`/`reject_request` instead of calling this separately)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.record_decision_phoned")
+# ------------------------------------------------------------------------------------------
+# request.decision.record_phoned (Q-159 "Told them by phone", the Director/AD follow-up card)
+# ------------------------------------------------------------------------------------------
+@command("request.decision.record_phoned", resource_from=_resource_request)
+def record_decision_phoned(ctx: ActorContext, *, request_id: UUID) -> CommandResult:
+    approval = Approval.objects.select_for_update().get(
+        request_id=request_id, stage=ApprovalStage.INITIAL.value, undone_at__isnull=True
+    )
+    if approval.requester_phoned_at is not None:
+        raise ValueError("request.decision.record_phoned: already recorded")
+    now = clock_now()
+    approval.requester_phoned_at = now
+    approval.requester_phoned_by_user_id = ctx.user_id
+    approval.save(update_fields=["requester_phoned_at", "requester_phoned_by_user_id"])
+    return CommandResult(
+        value=approval,
+        audit_action="request.decision_phoned",
+        target_type="request",
+        target_id=str(request_id),
+        project_id=request_id,
+        after={"approval_id": str(approval.id)},
+    )
 
 
-def change_category(ctx: ActorContext, *, request_id: UUID, need_category: str) -> None:
-    """`request.category.change` (owner box: DIR, AD only -- narrower than approvals.md
-    §2.6/§3's own table, Q-109; NOT blocked while impersonating, Q-172)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.change_category")
+# ------------------------------------------------------------------------------------------
+# request.category.change (Q-109: DIR/AD only, not blocked while impersonating)
+# ------------------------------------------------------------------------------------------
+@command("request.category.change", resource_from=_resource_request)
+def change_category(ctx: ActorContext, *, request_id: UUID, need_category: str) -> CommandResult:
+    request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    if request.closed_at is not None:
+        raise ValueError("request.category.change: request is closed")
+    try:
+        NeedCategory(need_category)
+    except ValueError:
+        raise ValueError("request.category.change: unknown category") from None
+    before = request.need_category
+    if before == need_category:
+        raise ValueError("request.category.change: category unchanged")
+    request.need_category = need_category
+    request.save(update_fields=["need_category"])
+    return CommandResult(
+        value=request,
+        audit_action="request.category_changed",
+        target_type="request",
+        target_id=str(request_id),
+        project_id=request_id,
+        before={"need_category": before},
+        after={"need_category": need_category},
+        outbox=OutboxSpec(
+            "RequestCategoryChanged",
+            aggregate_type="request",
+            aggregate_id=request_id,
+            payload={"request_id": str(request_id), "need_category": need_category},
+        ),
+    )
 
 
-def undo_decision(ctx: ActorContext, *, approval_id: UUID) -> Approval:
-    """`request.decision.undo` (Q-156/Q-176). Sets `Approval.undone_at`/`.undone_by_user_id`
-    (`AppendOnlyOnceMixin`'s `ONCE_FIELDS`, settable once) -- never deletes or edits any other
-    field on the record. Only the person who recorded the decision may undo, and only within
-    `RULES.approvals.DECISION_UNDO_WINDOW` of `decided_at` (i.e. before `effective_at`); both
-    are service-layer checks the matrix can't express, same shape as reconsideration routing.
-    See `docs/architecture/approvals-contracts.md` §4 "Held effects" for exactly what
-    cancelling on undo means for the requester email, media batch close, question withdrawal
-    and leader "decision" update -- all held, none of them run if undo lands before
-    `effective_at`; the urgent-approval alert is never held and is NOT undone by this call
-    (Q-176: it gets an in-app "urgent approval was undone" follow-up instead)."""
-    raise NotImplementedError("S3.2: ham.requests.services_decisions.undo_decision")
+# ------------------------------------------------------------------------------------------
+# request.decision.undo (Q-156/Q-176)
+# ------------------------------------------------------------------------------------------
+def _decision_action_for_approval(approval: Approval) -> RequestAction:
+    if approval.stage == ApprovalStage.RECONSIDERATION.value:
+        return (
+            RequestAction.RECONSIDER_APPROVE
+            if approval.outcome == ApprovalOutcome.APPROVED.value
+            else RequestAction.RECONSIDER_REJECT
+        )
+    return (
+        RequestAction.APPROVE
+        if approval.outcome == ApprovalOutcome.APPROVED.value
+        else RequestAction.REJECT
+    )
+
+
+def _undo_approval(ctx: ActorContext, approval_id: UUID) -> CommandResult:
+    approval = Approval.objects.select_for_update().get(pk=approval_id)
+    request = AssistanceRequest.objects.select_for_update().get(pk=approval.request_id)
+    now = clock_now()
+    kind = _decision_action_for_approval(approval)
+
+    # Coordinator fix round (gap 1, Q-176/Q-178): `Approval.prior_urgency`/
+    # `.accompanying_urgency` (set only when this decision also bundled a certify/decline)
+    # let `check_undo` restore urgency alongside status, not status alone.
+    accompanying_urgency = (
+        UrgencyAction(approval.accompanying_urgency) if approval.accompanying_urgency else None
+    )
+    outcome = check_undo(
+        kind,
+        actor_id=str(ctx.user_id) if ctx.user_id else None,
+        decided_by_id=str(approval.decided_by_user_id),
+        decided_at=approval.decided_at,
+        now=now,
+        undone_at=approval.undone_at,
+        current_status=request.status,
+        current_urgency=request.urgency_status,
+        prior_urgency=approval.prior_urgency,
+        accompanying_urgency=accompanying_urgency,
+        is_impersonating=ctx.is_impersonating,
+    )
+    if not outcome.allowed:
+        raise ValueError(f"request.decision.undo refused: {outcome.refusal}")
+    assert outcome.restore_status is not None
+
+    approval.undone_at = now
+    approval.undone_by_user_id = ctx.user_id
+    approval.save(update_fields=["undone_at", "undone_by_user_id"])
+
+    request.status = outcome.restore_status.value
+    request.status_changed_at = now
+    update_fields = ["status", "status_changed_at"]
+    if outcome.restore_urgency is not None:
+        request.urgency_status = outcome.restore_urgency.value
+        request.urgency_reviewed_at = None
+        request.urgency_reviewed_by_user_id = None
+        update_fields += ["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
+    if outcome.reopens_request:
+        request.closed_at = None
+        request.closed_by_user_id = None
+        request.requester_access_ends_at = None
+        update_fields += ["closed_at", "closed_by_user_id", "requester_access_ends_at"]
+    if outcome.clears_reconsideration_deadline:
+        request.reconsideration_deadline_at = None
+        update_fields.append("reconsideration_deadline_at")
+    request.save(update_fields=update_fields)
+
+    return CommandResult(
+        value=approval,
+        audit_action="request.decision_undone",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"approval_id": str(approval.id), "stage": approval.stage},
+        outbox=OutboxSpec(
+            "RequestDecisionUndone",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={
+                "request_id": str(request.id),
+                "approval_id": str(approval.id),
+                "stage": approval.stage,
+            },
+        ),
+    )
+
+
+def _undo_urgency_review(ctx: ActorContext, review_id: UUID) -> CommandResult:
+    """Coordinator fix round (gap 2, Q-176): undo a *standalone* urgency review (not bundled
+    with an approval -- see `_undo_approval` above for that case)."""
+    review = UrgencyReview.objects.select_for_update().get(pk=review_id)
+    request = AssistanceRequest.objects.select_for_update().get(pk=review.request_id)
+    now = clock_now()
+    action = UrgencyAction(review.action)
+
+    outcome = check_undo(
+        action,
+        actor_id=str(ctx.user_id) if ctx.user_id else None,
+        decided_by_id=str(review.decided_by_user_id),
+        decided_at=review.decided_at,
+        now=now,
+        undone_at=review.undone_at,
+        current_status=request.status,
+        current_urgency=request.urgency_status,
+        prior_urgency=review.prior_urgency,
+        is_impersonating=ctx.is_impersonating,
+    )
+    if not outcome.allowed:
+        raise ValueError(f"request.decision.undo refused: {outcome.refusal}")
+    assert outcome.restore_urgency is not None
+
+    review.undone_at = now
+    review.undone_by_user_id = ctx.user_id
+    review.save(update_fields=["undone_at", "undone_by_user_id"])
+
+    request.urgency_status = outcome.restore_urgency.value
+    request.urgency_reviewed_at = None
+    request.urgency_reviewed_by_user_id = None
+    request.save(
+        update_fields=["urgency_status", "urgency_reviewed_at", "urgency_reviewed_by_user_id"]
+    )
+
+    return CommandResult(
+        value=review,
+        audit_action="request.urgency_review_undone",
+        target_type="request",
+        target_id=str(request.id),
+        project_id=request.id,
+        after={"review_id": str(review.id)},
+        # Coordinator fix round: the follow-up event S3.5 turns into the Q-176 in-app "urgent
+        # approval was undone" notice when this review's own certification had produced one
+        # (S3.5 checks by looking up the review and the request's decision history by id --
+        # ids/codes only in the payload itself, per the outbox PII rule).
+        outbox=OutboxSpec(
+            "RequestUrgencyReviewUndone",
+            aggregate_type="request",
+            aggregate_id=request.id,
+            payload={"request_id": str(request.id), "review_id": str(review.id)},
+        ),
+    )
+
+
+@command("request.decision.undo")
+def undo_decision(
+    ctx: ActorContext, *, approval_id: UUID | None = None, review_id: UUID | None = None
+) -> CommandResult:
+    """Undo a decision (Q-156/Q-176). Exactly one of `approval_id` (an `Approval` -- approve/
+    reject/reconsider) or `review_id` (an `UrgencyReview` -- a standalone certify/decline) is
+    required; the two record kinds carry their own undo bookkeeping (see `_undo_approval`/
+    `_undo_urgency_review`)."""
+    if (approval_id is None) == (review_id is None):
+        raise ValueError(
+            "request.decision.undo: exactly one of approval_id or review_id is required"
+        )
+    if approval_id is not None:
+        return _undo_approval(ctx, approval_id)
+    assert review_id is not None
+    return _undo_urgency_review(ctx, review_id)
+
+
+# ------------------------------------------------------------------------------------------
+# Held effects (approvals-contracts.md §4). Plain function, SYSTEM-triggered from
+# `ham.requests.jobs`, not `@command`-wrapped -- releasing an already-decided, already-audited
+# decision's side effects is not itself a new human consequential action (same reasoning as
+# `services_questions.close_open_questions`'s own docstring).
+# ------------------------------------------------------------------------------------------
+def run_held_decision_effects(approval_id: UUID) -> None:
+    with transaction.atomic():
+        approval = Approval.objects.select_for_update().get(pk=approval_id)
+        if approval.effects_ran_at is not None:
+            return  # idempotent: a retried/duplicate job invocation is a no-op
+        now = clock_now()
+        if approval.undone_at is not None:
+            # Undone before the window closed: none of the held effects ever run, but the
+            # marker is still set so a retried invocation is provably a no-op either way.
+            approval.effects_ran_at = now
+            approval.save(update_fields=["effects_ran_at"])
+            return
+
+        event_type = (
+            "RequestApproved"
+            if approval.outcome == ApprovalOutcome.APPROVED.value
+            else "RequestRejected"
+        )
+        payload: dict[str, object] = {
+            "request_id": str(approval.request_id),
+            "stage": approval.stage,
+            "route": approval.route,
+        }
+        if approval.outcome == ApprovalOutcome.APPROVED.value:
+            payload["urgent_approval"] = approval.urgent_approval
+        else:
+            payload["reason_code"] = approval.reason_code
+            payload["final"] = approval.stage == ApprovalStage.RECONSIDERATION.value
+        outbox_emit(
+            event_type,
+            aggregate_type="request",
+            aggregate_id=approval.request_id,
+            payload=payload,
+        )
+
+        from .services_questions import close_open_questions
+
+        close_open_questions(approval.request_id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
+
+        approval.effects_ran_at = now
+        approval.save(update_fields=["effects_ran_at"])

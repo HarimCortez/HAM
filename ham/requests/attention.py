@@ -26,6 +26,7 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
+from .models import Approval, ApprovalRoute, ApprovalStage, AssistanceRequest, Reconsideration
 from .presentation import need_category_label
 from .queries import (
     RequestListRow,
@@ -33,7 +34,7 @@ from .queries import (
     list_requests,
     needs_phone_check_list,
 )
-from .states import RequestStatus
+from .states import RequestStatus, UrgencyStatus
 
 if TYPE_CHECKING:
     from ham.authz.context import ActorContext
@@ -204,13 +205,101 @@ def needs_phone_check_card(ctx: ActorContext) -> AttentionCard | None:
     )
 
 
+def reconsideration_cards(ctx: ActorContext) -> list[AttentionCard]:
+    """S3.2 (approvals.md §4, Q-168): "Reconsideration for you" -- Board route: every BRD;
+    pastoral route: the original decider, or every pastor if that person no longer holds an
+    active Pastor role (same routing `ham.requests.states.may_decide_reconsideration` uses)."""
+    if not (ctx.effective_roles & _PAS_BRD):
+        return []
+    pending = Reconsideration.objects.filter(
+        request__status=RequestStatus.RECONSIDERATION_PENDING.value
+    ).select_related("request")
+    mine = []
+    for recon in pending:
+        if recon.route == ApprovalRoute.BOARD.value:
+            if roles.BOARD_REPRESENTATIVE in ctx.effective_roles:
+                mine.append(recon)
+            continue
+        if roles.PASTOR not in ctx.effective_roles:
+            continue
+        if str(recon.original_decider_user_id) == str(ctx.user_id):
+            mine.append(recon)
+            continue
+        from ham.identity.services import user_holds_global_role
+
+        if not user_holds_global_role(recon.original_decider_user_id, roles.PASTOR):
+            mine.append(recon)  # the original decider lost the role: every pastor sees it
+    if not mine:
+        return []
+    return [
+        AttentionCard(
+            key="requests.reconsideration",
+            title=f"Reconsideration for you ({len(mine)})",
+            count=len(mine),
+            urgent=False,
+            actionable=True,
+            href="/requests?view=reconsideration",
+        )
+    ]
+
+
+def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
+    """S3.2 (approvals.md §4, Q-159): DIR/AD "Call to share a decision" -- a no-email
+    request's live initial decision with `requester_phoned_at` still null."""
+    if not (ctx.effective_roles & _DIR_AD):
+        return None
+    count = Approval.objects.filter(
+        stage=ApprovalStage.INITIAL.value,
+        undone_at__isnull=True,
+        requester_phoned_at__isnull=True,
+        request__requester__email__isnull=True,
+    ).count()
+    if not count:
+        return None
+    return AttentionCard(
+        key="requests.decision_phone",
+        title=f"Call to share a decision ({count})",
+        count=count,
+        urgent=False,
+        actionable=True,
+        href="/requests?view=decided",
+    )
+
+
+def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
+    """S3.2 (approvals.md §2.2/§10, Q-160/Q-161): a Board approval of an urgent request left
+    urgency awaiting certification -- pastors only."""
+    if roles.PASTOR not in ctx.effective_roles:
+        return None
+    count = AssistanceRequest.objects.filter(
+        status=RequestStatus.APPROVED.value,
+        urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value,
+    ).count()
+    if not count:
+        return None
+    return AttentionCard(
+        key="requests.awaiting_certification",
+        title=f"Certify urgent · approved ({count})",
+        count=count,
+        urgent=True,
+        actionable=True,
+        href="/requests?view=decided",
+    )
+
+
 def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     """Everything `ham.requests` contributes to Home/Inbox "Needs your attention" -- computed
     live (navigation.md: "resolving an item anywhere clears it everywhere"), never stored."""
-    cards = [*awaiting_approval_cards(ctx)]
+    cards = [*awaiting_approval_cards(ctx), *reconsideration_cards(ctx)]
     phone_check = needs_phone_check_card(ctx)
     if phone_check is not None:
         cards.append(phone_check)
+    phone_decision = decision_phone_card(ctx)
+    if phone_decision is not None:
+        cards.append(phone_decision)
+    certify = pastor_certify_card(ctx)
+    if certify is not None:
+        cards.append(certify)
     return cards
 
 
