@@ -115,3 +115,15 @@ docs/architecture/approvals.md overrides its body (30 d window and "no undo" are
 - `decision_undo_open` fact refuses REQUEST_RECONSIDERATION, FINALIZE and post-decision CANCEL
   (derived from Q-176 "held effects"; flagged).
 - RejectionReason StrEnum lives in states.py; a skip-until-present test pins models' choices.
+
+## Q-177 / Q-178 follow-up (branch s31b-rules; no rules value change, no version bump)
+- Q-177 (proposed default): DECLINE_URGENCY now allowed while AWAITING_APPROVAL **or
+  APPROVED** (from awaiting only; never un-certify). Supersedes the "decline pre-decision only"
+  note above.
+- Q-178: APPROVE takes `decline_urgency=True` ("Approve, but not as urgent"): pastoral route
+  only (else ACTOR_NOT_ALLOWED), urgency must be awaiting (else WRONG_URGENCY_STATE), both
+  flags -> URGENCY_CHOICE_CONFLICT. `TransitionDecision.urgency_after` = urgency to store
+  (APPROVE and RECONSIDER_APPROVE; None otherwise).
+- `check_undo(..., accompanying_urgency=UrgencyAction | None)`: for APPROVE with a combined
+  urgency review. None + prior_urgency keeps the S3.1 meaning (certify combo). Decline combo
+  needs prior awaiting and current not_certified, else FACTS_MISSING / STATE_CHANGED.

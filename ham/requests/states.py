@@ -218,6 +218,7 @@ class Refusal(StrEnum):
     NOT_YOUR_RECONSIDERATION = "not_your_reconsideration"  # Q-157: take it over first
     TAKE_OVER_CONFIRMATION_REQUIRED = "take_over_confirmation_required"  # Q-157 tick
     DECISION_UNDO_WINDOW_OPEN = "decision_undo_window_open"  # Q-176
+    URGENCY_CHOICE_CONFLICT = "urgency_choice_conflict"  # certify AND decline at once
     # Undo (Q-156, Q-176)
     NOT_UNDOABLE = "not_undoable"
     NOT_THE_DECIDER = "not_the_decider"
@@ -427,6 +428,10 @@ class TransitionDecision:
     urgent_approval: bool = False
     # RECONSIDER_*: record ``Approval.took_over_from_user_id`` (Q-157); None = no take-over.
     took_over_from: str | None = None
+    # APPROVE / RECONSIDER_APPROVE: the request's urgency after this decision (unchanged,
+    # CERTIFIED for "Approve as urgent", NOT_CERTIFIED for "not as urgent", Q-178).
+    # None for every other action.
+    urgency_after: UrgencyStatus | None = None
 
 
 def _refuse(refusal: Refusal, transition: Transition | None = None) -> TransitionDecision:
@@ -452,6 +457,7 @@ def check_transition(
     message: str = "",
     urgency: UrgencyStatus | str | None = None,
     certify_urgent: bool = False,
+    decline_urgency: bool = False,
     reconsideration_deadline_at: datetime | None = None,
     has_reconsideration: bool = False,
     decision_undo_open: bool = False,
@@ -475,7 +481,9 @@ def check_transition(
       "requester withdrew" (Q-165), and not while that decision can still be undone.
     - APPROVE: ``route`` chosen and held (Q-164); ``urgency`` passed (so an urgent approval
       is never missed); ``certify_urgent`` ("Approve as urgent") needs the pastoral route
-      and a certifiable urgency (§10, Q-160).
+      and a certifiable urgency (§10, Q-160); ``decline_urgency`` ("Approve, but not as
+      urgent", Q-178) needs the pastoral route and urgency awaiting certification. The
+      decision's ``urgency_after`` is the urgency to store with the approval.
     - REJECT: ``route`` as above; ``reason_code`` (Q-154) and a non-blank ``message``.
     - REQUEST_RECONSIDERATION: not closed, none used yet, the decline's undo window over,
       and ``now`` within ``reconsideration_deadline_at`` (§8.4, Q-155, Q-174).
@@ -508,6 +516,7 @@ def check_transition(
         return _refuse(Refusal.ALREADY_FINAL, t)
 
     urgent_approval = False
+    urgency_after: UrgencyStatus | None = None
     took_over_from: str | None = None
 
     if act is RequestAction.SUBMIT_VERIFIED:
@@ -553,14 +562,26 @@ def check_transition(
             known_urgency = _urgency(urgency)
             if known_urgency is None:
                 return _refuse(Refusal.FACTS_MISSING, t)
-            if certify_urgent:
-                # §10, §67: only a pastor certifies; "Approve as urgent" is the pastoral route.
+            if certify_urgent and decline_urgency:
+                return _refuse(Refusal.URGENCY_CHOICE_CONFLICT, t)
+            if certify_urgent or decline_urgency:
+                # §10, §67: only a pastor reviews urgency, so both combined choices are the
+                # pastoral route.
                 if DecisionRoute(str(route)) is not DecisionRoute.PASTORAL:
                     return _refuse(Refusal.ACTOR_NOT_ALLOWED, t)
+            if certify_urgent:
+                # "Approve as urgent".
                 if known_urgency not in CERTIFIABLE_URGENCY:
                     return _refuse(Refusal.URGENCY_NOT_CERTIFIABLE, t)
                 known_urgency = UrgencyStatus.CERTIFIED
+            elif decline_urgency:
+                # PRD-GAP Q-178: "Approve, but not as urgent" records not_certified in the
+                # same transaction as the approval.
+                if known_urgency is not UrgencyStatus.AWAITING_CERTIFICATION:
+                    return _refuse(Refusal.WRONG_URGENCY_STATE, t)
+                known_urgency = UrgencyStatus.NOT_CERTIFIED
             urgent_approval = is_urgent_approval(t.target, known_urgency)
+            urgency_after = known_urgency
     elif act is RequestAction.REQUEST_RECONSIDERATION:
         if has_reconsideration:
             return _refuse(Refusal.RECONSIDERATION_ALREADY_USED, t)
@@ -594,6 +615,7 @@ def check_transition(
             if known_urgency is None:
                 return _refuse(Refusal.FACTS_MISSING, t)
             urgent_approval = is_urgent_approval(t.target, known_urgency)
+            urgency_after = known_urgency
     elif act is RequestAction.FINALIZE_REJECTION:
         if has_reconsideration:
             return _refuse(Refusal.RECONSIDERATION_ALREADY_USED, t)
@@ -612,6 +634,7 @@ def check_transition(
         closes_request=t.closes_request,
         urgent_approval=urgent_approval,
         took_over_from=took_over_from,
+        urgency_after=urgency_after,
     )
 
 
@@ -620,6 +643,13 @@ def _method(value: VerificationMethod | str | None) -> VerificationMethod | None
         return None
     try:
         return VerificationMethod(value)
+    except ValueError:
+        return None
+
+
+def _urgency_action(value: UrgencyAction | str) -> UrgencyAction | None:
+    try:
+        return UrgencyAction(value)
     except ValueError:
         return None
 
@@ -760,9 +790,9 @@ URGENCY_TRANSITIONS: tuple[UrgencyTransition, ...] = (
     UrgencyTransition(
         action=UrgencyAction.DECLINE_URGENCY,
         sources=frozenset({UrgencyStatus.AWAITING_CERTIFICATION}),
-        # approvals.md §2.2: "Not urgent: leave for normal review" is a pre-decision act.
-        # PRD-GAP (new, see handback): declining after a Board approval is not allowed yet.
-        request_statuses=frozenset({RequestStatus.AWAITING_APPROVAL}),
+        # PRD-GAP Q-177: while Awaiting Approval or Approved, so a Board-approved urgent
+        # request never waits for a certification forever.
+        request_statuses=frozenset({RequestStatus.AWAITING_APPROVAL, RequestStatus.APPROVED}),
         target=UrgencyStatus.NOT_CERTIFIED,
         actors=frozenset({PASTOR}),
         blocked_while_impersonating=True,
@@ -1040,6 +1070,7 @@ def check_undo(
     current_status: RequestStatus | str,
     current_urgency: UrgencyStatus | str | None,
     prior_urgency: UrgencyStatus | str | None = None,
+    accompanying_urgency: UrgencyAction | str | None = None,
     is_impersonating: bool = False,
     rules: Rules = RULES,
 ) -> UndoDecision:
@@ -1055,8 +1086,10 @@ def check_undo(
       for request decisions, its urgency for urgency reviews); otherwise
       ``STATE_CHANGED_SINCE_DECISION``.
     - ``prior_urgency`` is the urgency before the decision. Required for urgency reviews;
-      for APPROVE pass it only when the same command also certified urgency ("Approve as
-      urgent"), so the undo restores both.
+      for APPROVE pass it only when the same command also reviewed urgency, together with
+      ``accompanying_urgency``: CERTIFY_URGENCY ("Approve as urgent"; the default when
+      only ``prior_urgency`` is given) or DECLINE_URGENCY ("Approve, but not as urgent",
+      Q-178). The undo then restores both.
     """
     kind = _decision_kind(decision)
     if kind is None or kind not in UNDOABLE_ACTIONS:
@@ -1102,11 +1135,21 @@ def check_undo(
     if status is not produced:
         return _undo_refuse(Refusal.STATE_CHANGED_SINCE_DECISION)
     restore_urgency: UrgencyStatus | None = None
-    if prior_u is not None:
-        # Only "Approve as urgent" changes urgency together with a decision.
-        if kind is not RequestAction.APPROVE or prior_u not in CERTIFIABLE_URGENCY:
+    if accompanying_urgency is not None or prior_u is not None:
+        # Only an initial approval changes urgency together with the decision: "Approve as
+        # urgent" (certify) or, PRD-GAP Q-178, "Approve, but not as urgent" (decline).
+        # Without ``accompanying_urgency`` a passed ``prior_urgency`` means "as urgent".
+        combo = (
+            UrgencyAction.CERTIFY_URGENCY
+            if accompanying_urgency is None
+            else _urgency_action(accompanying_urgency)
+        )
+        if combo is None or kind is not RequestAction.APPROVE or prior_u is None:
             return _undo_refuse(Refusal.FACTS_MISSING)
-        if urgency_now is not UrgencyStatus.CERTIFIED:
+        ut = URGENCY_TRANSITIONS_BY_ACTION[combo]
+        if prior_u not in ut.sources:
+            return _undo_refuse(Refusal.FACTS_MISSING)
+        if urgency_now is not ut.target:
             return _undo_refuse(Refusal.STATE_CHANGED_SINCE_DECISION)
         restore_urgency = prior_u
     urgency_after = restore_urgency or urgency_now
