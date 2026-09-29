@@ -36,6 +36,7 @@ from ham.requests.models import (
     Approval,
     AssistanceRequest,
     Property,
+    QuestionCloseReason,
     Reconsideration,
     RequestContactVerification,
     Requester,
@@ -50,6 +51,7 @@ from ham.requests.states import (
     RequestStatus,
     VerificationMethod,
     check_transition,
+    decision_is_undoable,
     initial_urgency_status,
 )
 from ham.rules import RULES
@@ -470,19 +472,39 @@ def cancel_request(
     ctx: ActorContext, *, request_id: UUID, reason_code: str, note: str = ""
 ) -> CommandResult:
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
+    now = clock_now()
+
+    # S3.2 (approvals.md §2.2 CANCEL extended row, Q-165): cancelling from APPROVED/
+    # RECONSIDERATION_PENDING is only allowed once the decision that produced that state can
+    # no longer be undone -- `check_transition` needs `now`/`closed_at`/`decision_undo_open`
+    # to enforce ALREADY_FINAL and DECISION_UNDO_WINDOW_OPEN, which this call never passed
+    # before step 3 introduced closable post-decision states.
+    decision_undo_open = False
+    latest_approval = (
+        Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
+    if latest_approval is not None:
+        decision_undo_open = decision_is_undoable(
+            latest_approval.decided_at, now, latest_approval.undone_at
+        )
+
     decision = check_transition(
         RequestAction.CANCEL,
         request.status,
         actor_roles=ctx.effective_roles,
         is_impersonating=ctx.is_impersonating,
         reason=reason_code,
+        now=now,
+        closed_at=request.closed_at,
+        decision_undo_open=decision_undo_open,
     )
     if not decision.allowed:
         raise ValueError(f"request.cancel refused: {decision.refusal}")
     assert decision.target is not None
 
     before_status = request.status
-    now = clock_now()
     request.status = decision.target.value
     request.status_changed_at = now
     request.closed_at = now
@@ -501,6 +523,12 @@ def cancel_request(
             "requester_access_ends_at",
         ]
     )
+
+    # S3.2/coordinator note: every closing edge auto-closes open questions in the same
+    # transaction (approvals.md §2.2, §2.5).
+    from .services_questions import close_open_questions
+
+    close_open_questions(request.id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
 
     transition = decision.transition
     assert transition is not None
