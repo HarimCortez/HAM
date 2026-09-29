@@ -64,8 +64,9 @@ PLACEHOLDER_ACTIONS = frozenset(
         "intake_source.manage",
         # S3.0 (approvals.md §8.1): matrix rows + service *signatures* declared this slice as
         # `NotImplementedError` stubs (docs/architecture/approvals-contracts.md §2) -- the
-        # real `@command(...)`-wrapped bodies are S3.2 (decisions/reconsideration/category),
-        # S3.3 (questions). None of these have a real command site yet.
+        # real `@command(...)`-wrapped bodies are S3.2 (decisions/reconsideration/category).
+        # S3.3's four question actions (below) are now wired
+        # (`ham.requests.services_questions`) and removed from this set.
         "request.approve",
         "request.reject",
         "request.decision.undo",
@@ -73,11 +74,7 @@ PLACEHOLDER_ACTIONS = frozenset(
         "request.reconsideration.decide",
         "request.reconsideration.record_phone",
         "request.decision.record_phoned",
-        "request.question.ask",
-        "request.question.record_answer",
-        "request.question.withdraw",
         "request.category.change",
-        "requester.question.answer",
         "requester.reconsideration.request",
         "system.request.finalize_rejection",
         # `system.media.process`/`system.media.purge`: SYSTEM-scoped background jobs
