@@ -684,3 +684,94 @@
   isn't implemented yet" is the right tool** (not skip, not a TODO comment) — it fails loudly if
   the stub starts silently returning something instead of raising, and disappears cleanly (one
   line removed, test starts passing for real) the moment the parallel slice merges.
+
+## Step 3 fix pass FIX-3B (step3-ui-visual-qa.md / step3-ux-usability.md)
+- **Files:** `shell.css` (B1 urgent banner container query + wrapping actions; B2 sheet
+  action-bar flex-column pin + reduced sheet inset padding; B3 `.btn { overflow-wrap: normal;
+  word-break: normal }`; B4/M1 `.request-detail__grid` two-column container query at 42em with
+  `.request-detail__side`/`__main`), `_urgent_banner.html`, `base.html` (new `{% block
+  urgent_banner %}`/`{% block messages %}` so sheets can opt out), `_request_detail.html`
+  (side/main split, `.urgency-block` for M13, header-actions duplicated once for >=1024 and
+  once after the Decision card for <1024, per UX M15), `_decision_card.html` (B3: buttons as
+  direct children of the alert body, not inside `<p>`), `requests_list.html` (M3: drop
+  `row.decision_chip`; M4: `row.line2_text`/`row.is_final`/`row.markers` all optional, render
+  if present else fall back — FIX-3A hasn't added them yet), `home.html` (M12/m18/m19: "N
+  things need you" greeting, "Review" not "Open" with an aria-label, `item.meta` optional
+  line, softer empty-state copy), `presentation.py` (**the one `ham/requests` file this slice
+  may touch**: `STATUS_TONES`/`STATUS_ICONS` — Rejected is now `neutral`/`circle-x` (never
+  red), Approved `info`/`badge-check` (new icon, hand-drawn to match), Reconsideration pending
+  `attention`/`rotate-ccw`), 12 sheet templates (B2 Cancel→`action-bar__back` + in-flow
+  `.wizard-back-link` twin; the request+category header line via a new template filter), and
+  `requester/r10_secure_page.html` (m21/m22: hide the red Urgent chip and the "photos"/"close
+  your request" lines once declined — `row.status == "REJECTED"` gates both; the photo line
+  only shows for `APPROVED` now, not the old "APPROVED or REJECTED or RECONSIDERATION_PENDING"
+  — **check this against a real existing test before changing it**, see gotcha below).
+- **New template filter instead of new view context, for a cross-cutting sheet-header need:**
+  M3's "the request + category line in every sheet header" (C§39, needed on 10+ sheets whose
+  views are FIX-3A's/parallel-owned `views_requests.py`) was done as `ham.web.templatetags.
+  web_extras.need_category_label` (`{{ request_row.need_category|need_category_label }}`),
+  not a new context key threaded through every view function. `request_row.need_category` (the
+  raw enum value) is already in every sheet's context; the filter does the
+  `ham.requests.presentation.NEED_CATEGORY_LABELS` lookup at render time. Far less invasive
+  than editing 10 view functions in a file two other slices are actively editing in parallel.
+- **B1's "no sticky banner on a sheet" is a `{% block urgent_banner %}{% endblock %}`
+  override, one per sheet template**, mirroring the pre-existing `{% block bottom_nav
+  %}{% endblock %}` pattern those same 12 sheets already had. `base.html` wraps the banner
+  include in the block so sheets that don't override it are unaffected.
+- **The "duplicate error messages" usability fix is the same block-override trick**:
+  `base.html` wraps its `{% if messages %}<ul>...` in `{% block messages %}{% endblock %}`;
+  the 5 sheets that already render `messages` inline themselves (`request_category_change`,
+  `request_question_ask`, `request_question_record_answer`, `request_reconsideration_decide`,
+  `request_reject`) override it to empty so each message shows/announces exactly once.
+- **B4/M1's two-column split is a container query on `.request-detail` itself
+  (`container-type: inline-size`), gated at 42em, never a viewport media query** — this is
+  what makes the split-view pane (`.split-detail`, narrower than the standalone page) and the
+  standalone page each independently decide one- vs two-column based on their own real width,
+  not the browser viewport. Proven with a Playwright test that scrolls `.split-detail` itself
+  (`el.scrollTop = 400`) before measuring — the old bug (sticky card overlapping the "Earlier
+  request found" alert) only reproduces after scroll; at initial paint the card and the alert
+  are never near each other regardless of the bug.
+- **Gotcha, hit twice this round: a `{# ... #}` comment spanning more than one physical line
+  is never recognized as a Django comment tag at all (the tokenizer regex has no `DOTALL`) —
+  it renders straight into the page as literal text.** Wrote several multi-line `{# #}`
+  comments explaining a fix inline; one of them contained the literal string "Not approved"
+  and broke a same-round Playwright test that grepped the rendered HTML for exactly that
+  phrase (false failure that looked like a real regression). `tests/web/
+  test_fix_d_no_leaking_template_comments.py` (FIX-C/FIX-D era) already scans for this, but a
+  brand-new template file/section can still trip it before that scan's next run — always use
+  `{% comment %}...{% endcomment %}` for anything that doesn't fit one physical line, on
+  reflex, not just when a scanner catches it.
+- **Gotcha: the repo's hex-color hard-coding scanner (`#[0-9a-fA-F]{3}\b` etc.) also matches
+  a literal `#` followed by 3+ hex-looking characters *inside an English sentence in a
+  template comment*** — a comment reading `...approve HAM #009?...` tripped it (`#009` reads
+  as a 3-digit hex color + word boundary). Avoid literal `#NNN`-shaped HAM-number examples in
+  comment prose; say "a HAM number" or use a non-hex-looking placeholder instead.
+- **Gotcha: `page.locator(sel).count()` counts DOM elements regardless of `display: none`** —
+  a B2 proof test asserting "only the primary button is in the action bar under 22em" first
+  failed against the *fixed* code too, because the hidden `.action-bar__back` (correctly
+  `display: none`) was still in the DOM and still matched the plain selector. Use `:visible`
+  (`page.locator(".action-bar .btn:visible")`) whenever a test's assertion is really about
+  what's visible, not what's present in markup.
+- **Gotcha: two existing tests encoded the *pre-fix* copy/behavior as their expected value**
+  (`test_fix_d_attention_cards.py`'s `"Open" in html`, `test_shell_pages.py`'s `"Your to-do
+  list will appear here"`, and `test_requester_approvals_screens.py`'s `assert "Photo uploads
+  are closed for now" in content` on a REJECTED request) and had to be updated in the same
+  commit as the UX-review-mandated copy change (m19/m18/m22) — a full-suite run after any
+  wording change is the only reliable way to catch these; grepping for the old string first
+  would have missed the `test_requester_approvals_screens.py` one since it wasn't a "does the
+  word Open appear" test that's obviously about the same copy.
+- **`git checkout <sha> -- <paths>` against the shared branch base (`7f43fb4`, this round's
+  `origin/feature/step-3-approvals` tip) is the reliable fail-before anchor, not
+  `HEAD~1`/a same-session WIP checkpoint** — a WIP checkpoint commit made *after* a fix was
+  already applied is not "before" that fix; checking it out to "prove" a regression silently
+  proves nothing (the test still passes because the checkpoint already has the fix). Anchor
+  fail-before proofs on the real pre-fix commit the branch started from.
+- **Known simplification, handed back rather than built:** M4's per-row step-3 markers
+  ("Undo until", "Question open · 2 days", "Yours"/"Goes to Pastor X", etc.) and the tab-
+  appropriate line-2 text need new `RequestListRow` fields FIX-3A's `ham/requests/queries.py`
+  doesn't have yet (out of this slice's file ownership) — `requests_list.html` reads
+  `row.line2_text`/`row.is_final`/`row.markers` if present and falls back to the old
+  age-only line 2 otherwise, so it activates automatically once FIX-3A adds them, no further
+  template change needed. Also handed back: M6/M7/M9 (decline preview WYSIWYG, dual-role route
+  preselect, hard-coded rule values/names) — explicitly FIX-3A's per the wave brief's
+  file-ownership split, even though they live in files this slice otherwise owns.

@@ -236,11 +236,15 @@ def test_secure_page_rejected_open_shows_reason_and_reconsider_button():
     # never red, never "rejected"/"denied" on the requester surface (owner box; UX §8 word list)
     assert "rejected" not in content.lower()
     assert "denied" not in content.lower()
-    # R15 (design-system §5.2 "Photo uploads are closed for now"): a rejected-but-open request
-    # has nothing to add photos toward -- a visual-QA-caught bug (screenshot pass) had this
-    # showing the upload card anyway (`can_add_photos` only excluded CANCELLED).
+    # R15 (design-system §5.2): a rejected-but-open request has nothing to add photos toward
+    # -- a visual-QA-caught bug (screenshot pass) had this showing the upload card anyway
+    # (`can_add_photos` only excluded CANCELLED).
     assert "Add photos" not in content
-    assert "Photo uploads are closed for now" in content
+    # UX usability review m22 (step3-ux-usability.md): a declined page no longer shows the
+    # "Photo uploads are closed for now. If HAM needs more, we'll ask." line either -- it
+    # reads as though HAM might still want photos for a request it just turned down. Only an
+    # approved request (where HAM might still ask before the visit) gets that line.
+    assert "Photo uploads are closed for now" not in content
 
 
 def test_secure_page_rejected_final_has_no_reconsider_button():

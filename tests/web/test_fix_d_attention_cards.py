@@ -127,4 +127,4 @@ class TestHomeRendersUrgentChipOnlyForActionableCards:
         resp = client.get(reverse("web:home"))
         html = resp.content.decode()
         assert "Urgent" in html
-        assert "Open" in html
+        assert "Review" in html  # FIX-3B UX m19: "Review", not "Open"

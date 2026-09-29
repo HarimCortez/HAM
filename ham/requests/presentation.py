@@ -81,13 +81,17 @@ STATUS_LABELS: dict[str, str] = {
 
 # Chip tone token suffix (`.chip--<tone>` in shell.css); color is never the only signal --
 # every chip in the templates also carries an icon + the word above.
+# M3 (step3 visual QA / C§26a): Rejected is neutral, never red/danger -- a decline isn't a
+# system error, and the spec is explicit that it must never alarm. Reconsideration pending
+# reads as "in motion" (attention), not merely "waiting" (it used to share `hourglass`/
+# `attention` with the plain Awaiting-approval wait state).
 STATUS_TONES: dict[str, str] = {
     RequestStatus.NEEDS_PHONE_CHECK.value: "attention",
     RequestStatus.SUBMITTED.value: "info",
     RequestStatus.AWAITING_APPROVAL.value: "info",
     RequestStatus.CANCELLED.value: "neutral",
-    RequestStatus.APPROVED.value: "success",
-    RequestStatus.REJECTED.value: "danger",
+    RequestStatus.APPROVED.value: "info",
+    RequestStatus.REJECTED.value: "neutral",
     RequestStatus.RECONSIDERATION_PENDING.value: "attention",
 }
 
@@ -98,9 +102,9 @@ STATUS_ICONS: dict[str, str] = {
     RequestStatus.SUBMITTED.value: "inbox",
     RequestStatus.AWAITING_APPROVAL.value: "hourglass",
     RequestStatus.CANCELLED.value: "ban",
-    RequestStatus.APPROVED.value: "circle-check",
-    RequestStatus.REJECTED.value: "circle-alert",
-    RequestStatus.RECONSIDERATION_PENDING.value: "hourglass",
+    RequestStatus.APPROVED.value: "badge-check",
+    RequestStatus.REJECTED.value: "circle-x",
+    RequestStatus.RECONSIDERATION_PENDING.value: "rotate-ccw",
 }
 
 # Q-107/Q-140: the only four pre-decision close reasons; order matches L10's radio list.

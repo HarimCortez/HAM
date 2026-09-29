@@ -17,6 +17,19 @@ register = template.Library()
 
 
 @register.filter
+def need_category_label(code: str) -> str:
+    """`{{ request_row.need_category|need_category_label }}` -- the "accepted simplifications'
+    conditions" item (step3-ui-visual-qa.md Minor 9/C§39): every sheet header restates the
+    request's own category line so the request is identifiable even when it isn't in view
+    behind a full-screen sheet at >=768. A template-side lookup (not a new view context key
+    per sheet) keeps this a markup-only fix -- `request_row`/`need_category` is already in
+    every sheet's context."""
+    from ham.requests import presentation
+
+    return presentation.NEED_CATEGORY_LABELS.get(code, code)
+
+
+@register.filter
 def action_label(action: str) -> str:
     """`{{ event.action|action_label }}` — plain-language audit action name (usability M5)."""
     from ham.audit.labels import action_label as _action_label

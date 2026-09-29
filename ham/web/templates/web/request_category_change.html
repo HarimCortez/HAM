@@ -4,6 +4,8 @@
 {% block title %}Change category · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Change category{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
+{% block messages %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
@@ -35,9 +37,10 @@
           shows it too. They aren't emailed.</p>
       </div>
 
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Save category</button>
         </div>
       </div>

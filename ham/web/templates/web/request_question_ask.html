@@ -4,11 +4,14 @@
 {% block title %}Ask a question · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Ask a question{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
+{% block messages %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Ask the requester a question</h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     {% if messages %}
       <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
@@ -59,9 +62,10 @@
         </label>
       {% endif %}
 
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">{% if has_email %}Send question{% else %}Save question{% endif %}</button>
         </div>
       </div>

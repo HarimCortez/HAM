@@ -4,11 +4,14 @@
 {% block title %}Decline {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Decline{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
+{% block messages %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Decline {{ request_row.display_number }}</h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     {% if messages %}
       <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
@@ -56,6 +59,12 @@
         <p class="form-field__help">Kind and plain. They read this in the email and on their page. Don't include anyone else's details.</p>
         <textarea id="id_message" name="message" rows="5" maxlength="{{ max_chars }}">{{ message }}</textarea>
         <p class="text-tertiary type-small">Suggested wording, prefilled from the reason you choose. Edit it as you like.</p>
+        {# M8: shown instead of silently overwriting an edited message when the reason changes. #}
+        <div class="reason-replace-row" id="reason-replace-row" hidden role="status">
+          <span>Replace your message with the suggested one for the new reason?</span>
+          <button type="button" class="btn btn--secondary" id="reason-replace-yes">Replace</button>
+          <button type="button" class="btn btn--ghost" id="reason-replace-no">Keep mine</button>
+        </div>
       </div>
 
       <section role="region" aria-labelledby="decline-preview-heading" class="message-preview">
@@ -75,9 +84,10 @@
         </label>
       {% endif %}
 
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Decline {{ request_row.display_number }}</button>
         </div>
       </div>
@@ -89,21 +99,51 @@
       var prefills = dataEl ? JSON.parse(dataEl.textContent) : {};
       var messageField = document.getElementById("id_message");
       var preview = document.getElementById("decline-preview-message");
+      var replaceRow = document.getElementById("reason-replace-row");
+      var replaceYes = document.getElementById("reason-replace-yes");
+      var replaceNo = document.getElementById("reason-replace-no");
+      var lastPrefill = messageField.value;
+      var pendingReason = null;
       function syncPreview() {
         preview.textContent = messageField.value;
       }
-      // Simplified vs the full spec's "Replace your message with the suggested one?"
-      // inline confirm row: changing the reason always refills the suggested wording,
-      // since the field is empty until a reason is chosen the first time anyway.
+      function applyPrefill(reasonCode) {
+        messageField.value = prefills[reasonCode];
+        lastPrefill = prefills[reasonCode];
+        syncPreview();
+        replaceRow.hidden = true;
+        pendingReason = null;
+      }
+      // M8: only overwrite the pastor's own words automatically when the field is still
+      // empty, or still equals the last reason's own suggested wording -- otherwise a typed,
+      // edited message would silently vanish. Ask first instead.
       document.querySelectorAll('#decline-reasons input[type="radio"]').forEach(function (input) {
         input.addEventListener("change", function () {
-          if (prefills[input.value] !== undefined) {
-            messageField.value = prefills[input.value];
-            syncPreview();
+          if (prefills[input.value] === undefined) return;
+          var dirty = messageField.value.trim() !== "" && messageField.value !== lastPrefill;
+          if (dirty) {
+            pendingReason = input.value;
+            replaceRow.hidden = false;
+          } else {
+            applyPrefill(input.value);
           }
         });
       });
-      messageField.addEventListener("input", syncPreview);
+      if (replaceYes) {
+        replaceYes.addEventListener("click", function () {
+          if (pendingReason !== null) applyPrefill(pendingReason);
+        });
+      }
+      if (replaceNo) {
+        replaceNo.addEventListener("click", function () {
+          replaceRow.hidden = true;
+          pendingReason = null;
+        });
+      }
+      messageField.addEventListener("input", function () {
+        syncPreview();
+        replaceRow.hidden = true;
+      });
       syncPreview();
     })();
   </script>

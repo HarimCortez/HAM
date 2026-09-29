@@ -69,18 +69,37 @@
                   <span class="request-row__number">{{ row.display_number }}</span> &middot; {{ need_category_labels|get_item:row.need_category }}
                 </span>
                 <span class="request-row__line2">
-                  {% if active_tab == "phone_check" %}
+                  {% if row.line2_text %}
+                    {% comment %}
+                    M4: a tab-appropriate line 2 (e.g. "Pastor Ruth A. · Sep 28", "asked
+                    Oct 10"), once FIX-3A's row query supplies it -- falls back to the
+                    generic submission-age line below when it doesn't.
+                    {% endcomment %}
+                    {{ row.line2_text }}
+                  {% elif active_tab == "phone_check" %}
                     <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">Saved {{ row.submitted_at|date:"M j" }} &middot; waiting {{ row.submitted_at|relative_age }}</time>
                   {% else %}
                     <span class="chip chip--{{ status_tones|get_item:row.status }} chip--outline"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_icons|get_item:row.status }}"></use></svg></span> {{ status_labels|get_item:row.status }}</span>
-                    {% if row.decision_chip %}<span class="chip chip--tag">{{ row.decision_chip }}</span>{% endif %}
+                    {% comment %}
+                    M3: the old `row.decision_chip` (a requester-facing label) duplicated
+                    onto the staff row -- staff screens use only the §52 staff chip above.
+                    {% endcomment %}
+                    {% if row.is_final %}<span class="type-small text-secondary">&middot; Final</span>{% endif %}
                     <time datetime="{{ row.submitted_at|date:'c' }}" title="{{ row.submitted_at|church_time }}">{{ row.submitted_at|relative_age }}</time>
                   {% endif %}
                 </span>
-                {% if row.has_possible_duplicate or active_tab == "phone_check" %}
+                {% if row.has_possible_duplicate or active_tab == "phone_check" or row.markers %}
                   <span class="request-row__markers">
                     {% if row.has_possible_duplicate %}<span class="marker"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-copy"></use></svg> Earlier request</span>{% endif %}
                     {% if active_tab == "phone_check" %}<span class="marker marker--attention"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-call"></use></svg> Phone check needed</span>{% endif %}
+                    {% comment %}
+                    M4: per-row step-3 markers (Undo until / Question open · 2 days / New
+                    answer / Yours / Can ask until ... / Call to share a decision), once
+                    FIX-3A's row query supplies a `markers` list of `{icon, label, attention}`.
+                    {% endcomment %}
+                    {% for marker in row.markers %}
+                      <span class="marker{% if marker.attention %} marker--attention{% endif %}"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-{{ marker.icon }}"></use></svg> {{ marker.label }}</span>
+                    {% endfor %}
                   </span>
                 {% endif %}
               </a>

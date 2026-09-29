@@ -4,14 +4,25 @@
 {% block title %}Reconsideration · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Reconsideration{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
+{% block messages %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    {% comment %}
+    M14: separate whole strings, not a lower-case verb spliced into a fixed sentence -- the
+    old template's word order put "Take over and Approve" (capital A mid-phrase) or, without
+    take-over, a lower-case "approve" at the very start of the heading.
+    {% endcomment %}
     <h1>
-      {% if needs_take_over %}Take over and {% endif %}
-      {% if approve_mode %}approve{% else %}decline{% endif %} {{ request_row.display_number }}?
+      {% if needs_take_over %}
+        {% if approve_mode %}Take over and approve {{ request_row.display_number }}?{% else %}Take over and decline {{ request_row.display_number }}?{% endif %}
+      {% else %}
+        {% if approve_mode %}Approve {{ request_row.display_number }} after reconsideration?{% else %}Decline {{ request_row.display_number }} after reconsideration?{% endif %}
+      {% endif %}
     </h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     {% if messages %}
       <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
@@ -76,12 +87,12 @@
         </div>
       {% endif %}
 
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">
-            {% if needs_take_over %}Take over and {% endif %}
-            {% if approve_mode %}Approve{% else %}Decline (final){% endif %}
+            {% if needs_take_over %}{% if approve_mode %}Take over and approve{% else %}Take over and decline{% endif %}{% else %}{% if approve_mode %}Approve{% else %}Decline (final){% endif %}{% endif %}
             {{ request_row.display_number }}
           </button>
         </div>

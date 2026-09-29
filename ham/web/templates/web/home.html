@@ -12,6 +12,11 @@
   title is a label, not a heading; this greeting is the page's one real `<h1>`.
   {% endcomment %}
   <h1>Hi{% if first_name %} {{ first_name }}{% endif %}</h1>
+  {% if attention_count == 1 %}
+    <p class="text-secondary">1 thing needs you.</p>
+  {% elif attention_count %}
+    <p class="text-secondary">{{ attention_count }} things need you.</p>
+  {% endif %}
 
   <div class="home-grid">
     <div class="home-grid__attention">
@@ -28,7 +33,15 @@
                 {% if item.urgent and not item.muted %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
                 {% comment %}M17/design-system/screens/intake.md: the phone-check card carries a phone-call icon.{% endcomment %}
                 {% if item.kind == "requests.needs_phone_check" %}<svg class="attention-card__icon" width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-call"></use></svg>{% endif %}
+                {% if item.kind == "requests.tell_by_phone" %}<svg class="attention-card__icon" width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone-outgoing"></use></svg>{% endif %}
                 <span class="attention-card__title">{{ item.title }}</span>
+                {% comment %}
+                M12: a small meta line under the title (HAM #, category, decided-by...) once a
+                provider supplies `item.meta` -- absent today (`ham.requests.attention` still
+                returns a plain title-only summary for most cards), so this degrades to
+                nothing rather than an empty line.
+                {% endcomment %}
+                {% if item.meta %}<span class="attention-card__meta">{{ item.meta }}</span>{% endif %}
                 {% if item.muted %}
                   <span class="text-secondary">Owner: pastors &amp; Board &middot; awareness only</span>
                 {% else %}
@@ -36,8 +49,11 @@
                   FIX-F1 minor 1: only the first urgent card is a primary button -- a column
                   of solid-primary buttons (with a lot of urgent requests at once) breaks the
                   "one primary action" pattern.
+                  UX m19: "Review", not "Open" -- and an accessible name that repeats the
+                  card's own title so a screen-reader user tabbing straight to the buttons
+                  still hears which request each one opens.
                   {% endcomment %}
-                  <a class="btn {% if item.urgent and item.kind == first_urgent_kind %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}">Open</a>
+                  <a class="btn {% if item.urgent and item.kind == first_urgent_kind %}btn--primary{% else %}btn--secondary{% endif %}" href="{{ item.url }}" aria-label="Review {{ item.title }}">Review</a>
                 {% endif %}
               </li>
             {% endfor %}
@@ -81,10 +97,9 @@
             <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
             <path d="M7 9h10M7 13h6" />
           </svg>
-          <h3 id="home-empty-title">Your to-do list will appear here</h3>
+          <h3 id="home-empty-title">Nothing needs your attention right now</h3>
           <p>
-            Once projects, invitations and reconfirmations are live, the things that need you
-            will show up on this page first — nothing to check right now.
+            We'll let you know here as soon as something needs a decision or a response.
           </p>
           <a class="btn btn--secondary" href="{% url 'web:me' %}">Update my profile</a>
         </section>
