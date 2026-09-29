@@ -1688,3 +1688,69 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   exercises the old bug, not a tautology), then re-run the same files against the real
   worktree's post-fix code (should all pass). Clean up with `git worktree remove --force` +
   `DROP DATABASE` when done; don't leave the scratch worktree/DB behind.
+
+## S3.0 (step 3 approvals — seams and contracts)
+- **`AppendOnlyOnceMixin`** (`ham/requests/models.py`): generalizes
+  `RequestContactVerification`'s single-field Python-level append-only guard to models that
+  need *several* independent "settable once, from null" field groups (`Approval`'s
+  told-by-phone pair, undo pair, and effects-ran-at marker; `RequestQuestion`'s answer group
+  and closed group). A plain mixin (not a `models.Model` subclass, no `abstract=True`) so MRO
+  cooperates cleanly with `models.Model` in `class Approval(AppendOnlyOnceMixin,
+  models.Model)`. Declares `ONCE_FIELDS: frozenset[str]`; `save()` after insert requires
+  `update_fields=[...]` naming only those fields, and refuses if the current DB value isn't
+  still `None`/`""`/`False`. A model with `ONCE_FIELDS = frozenset()` (`Reconsideration`) is
+  therefore fully immutable after insert with zero extra code. Reuse this for any future
+  model needing more than one append-only exception field instead of hand-rolling another
+  `save()` override.
+- **A CHECK constraint fix that used to be a silent no-op will surface real bugs at other,
+  unrelated call sites the moment it becomes real** — fixing `req_closed_at_when_terminal`'s
+  tautology (`approvals.md §2.1`) into two real CHECKs broke `seed_dev_requests.py` (created a
+  CANCELLED row open, closed it in a follow-up `.save()` — the *initial insert* now violates
+  the constraint) and a step-2 fix-round test (`test_fix_f2_urgency_reason.py`, manually set
+  `closed_at` on a still-`AWAITING_APPROVAL` row without also moving `status` to `CANCELLED`).
+  Both were latent: the old constraint let an open-status row carry a `closed_at` silently.
+  Run the **full** suite (not just the new model's own tests) after tightening any
+  long-standing tautological/no-op constraint — grep for `.save(update_fields=[...` near
+  `closed_at`/`status` assignments is a fast way to find every other two-step
+  create-then-close call site before they surface as CI failures instead.
+- **A Playwright/e2e test failing with a 30s `Locator.wait_for` timeout on a selector the
+  diff never touched, right after a fresh `git worktree add`, is almost always a missing
+  frontend build, not a real regression** — `frontend/dist`/`ham/web/static/web/dist` don't
+  exist until `cd frontend && npm ci && npm run build` has run once in *this* worktree (each
+  worktree is its own checkout). Confirmed by re-running the same two failing tests after the
+  build: both passed unchanged. Do this once, early, per worktree — before spending time
+  investigating an e2e failure as a real bug.
+- **Service-layer seam files for a slice's own later implementer, not appended to an
+  already-live file another parallel slice also edits**: `ham/requests/services_decisions.py`
+  / `services_questions.py` (new, `NotImplementedError` stubs per approvals-contracts.md §2)
+  and `ham/web/urls_requests_approvals.py` / `urls_requester_approvals.py` (new, empty
+  `urlpatterns: list = []`, spliced into `ham/web/urls.py` as a no-op today) — mirrors
+  `ham/web/urls_inbox.py`'s S2.0 "empty stub, real routes land later" shape, but as brand-new
+  files rather than edits to `services.py`/`urls_requests.py`, which other parallel worktrees
+  (S3.2/S3.3/S3.6/S3.7) are actively building against in the same commit window. One
+  exception: `close_open_questions(request_id, *, reason)` is a real, fully-implemented plain
+  function (not a stub) in the S3.3 seam file, because S3.2's decision commands call it
+  *inside their own transaction* the moment a decision closes a request — S3.0 fixed its exact
+  behavior so S3.2 doesn't have to guess. A plain function calling `.save(update_fields=[...])`
+  on an `AppendOnlyOnceMixin` model needs no `ctx`/authorization of its own when it is always
+  a side effect of another, already-authorized command, never a standalone entry point.
+- **New matrix actions declared this slice but not yet wired to a real `@command` site must
+  be added to `tests/audit/test_command_registry.py`'s `PLACEHOLDER_ACTIONS`**, or
+  `test_every_mutating_matrix_action_is_wired_or_a_known_placeholder` fails — this file isn't
+  in a "seams" slice's nominal owned-files list, but it's a static registry test that breaks
+  the moment any new matrix row's stub isn't `@command`-wrapped yet; touch it in the same
+  commit as the matrix rows, with a comment naming which later slice wires the real command.
+- **Held/undoable side effects (Q-156/Q-176 "confirm first, undo within a window"): a
+  scheduled job at `effective_at` that checks `undone_at` first, not a new outbox/effects
+  table.** Store `effective_at = decided_at + <undo window>` directly on the decision row
+  itself (computed once, at write time — never recomputed from the live rule later), defer
+  one job for it the same way `ham.requests.jobs.defer_complete_intake_checks` defers from
+  inside the write transaction, and give the row its own idempotency marker
+  (`effects_ran_at`, one more `ONCE_FIELDS` entry) so a retried job invocation is provably a
+  no-op. Keeps "was this undone" a single append-only-once field pair
+  (`undone_at`/`undone_by_user_id`) instead of a second table to keep in sync. Effects that
+  must NOT be held for safety (an urgent-approval alert) go out immediately through the
+  normal `@command` outbox path from the deciding command itself, never through the held-
+  effects job — write that split down explicitly in the contracts doc, since it's easy to
+  assume "the decision's outbox event" is one single held thing when it's actually two
+  (an immediate safety alert plus separately-held effects).

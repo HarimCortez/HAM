@@ -130,7 +130,7 @@ class TestUrgencyReasonKeptAtRetentionPurge:
         purge, unlike `urgency_justification` (Q-145)."""
         from ham.authz.context import RequesterContext, SystemContext
         from ham.requests.services import purge_expired_request, submit_request
-        from ham.requests.states import CancelReason
+        from ham.requests.states import CancelReason, RequestStatus
         from tests.requests.conftest import make_payload
 
         request = submit_request(
@@ -145,9 +145,13 @@ class TestUrgencyReasonKeptAtRetentionPurge:
         )
         run_due_jobs_now()  # drain the deferred duplicate-check job before it leaks
 
+        # S3.0: `req_closed_at_null_while_open` (approvals.md §2.1) now really enforces that
+        # an open status never carries a `closed_at` -- this fixture must also move `status`
+        # to CANCELLED, not just set `closed_at`, to stay a realistic closed request.
+        request.status = RequestStatus.CANCELLED.value
         request.cancel_reason_code = CancelReason.REQUESTER_WITHDREW.value
         request.closed_at = request.submitted_at
-        request.save(update_fields=["cancel_reason_code", "closed_at"])
+        request.save(update_fields=["status", "cancel_reason_code", "closed_at"])
 
         purge_expired_request(SystemContext(), request_id=request.id)
         request.refresh_from_db()

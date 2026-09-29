@@ -4,7 +4,9 @@ from . import (
     auth_views,
     urls_inbox,
     urls_requester,
+    urls_requester_approvals,
     urls_requests,
+    urls_requests_approvals,
     views,
     views_admin_settings,
     views_admin_users,
@@ -141,4 +143,7 @@ urlpatterns = [
     *urls_requests.urlpatterns,
     *urls_requester.urlpatterns,
     *urls_inbox.urlpatterns,
+    # --- Step 3 (Approvals), S3.0 seams: real routes land in S3.6/S3.7 ----------------------
+    *urls_requests_approvals.urlpatterns,
+    *urls_requester_approvals.urlpatterns,
 ]
