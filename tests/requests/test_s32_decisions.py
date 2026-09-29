@@ -202,6 +202,10 @@ class TestApproveRequest:
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
+        # Security N3: APPROVE now refuses while the standalone certification is still inside
+        # its own undo window -- advance past it first (same as any other decision-in-between
+        # scenario in this file).
+        set_clock(FixedClock(clock_now() + RULES.approvals.DECISION_UNDO_WINDOW))
         approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
         assert approval.urgent_approval is True
         assert not OutboxEvent.objects.filter(event_type="RequestApproved").exists()

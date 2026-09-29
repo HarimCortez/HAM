@@ -26,13 +26,14 @@ from ham.authz import roles
 from ham.notifications.attention import AttentionItem
 from ham.platform.clock import now as clock_now
 
-from .models import Approval, ApprovalRoute, AssistanceRequest, Reconsideration
+from .models import ApprovalRoute, AssistanceRequest, Reconsideration
 from .presentation import need_category_label
 from .queries import (
     RequestListRow,
     can_see_needs_phone_check,
     list_requests,
     needs_phone_check_list,
+    requests_with_settled_decision,
 )
 from .states import RequestStatus, UrgencyStatus
 
@@ -251,16 +252,12 @@ def decision_phone_card(ctx: ActorContext) -> AttentionCard | None:
     if not (ctx.effective_roles & _DIR_AD):
         return None
     now = clock_now()
-    candidates = AssistanceRequest.objects.filter(requester__email__isnull=True)
-    count = 0
-    for request in candidates.only("id"):
-        latest = (
-            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
-            .order_by("-decided_at")
-            .first()
-        )
-        if latest is not None and latest.requester_phoned_at is None and latest.effective_at <= now:
-            count += 1
+    candidate_ids = AssistanceRequest.objects.filter(requester__email__isnull=True).values_list(
+        "id", flat=True
+    )
+    # Fix 3C / security L-c: one bulk `Subquery`-based lookup instead of a per-request query,
+    # for the same "settled decision" fact the phone-script view reads.
+    count = len(requests_with_settled_decision(candidate_ids, now, only_unphoned=True))
     if not count:
         return None
     return AttentionCard(
@@ -280,19 +277,11 @@ def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
     if roles.PASTOR not in ctx.effective_roles:
         return None
     now = clock_now()
-    candidates = AssistanceRequest.objects.filter(
+    candidate_ids = AssistanceRequest.objects.filter(
         status=RequestStatus.APPROVED.value,
         urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value,
-    )
-    count = 0
-    for request in candidates.only("id"):
-        latest = (
-            Approval.objects.filter(request_id=request.id, undone_at__isnull=True)
-            .order_by("-decided_at")
-            .first()
-        )
-        if latest is not None and latest.effective_at <= now:
-            count += 1
+    ).values_list("id", flat=True)
+    count = len(requests_with_settled_decision(candidate_ids, now))
     if not count:
         return None
     return AttentionCard(
@@ -301,6 +290,33 @@ def pastor_certify_card(ctx: ActorContext) -> AttentionCard | None:
         count=count,
         urgent=True,
         actionable=True,
+        href="/requests?tab=decided",
+    )
+
+
+def awaiting_site_visit_card(ctx: ActorContext) -> AttentionCard | None:
+    """Fix 3C / PRD M4 (§64): the Director/AD Home awareness card "Approved, waiting for a
+    site visit (n)" -- muted (not actionable, no button), same predicate
+    `views_requests._decision_panel` used for its own now-removed duplicate line: APPROVED,
+    the decision has settled (`latest_effective_approval` non-None) and urgency (if any) is
+    no longer awaiting certification (that case already has its own certify/decline card)."""
+    if not (ctx.effective_roles & _DIR_AD):
+        return None
+    now = clock_now()
+    candidate_ids = (
+        AssistanceRequest.objects.filter(status=RequestStatus.APPROVED.value)
+        .exclude(urgency_status=UrgencyStatus.AWAITING_CERTIFICATION.value)
+        .values_list("id", flat=True)
+    )
+    count = len(requests_with_settled_decision(candidate_ids, now))
+    if not count:
+        return None
+    return AttentionCard(
+        key="requests.awaiting_site_visit",
+        title=f"Approved, waiting for a site visit ({count})",
+        count=count,
+        urgent=False,
+        actionable=False,
         href="/requests?tab=decided",
     )
 
@@ -318,6 +334,9 @@ def attention_cards(ctx: ActorContext) -> list[AttentionCard]:
     certify = pastor_certify_card(ctx)
     if certify is not None:
         cards.append(certify)
+    site_visit = awaiting_site_visit_card(ctx)
+    if site_visit is not None:
+        cards.append(site_visit)
     return cards
 
 

@@ -340,7 +340,13 @@ class TestUrgentApproval:
         )
         notices = _build_urgency_review_undone_notices(event)
         assert notices is not None
-        assert {n.recipient_user_id for n in notices} == {director.id}
+        undone_notices = [n for n in notices if n.kind == "request_urgent_approval_undone"]
+        # Security N2 / UX M9: the same undo also restores the pastors' "needs a pastor"
+        # banner (`UrgencyReview.banner_cleared`) -- the certifying pastor's own banner had
+        # been acknowledged (cleared) by their own certification, so they get a fresh one.
+        banner_notices = [n for n in notices if n.kind == "request_awaiting_approval"]
+        assert {n.recipient_user_id for n in undone_notices} == {director.id}
+        assert {n.recipient_user_id for n in banner_notices} == {_deciding.id}
 
 
 class TestReconsiderationRequested:

@@ -20,6 +20,7 @@ from ham.authz import roles
 from ham.authz.commands import ImpersonationBlocked
 from ham.outbox.models import OutboxEvent
 from ham.platform.clock import FixedClock, set_clock
+from ham.platform.clock import now as clock_now
 from ham.requests.models import ApprovalOutcome
 from ham.requests.services import complete_intake_checks, submit_request
 from ham.requests.services_decisions import (
@@ -192,6 +193,8 @@ class TestGap3NoDoubleDeliveryOfRequestApproved:
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
+        # Security N3: APPROVE refuses while the standalone certification is still undoable.
+        set_clock(FixedClock(clock_now() + RULES.approvals.DECISION_UNDO_WINDOW))
         approval = approve_request(board_rep_ctx, request_id=req.id, route="board")
 
         assert not OutboxEvent.objects.filter(event_type="RequestApproved").exists()
@@ -214,6 +217,8 @@ class TestGap3NoDoubleDeliveryOfRequestApproved:
     ):
         req = _urgent_awaiting(requester_ctx, system_ctx)
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
+        # Security N3: REJECT refuses while the standalone certification is still undoable.
+        set_clock(FixedClock(clock_now() + RULES.approvals.DECISION_UNDO_WINDOW))
         from ham.requests.services_decisions import reject_request
 
         # Reject then reconsider-approve, so we get a stage=reconsideration Approval to check.

@@ -44,6 +44,7 @@ from ham.requests.queries import (
     get_request_by_id,
     get_request_detail,
     is_masked_view,
+    latest_effective_approval,
     list_requests,
     needs_phone_check_list,
     outcome_summary,
@@ -1461,10 +1462,13 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
     needs_take_over = not is_board_route and not is_original and original_active
 
     approve_mode = request.GET.get("outcome", "approve") != "decline"
-    take_over_default = request.GET.get("take_over") == "1"
     reason = ""
     reason_code = ""
-    take_over = take_over_default
+    # PRD N2: the take-over tick ALWAYS starts unchecked -- `?take_over=1` only ever reveals
+    # the take-over block (`needs_take_over`, computed above from role/route facts alone,
+    # never from a query parameter); it must never pre-tick a confirmation the decider hasn't
+    # actually made yet.
+    take_over = False
     told_by_phone = False
     board_decided_on_raw = ""
 
@@ -1599,13 +1603,12 @@ def request_decision_phoned(request, request_id: uuid.UUID):
     request_row = get_request_by_id(ctx, request_id)
     if request_row is None:
         return render(request, "web/not_found.html", status=404)
-    approval = (
-        Approval.objects.filter(
-            request_id=request_id, stage=ApprovalStage.INITIAL.value, undone_at__isnull=True
-        )
-        .order_by("-decided_at")
-        .first()
-    )
+    # Fix 3C / security N1+M3-residual / UX B1 / PRD guardian M5, Q-181/Q-182: the one shared
+    # "which decision does the phone script read" lookup -- the latest LIVE decision at
+    # either stage, only once its own undo window has actually closed. A reconsideration
+    # reversal (or the window still being open) is now a plain 404, same as any other
+    # not-yet-reachable sheet.
+    approval = latest_effective_approval(request_id)
     if approval is None:
         return render(request, "web/not_found.html", status=404)
 
@@ -1633,7 +1636,17 @@ def request_decision_phoned(request, request_id: uuid.UUID):
             "message": (
                 approval.reason if approval.outcome == ApprovalOutcome.REJECTED.value else ""
             ),
-            "reconsideration_deadline": request_row.reconsideration_deadline_at,
+            # Fix 3C / security N1: a reconsideration-stage decline always closes the request
+            # (RECONSIDER_REJECT / FINALIZE_REJECTION) -- never offer "ask us to reconsider"
+            # again for it, even though `reconsideration_deadline_at` itself is never cleared
+            # on the request row. Only the initial, still-open decline gets the offer.
+            "reconsideration_deadline": (
+                request_row.reconsideration_deadline_at
+                if approval.stage == ApprovalStage.INITIAL.value
+                and approval.outcome == ApprovalOutcome.REJECTED.value
+                and request_row.closed_at is None
+                else None
+            ),
         },
     )
 
@@ -1669,9 +1682,13 @@ def request_question_ask(request, request_id: uuid.UUID):
     )
     question_text = ""
     phone_answer = ""
-    if request.method == "POST" and request.POST.get("show_contact") != "1":
+    if request.method == "POST":
+        # UX N1: always echo both typed fields back, even on the "Show contact details" tap
+        # (`show_contact=1`) -- that control must never wipe or block the question the
+        # leader has already started writing.
         question_text = request.POST.get("question", "").strip()
         phone_answer = request.POST.get("phone_answer", "").strip() if not has_email else ""
+    if request.method == "POST" and request.POST.get("show_contact") != "1":
         phone_confirmed = request.POST.get("phone_confirmed") == "on"
         if not question_text:
             messages.error(request, "Write your question.")

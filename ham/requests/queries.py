@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 
 from ham.authz import roles
 from ham.authz.matrix import authorize
@@ -116,6 +117,44 @@ class RequestListRow:
     undo_pending: bool = False
     question_open: bool = False
     reconsideration_deadline: dt.datetime | None = None
+    # Fix 3C / UX N2: same rule as `ham.requests.attention.decision_phone_card` -- a no-email
+    # requester whose latest live decision has settled (past its own undo window) and hasn't
+    # been told by phone yet.
+    needs_phone_call: bool = False
+
+    @property
+    def markers(self) -> list[dict[str, object]]:
+        """UX N2: list-row markers built from the stored facts above -- one source (this
+        property), instead of the list template re-deriving "is this pending/open/callable"
+        itself from raw fields."""
+        result: list[dict[str, object]] = []
+        if self.undo_pending:
+            result.append(
+                {"icon": "rotate-ccw", "label": "Can still be undone", "attention": False}
+            )
+        if self.question_open:
+            result.append(
+                {"icon": "message-circle-question", "label": "Question open", "attention": False}
+            )
+        if self.reconsideration_deadline is not None:
+            result.append(
+                {"icon": "rotate-ccw", "label": "Can ask to reconsider", "attention": False}
+            )
+        if self.needs_phone_call:
+            result.append(
+                {
+                    "icon": "phone-call",
+                    "label": "Call to share a decision",
+                    "attention": True,
+                }
+            )
+        return result
+
+    @property
+    def line2_text(self) -> str:
+        """UX N2: the tab-appropriate second line -- for now, the same marker labels joined
+        (FIX-3D owns any richer per-tab wording, e.g. the deciding pastor's name)."""
+        return " · ".join(str(m["label"]) for m in self.markers)
 
 
 # S3.2 (approvals.md §6 L1 "New status chips Approved / Not approved / Taking another look").
@@ -196,15 +235,29 @@ def list_requests(
         .values_list("id", flat=True)
     )
     undo_pending_ids: set[UUID] = set()
-    seen_request_ids: set[UUID] = set()
+    latest_live_approval: dict[UUID, Approval] = {}
     for approval in Approval.objects.filter(
         request_id__in=[r.id for r in rows], undone_at__isnull=True
     ).order_by("request_id", "-decided_at"):
-        if approval.request_id in seen_request_ids:
+        if approval.request_id in latest_live_approval:
             continue  # only the latest (first seen per request, ordered above) matters
-        seen_request_ids.add(approval.request_id)
+        latest_live_approval[approval.request_id] = approval
         if decision_is_undoable(approval.decided_at, now, approval.undone_at):
             undo_pending_ids.add(approval.request_id)
+    # UX N2: same rule as `ham.requests.attention.decision_phone_card` -- a no-email
+    # requester, past their decision's own undo window, not yet told by phone.
+    no_email_ids = set(
+        Requester.objects.filter(
+            request_id__in=[r.id for r in rows], email__isnull=True
+        ).values_list("request_id", flat=True)
+    )
+    needs_phone_call_ids = {
+        request_id
+        for request_id, approval in latest_live_approval.items()
+        if request_id in no_email_ids
+        and approval.requester_phoned_at is None
+        and approval.effective_at <= now
+    }
     return [
         RequestListRow(
             id=r.id,
@@ -223,6 +276,7 @@ def list_requests(
                 if r.status == RequestStatus.REJECTED.value and r.closed_at is None
                 else None
             ),
+            needs_phone_call=r.id in needs_phone_call_ids,
         )
         for r in rows
     ]
@@ -310,8 +364,13 @@ def decision_undo_open(request_id: UUID, now: dt.datetime | None = None) -> bool
     can still be undone by the person who recorded it. One predicate, used everywhere a
     service or a view needs to know "is this request's decision still pending": other
     approvers must see it as pending, not final; several actions (asking for reconsideration,
-    recording one by phone, a standalone urgency review, asking a question) must refuse while
-    it's true; phone-outcome cards/actions must stay hidden until it's false."""
+    recording one by phone, approving/rejecting, asking a question) must refuse while it's
+    true; phone-outcome cards/actions must stay hidden until it's false.
+
+    Fix 3C / PRD N1 (Q-176 carve-out, owner rule): a standalone urgency review's OWN refusal
+    to be reviewed again uses `urgency_review_undo_open` below, not this function -- the owner
+    box says certifying/declining urgency IS allowed during another decision's (an Approval's)
+    undo window, only refused during the urgency review's own window."""
     now = now or clock_now()
     approval = _latest_live_approval(request_id)
     if approval is not None and decision_is_undoable(approval.decided_at, now, approval.undone_at):
@@ -320,6 +379,60 @@ def decision_undo_open(request_id: UUID, now: dt.datetime | None = None) -> bool
     if review is not None and decision_is_undoable(review.decided_at, now, review.undone_at):
         return True
     return False
+
+
+def urgency_review_undo_open(request_id: UUID, now: dt.datetime | None = None) -> bool:
+    """Fix 3C / PRD N1 (Q-176 carve-out, owner rule wins): true only while this request's own
+    latest LIVE standalone ``UrgencyReview`` can still be undone -- never true merely because
+    an unrelated ``Approval`` is undoable. `review_urgency` refuses a *second* review only on
+    this predicate; an Approval's own undo window never blocks a fresh certify/decline."""
+    now = now or clock_now()
+    review = _latest_live_urgency_review(request_id)
+    return review is not None and decision_is_undoable(review.decided_at, now, review.undone_at)
+
+
+def latest_effective_approval(request_id: UUID, now: dt.datetime | None = None) -> Approval | None:
+    """Fix 3C / security N1+M3-residual, PRD M5, UX B1: the ONE shared "which decision does
+    the phone script read" lookup -- the latest live decision (any stage), and only once its
+    own undo window has actually closed (``effective_at <= now``). Returns ``None`` while the
+    decision is still pending (undoable) or when there is no live decision at all. Used by
+    `request.decision.record_phoned`, the `request_decision_phoned` view, and the
+    `decision_phone_card`/`pastor_certify_card` attention cards -- one predicate, so a
+    reconsideration reversal is never missed by a sibling caller that kept its own,
+    stage-filtered or window-blind copy of this lookup."""
+    now = now or clock_now()
+    approval = _latest_live_approval(request_id)
+    if approval is None or approval.effective_at > now:
+        return None
+    return approval
+
+
+def requests_with_settled_decision(
+    request_ids: Iterable[UUID], now: dt.datetime | None = None, *, only_unphoned: bool = False
+) -> set[UUID]:
+    """Fix 3C / security L-c: a bulk, `Subquery`-based version of `latest_effective_approval`
+    for a whole candidate set at once (`decision_phone_card`/`pastor_certify_card`'s own
+    counting loops used to run one query per candidate request). Returns the ids whose latest
+    LIVE decision (any stage) has settled (``effective_at <= now``); ``only_unphoned`` also
+    requires ``requester_phoned_at`` still null (the phone-call card's own extra condition)."""
+    now = now or clock_now()
+    ids = list(request_ids)
+    if not ids:
+        return set()
+    latest = Approval.objects.filter(request_id=OuterRef("pk"), undone_at__isnull=True).order_by(
+        "-decided_at"
+    )
+    qs = (
+        AssistanceRequest.objects.filter(id__in=ids)
+        .annotate(
+            _latest_effective_at=Subquery(latest.values("effective_at")[:1]),
+            _latest_phoned_at=Subquery(latest.values("requester_phoned_at")[:1]),
+        )
+        .filter(_latest_effective_at__isnull=False, _latest_effective_at__lte=now)
+    )
+    if only_unphoned:
+        qs = qs.filter(_latest_phoned_at__isnull=True)
+    return set(qs.values_list("id", flat=True))
 
 
 def get_request_detail(ctx: ActorContext, request_id: UUID) -> RequestDetailRow | None:
