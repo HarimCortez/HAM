@@ -1,0 +1,70 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Ask a question · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Ask a question{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Ask the requester a question</h1>
+
+    {% if messages %}
+      <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    {% if open_question %}
+      <div class="inline-alert inline-alert--info">
+        <p>A question is already open on {{ request_row.display_number }} and hasn't been answered yet.</p>
+        <figure class="quote-block"><blockquote>{{ open_question.question }}</blockquote></figure>
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-field">
+        <label for="id_question">What would you like to ask the requester?</label>
+        <p class="form-field__help">One clear question works best. The requester sees exactly what you write. Don't include anyone else's details. Need photos? Use Ask for more photos instead.</p>
+        <textarea id="id_question" name="question" rows="4" maxlength="{{ max_chars }}" required></textarea>
+      </div>
+
+      {% if has_email %}
+        <div class="quiet-block">
+          <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg> The requester gets an email and a card on their request page. You'll hear when they answer.</p>
+        </div>
+      {% else %}
+        <div class="quiet-block">
+          <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg> The requester doesn't use email. Call them to ask, then record what they said below.</p>
+        </div>
+        {% if revealed %}
+          <div class="masked-block masked-block--revealed">
+            <p>{{ revealed.full_name }}</p>
+            <p>
+              <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+              <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+            </p>
+          </div>
+        {% endif %}
+        <div class="form-field">
+          <label for="id_phone_answer">What did they say? <span class="form-field__optional">(optional)</span></label>
+          <p class="form-field__help">Leave empty if you couldn't reach them; the question stays open.</p>
+          <textarea id="id_phone_answer" name="phone_answer" rows="4" maxlength="{{ answer_max_chars }}"></textarea>
+        </div>
+        <label class="choice-card choice-card--statement">
+          <input type="checkbox" name="phone_confirmed">
+          <span>I spoke with the requester by phone.</span>
+        </label>
+      {% endif %}
+
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">{% if has_email %}Send question{% else %}Save question{% endif %}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

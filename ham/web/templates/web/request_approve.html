@@ -1,0 +1,88 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Approve {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}{% if urgent_mode %}Approve as urgent{% else %}Approve{% endif %}{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    {% if urgent_mode %}
+      <h1>Approve {{ request_row.display_number }} as urgent?</h1>
+      <figure class="quote-block">
+        <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
+        <blockquote>{{ urgency_line }}</blockquote>
+      </figure>
+      <p>By approving as urgent, you certify that this is urgent. HAM can go ahead without waiting for the Board.</p>
+    {% else %}
+      <h1>Approve {{ request_row.display_number }}</h1>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="mode" value="{% if urgent_mode %}urgent{% else %}{% if urgent_awaiting_cert %}not_urgent{% endif %}{% endif %}">
+
+      {% if dual_role %}
+        <fieldset class="form-field">
+          <legend>Record this as</legend>
+          <div class="choice-grid choice-grid--single">
+            <label class="choice-card"><input type="radio" name="route" value="pastoral" required {% if default_route == "pastoral" %}checked{% endif %}><span>My decision as a pastor</span></label>
+            <label class="choice-card"><input type="radio" name="route" value="board" {% if default_route == "board" %}checked{% endif %}><span>The Board's decision</span></label>
+          </div>
+        </fieldset>
+      {% else %}
+        <input type="hidden" name="route" value="{{ default_route }}">
+      {% endif %}
+
+      {% if default_route == "board" or dual_role %}
+        <div class="form-field">
+          <label for="id_board_decided_on">Date the Board decided</label>
+          <input id="id_board_decided_on" type="date" name="board_decided_on" value="{% now 'Y-m-d' %}" max="{% now 'Y-m-d' %}">
+          <p class="form-field__help">It can't be in the future.</p>
+        </div>
+      {% endif %}
+
+      {% if not urgent_mode %}
+        <div class="form-field">
+          <label for="id_approval_note">Why approved (leaders only) <span class="form-field__optional">(optional)</span></label>
+          <p class="form-field__help"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> A few words for HAM leaders. The requester won't see this. Don't include personal details.</p>
+          <input id="id_approval_note" type="text" name="approval_note" maxlength="200">
+        </div>
+      {% endif %}
+
+      {% if not has_email %}
+        <label class="choice-card choice-card--statement">
+          <input type="checkbox" name="told_by_phone">
+          <span>I've already told the requester by phone.</span>
+        </label>
+        <p class="form-field__help">If you don't tick this, the Director and Assistant Director get a card to call them.</p>
+      {% endif %}
+
+      <div class="quiet-block">
+        <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg>
+        {% if urgent_mode %}
+          Marcus and Andre are alerted right away, on every channel. The requester's email is sent after your 30 minutes to undo.
+        {% elif not has_email %}
+          The requester doesn't use email. HAM leaders will get a card to call them, unless you've told them.
+        {% else %}
+          The requester's email goes out after your 30 minutes to undo. Marcus and Andre are told so they can arrange the site visit.
+        {% endif %}
+        </p>
+      </div>
+
+      {% if urgent_mode %}
+        <p><a class="link-button" href="?mode=normal">Approve, but not as urgent</a></p>
+      {% endif %}
+
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">
+            {% if urgent_mode %}Certify and approve{% else %}Approve {{ request_row.display_number }}{% endif %}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

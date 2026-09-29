@@ -16,6 +16,7 @@ from .models import (
     NeedCategory,
     PreferredContactMethod,
     PropertyType,
+    RejectionReason,
     RelationshipToProperty,
     UrgencyReason,
 )
@@ -131,6 +132,37 @@ VERIFICATION_METHOD_LABELS: dict[str, str] = {
     VerificationMethod.EMAIL_LINK.value: "link",
     VerificationMethod.STAFF_PHONE_CALL.value: "phone call",
 }
+
+# S3.6 (docs/architecture/approvals.md D2, Q-154; owner box + design-system/screens/
+# approvals.md §0.1): the five decline-reason labels for the A3 radio cards, and HAM's own
+# suggested (fully editable) kind message per reason -- the approver's edited text is what's
+# actually stored (`Approval.reason`); these are prefill copy only, never re-applied later.
+REJECTION_REASON_LABELS: dict[str, str] = dict(RejectionReason.choices)
+
+REJECTION_REASON_PREFILLS: dict[str, str] = {
+    RejectionReason.FAMILY_OR_OTHERS_CAN_HELP.value: (
+        "From what you've shared, it sounds like family or others may be able to help with "
+        "this. HAM's volunteers focus on work people can't manage any other way."
+    ),
+    RejectionReason.OWNER_OR_LANDLORD_RESPONSIBLE.value: (
+        "Because you rent your home, this repair is the responsibility of the owner or "
+        "landlord. We'd encourage you to ask them first."
+    ),
+    RejectionReason.NOT_HELP_HAM_OFFERS.value: (
+        "This isn't the kind of work our volunteer teams are able to take on."
+    ),
+    RejectionReason.COULDNT_CONFIRM.value: (
+        "We weren't able to confirm the details we needed to go ahead."
+    ),
+    RejectionReason.ANOTHER_REASON.value: "",
+}
+
+DECLINE_MESSAGE_MAX_CHARS = 600
+
+
+def rejection_reason_label(value: str) -> str:
+    return REJECTION_REASON_LABELS.get(value, value)
+
 
 SOURCE_LABELS: dict[str, str] = {
     "public_form": "Public form",

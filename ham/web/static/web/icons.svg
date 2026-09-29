@@ -228,4 +228,25 @@
     <path d="M16.5 7 12.5 13.5h8Z" />
     <path d="M16.5 13.5v4.5" />
   </symbol>
+  <!-- S3.6 (approvals.md A4/A5/L16 Questions and answers thread; A11 tell-by-phone). -->
+  <symbol id="icon-message-circle-question" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12a8 8 0 1 1 3.3 6.5L4 20l1.3-3.5A7.96 7.96 0 0 1 4 12Z" />
+    <path d="M10.2 10a1.9 1.9 0 1 1 2.6 1.7c-.7.3-1.1.8-1.1 1.6" />
+    <path d="M12 15.6h.01" />
+  </symbol>
+  <symbol id="icon-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12a8 8 0 1 1 3.3 6.5L4 20l1.3-3.5A7.96 7.96 0 0 1 4 12Z" />
+  </symbol>
+  <symbol id="icon-phone-outgoing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 4.5h3.5l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5V19a1.5 1.5 0 0 1-1.6 1.5A15.5 15.5 0 0 1 3.5 6.1 1.5 1.5 0 0 1 5 4.5Z" />
+    <path d="M15 4.5h4.5V9" />
+    <path d="M19.5 4.5 14 10" />
+  </symbol>
+  <symbol id="icon-calendar-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="5" width="16" height="15" rx="1.5" />
+    <path d="M4 9.5h16" />
+    <path d="M8 3v3M16 3v3" />
+    <circle cx="15.5" cy="15.5" r="3.5" />
+    <path d="M15.5 13.8v1.7l1.2 1" />
+  </symbol>
 </svg>

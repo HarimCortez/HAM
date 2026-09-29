@@ -1,0 +1,91 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Reconsideration · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Reconsideration{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>
+      {% if needs_take_over %}Take over and {% endif %}
+      {% if approve_mode %}approve{% else %}decline{% endif %} {{ request_row.display_number }}?
+    </h1>
+
+    {% if messages %}
+      <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="outcome" value="{% if approve_mode %}approve{% else %}decline{% endif %}">
+
+      {% if needs_take_over %}
+        <div class="quiet-block">
+          <p>This reconsideration goes to {{ original_decider_name }}, who declined
+            {{ request_row.display_number }}. If they aren't available, you can decide it instead.</p>
+          <label class="choice-card choice-card--statement">
+            <input type="checkbox" name="take_over" required>
+            <span>{{ original_decider_name }} isn't available to decide this.</span>
+          </label>
+          <p class="text-secondary type-small">{{ original_decider_name }} will be told you've taken it over.</p>
+        </div>
+      {% endif %}
+
+      <p class="text-secondary">What they told us &middot; {{ recon.requested_at|church_time }}</p>
+      {% if recon.requester_note %}
+        <figure class="quote-block"><blockquote>{{ recon.requester_note }}</blockquote></figure>
+      {% else %}
+        <p class="text-secondary">(no note)</p>
+      {% endif %}
+
+      {% if is_board_route %}
+        <div class="form-field">
+          <label for="id_board_decided_on">Date the Board decided</label>
+          <input id="id_board_decided_on" type="date" name="board_decided_on" value="{{ board_decided_on_default|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}">
+        </div>
+      {% endif %}
+
+      {% if approve_mode %}
+        <div class="form-field">
+          <label for="id_reason">Reason</label>
+          <p class="form-field__help">A short reason for the record, for example "No family nearby after all." Leaders see this. The requester doesn't.</p>
+          <textarea id="id_reason" name="reason" rows="3" required></textarea>
+        </div>
+      {% else %}
+        <fieldset class="form-field">
+          <legend>Why can't HAM help?</legend>
+          <div class="choice-grid choice-grid--single">
+            {% for code, label in reason_choices %}
+              <label class="choice-card">
+                <input type="radio" name="reason_code" value="{{ code }}" required>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <div class="form-field">
+          <label for="id_reason_decline">What we'll tell the requester</label>
+          <textarea id="id_reason_decline" name="reason" rows="5" maxlength="600"></textarea>
+        </div>
+        <div class="inline-alert inline-alert--attention">
+          <p>This is final. The request will close and the requester can't ask again. They can send a new request in the future.</p>
+        </div>
+      {% endif %}
+
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">
+            {% if needs_take_over %}Take over and {% endif %}
+            {% if approve_mode %}Approve{% else %}Decline (final){% endif %}
+            {{ request_row.display_number }}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

@@ -41,11 +41,13 @@ its own page, h2 inside the list page).
     </div>
   </div>
 
-  {% if detail.status == "AWAITING_APPROVAL" %}
-    <div class="inline-alert inline-alert--info" role="status">
-      <p>With the pastors and Board since {{ detail.status_changed_at|church_time }}.</p>
-    </div>
-  {% elif detail.status == "CANCELLED" %}
+  {% comment %}
+  S3.6: the Decision card (docs/ux/approvals.md A1) replaces the old plain "With the pastors
+  and Board since..." banner for AWAITING_APPROVAL -- its own state line covers that, per role.
+  {% endcomment %}
+  {% include "web/_decision_card.html" %}
+
+  {% if detail.status == "CANCELLED" %}
     <div class="inline-alert inline-alert--neutral" role="status">
       <p>Closed {{ detail.closed_at|church_time }} &middot; {{ cancel_reason_label }}</p>
     </div>
@@ -129,6 +131,46 @@ its own page, h2 inside the list page).
   {% endif %}
 
   {% include "web/_request_media_gallery.html" %}
+
+  {% if questions %}
+    <section aria-labelledby="request-detail-qa-{{ detail.id }}">
+      <{{ heading_tag }} id="request-detail-qa-{{ detail.id }}">Questions and answers ({{ questions|length }})</{{ heading_tag }}>
+      <ol class="qa-thread">
+        {% for item in questions %}
+          <li>
+            <p class="qa-thread__meta"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-message-circle-question"></use></svg> {{ item.asked_by }} asked &middot; {{ item.row.asked_at|church_time }}</p>
+            <figure class="quote-block{% if item.row.status == 'closed' %} quote-block--muted{% endif %}">
+              <blockquote>{{ item.row.question }}</blockquote>
+            </figure>
+            {% if item.row.status == "open" %}
+              <p class="marker marker--attention"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg> Waiting for the requester's answer</p>
+              <p>
+                {% if can_record_phone_answer %}<a class="btn btn--secondary" href="{% url 'web:request_question_record_answer' request_id=detail.id question_id=item.row.id %}">Record their answer</a>{% endif %}
+                {% if can_withdraw_question %}
+                  <form method="post" action="{% url 'web:request_question_withdraw' request_id=detail.id question_id=item.row.id %}" style="display:inline">
+                    {% csrf_token %}
+                    <button class="btn btn--ghost" type="submit">Withdraw</button>
+                  </form>
+                {% endif %}
+              </p>
+            {% elif item.row.status == "answered" %}
+              {% if item.row.masked %}
+                <p class="qa-thread__meta"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> Answered on {{ item.row.answered_at|church_time }}</p>
+              {% else %}
+                <p class="qa-thread__meta"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-message-circle"></use></svg>
+                  {% if item.row.answered_via == "phone" %}Answer taken by phone{% else %}The requester answered{% endif %} &middot; {{ item.row.answered_at|church_time }}</p>
+                <figure class="quote-block"><blockquote>{{ item.row.answer }}</blockquote></figure>
+              {% endif %}
+            {% else %}
+              <p class="qa-thread__meta text-secondary">
+                {% if item.row.close_reason == "withdrawn" %}Withdrawn{% else %}Withdrawn &middot; no longer needed{% endif %}
+              </p>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
 
   <section aria-labelledby="request-detail-home-{{ detail.id }}">
     <{{ heading_tag }} id="request-detail-home-{{ detail.id }}">The home</{{ heading_tag }}>

@@ -1,0 +1,46 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}Change category · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Change category{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Change category &middot; {{ request_row.display_number }}</h1>
+
+    {% if messages %}
+      <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <fieldset class="form-field">
+        <legend>Category</legend>
+        <div class="choice-grid">
+          {% for code, label in category_choices %}
+            <label class="choice-card">
+              <input type="radio" name="need_category" value="{{ code }}" {% if code == request_row.need_category %}checked{% endif %} required>
+              <span>{{ label }}{% if code == request_row.need_category %} <span class="text-secondary type-small">(Current)</span>{% endif %}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="quiet-block">
+        <p>Lists, notices and emails to leaders will use the new category. The requester's page
+          shows it too. They aren't emailed.</p>
+      </div>
+
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">Save category</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

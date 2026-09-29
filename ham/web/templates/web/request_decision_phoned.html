@@ -1,0 +1,50 @@
+{% extends "web/base.html" %}
+{% load static web_extras %}
+
+{% block title %}Tell by phone · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
+{% block app_bar_title %}Tell by phone{% endblock %}
+{% block bottom_nav %}{% endblock %}
+
+{% block content %}
+  <div class="sheet sheet--fullscreen">
+    <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
+    <h1>Tell the requester by phone &middot; {{ request_row.display_number }}</h1>
+
+    <p class="type-label">What to say</p>
+    <figure class="quote-block">
+      <blockquote>
+        {% if approval.outcome == "approved" %}
+          Your request has been approved. Someone from HAM will call you to arrange a visit. The
+          visit helps us plan; it doesn't yet promise the work.
+        {% else %}
+          {{ message }}
+          {% if reconsideration_deadline %}You can ask us to reconsider once, until {{ reconsideration_deadline|church_time }}.{% endif %}
+        {% endif %}
+      </blockquote>
+    </figure>
+
+    {% if revealed %}
+      <div class="masked-block masked-block--revealed">
+        <p>{{ revealed.full_name }}</p>
+        <p>
+          <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+          <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+        </p>
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <label class="choice-card choice-card--statement">
+        <input type="checkbox" name="confirmed" required>
+        <span>I told the requester by phone.</span>
+      </label>
+      <div class="action-bar">
+        <div class="action-bar__inner">
+          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <button class="btn btn--primary" type="submit">Mark as told</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}
