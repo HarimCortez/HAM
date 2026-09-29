@@ -6,6 +6,7 @@ capitalized sentence -- never a lower-case verb spliced into a fixed phrase ("ap
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 import pytest
@@ -14,7 +15,9 @@ from django.test import Client
 from ham.authz import roles
 from ham.authz.context import ActorContext, RequesterContext, SystemContext
 from ham.identity.models import RoleAssignment, SharedIdentityProfile, User
+from ham.platform.clock import FixedClock, set_clock
 from ham.platform.clock import now as clock_now
+from ham.requests.models import Approval
 from ham.requests.services import complete_intake_checks, submit_request
 from ham.requests.services_decisions import reject_request, request_reconsideration
 from tests.requests.conftest import make_payload
@@ -62,6 +65,10 @@ def _make_pending_reconsideration():
         reason_code="family_or_others_can_help",
         message="We're sorry, we can't help with this one.",
     )
+    # A reconsideration can only be asked once the decline has taken effect (Q-176: nothing
+    # else may change the request during the 30-minute undo window).
+    decline = Approval.objects.get(request_id=req.id, undone_at__isnull=True)
+    set_clock(FixedClock(decline.effective_at + dt.timedelta(seconds=1)))
     request_reconsideration(RequesterContext(request_id=req.id), note="Please look again.")
     return pastor, req
 

@@ -1,37 +1,12 @@
-"""Bug-pin (test-engineer pass, step 3): `ham/requests/notifications.py::
-_build_urgency_review_undone_notices` (lines ~431-441) reconstructs "was this the
-certification that made the request an urgent approval" at *undo* time, from `review.action`
-plus the request's *current* status (`status is not RequestStatus.APPROVED -> return None`,
-line 453) -- not from a fact stored on the `UrgencyReview` row itself at review time. The
-function's own docstring already flags this as a `PRD-GAP Q-176` and predicts the exact
-failure mode: "unless something else changed the request's status between the review and this
-undo ... which would read as a false negative here."
+"""Regression (step-3 test pass, fixed in FIX-3A): the Director/AD "urgent approval was undone"
+follow-up for a standalone urgency certification must not depend on the request's *current*
+status. FIX-3A stores `UrgencyReview.urgent_approval_emitted` at review time, and
+`_build_urgency_review_undone_notices` keys on that stored fact (Q-176).
 
-This file proves that prediction for real: a Board-approved, later-certified urgent request,
-cancelled (Q-165: "requester withdrew", allowed from Approved once the *Approval's own* undo
-window has closed) *after* the certification but *before* the certifying pastor undoes it.
-The undo is genuine -- the urgent alert really did fire, Director/AD really were paged -- but
-because the request's status is no longer `APPROVED` by the time the undo happens, the
-in-app "urgent approval was undone" follow-up silently never reaches them.
-
-Severity: Medium. Not a security/privacy hole and not data corruption (the `UrgencyReview`
-row itself is still recorded correctly, `undone_at` and all) -- but it is a silent notification
-loss for a safety-relevant alert (§10, Q-176's "on undo they get an in-app ... follow-up" is
-supposed to be unconditional on the undo itself, not on what happened to the request
-afterward). A pastor could reasonably undo a mistaken urgent certification believing
-Director/AD will be told "never mind", and they won't be.
-
-Suggested fix (already named by the code's own docstring, not invented here): persist the
-fact on `UrgencyReview` at review time, the same way `Approval.urgent_approval` is persisted
-on the `Approval` row itself rather than re-derived later -- e.g. an
-`UrgencyReview.became_urgent_approval` boolean, set once at insert in `review_urgency`
-(`ham/requests/services_decisions.py`), so `_build_urgency_review_undone_notices` never needs
-to re-read the request's current status at all.
-
-This is a test file, not an app-code fix (ham-test-engineer may only add tests). Left as
-`xfail(strict=True)` per `tests/web/test_audit_export_stepup_redirect_bug.py`'s established
-pattern here -- delete this file's `xfail` marker (or the whole file, if superseded by a real
-regression test) once `UrgencyReview` gains its own stored flag.
+Scenario: a Board-approved urgent request is certified by a pastor (the urgent alert fires),
+then cancelled as "requester withdrew" (Q-165), then the pastor undoes the certification
+within its window. The request is no longer APPROVED, yet Director/AD must still be told the
+urgent approval was undone.
 """
 
 from __future__ import annotations
@@ -73,7 +48,6 @@ def _event(event_type: str, *, aggregate_id, payload: dict):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PRD-GAP Q-176 false negative, see module docstring")
 def test_status_change_between_review_and_undo_swallows_the_urgent_follow_up(make_user):
     from ham.authz.context import RequesterContext, SystemContext
 

@@ -598,6 +598,9 @@ class TestAcceptance77:
         # `effective_at`, rather than trying to fast-forward Postgres's clock.
         from ham.requests.services_decisions import run_held_decision_effects
 
+        # The held effects only run once the undo window has passed (FIX-3A L1: an early run
+        # re-defers), so step this process's clock past `effective_at` first.
+        set_clock(FixedClock(urgent_approval.effective_at + dt.timedelta(seconds=1)))
         run_held_decision_effects(urgent_approval.id)
         assert OutboxEvent.objects.filter(
             event_type="RequestApproved", aggregate_id=urgent_request.id
