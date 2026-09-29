@@ -78,15 +78,21 @@ def test_reserve_uploads_refuses_once_every_batch_is_closed(open_request):
     assert RequestMediaBatch.objects.filter(request=open_request).count() == 1
 
 
-def test_reopen_batch_still_allows_uploads_after_l3_refusal(open_request):
+def test_reopen_batch_still_allows_uploads_after_l3_refusal(make_request):
     """A leader's `reopen_batch` (not the requester's own auto-open) is still how batch #2+
-    gets opened once #1 is closed."""
-    _give_email(open_request)
-    ctx = _requester_ctx(open_request.id)
-    services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])
-    services.close_open_batches(open_request.id, reason_code="test")
+    gets opened once #1 is closed.
 
-    batch = services.reopen_batch(_director_ctx(), request_id=open_request.id, reason="one more")
+    S3.4/Q-173: `reopen_batch`'s guard is `ham.requests.states.accepts_media_reopen`, which
+    only allows AWAITING_APPROVAL, RECONSIDERATION_PENDING or APPROVED -- not the default
+    `open_request` fixture's SUBMITTED (a step-2-only status, before the duplicate check).
+    """
+    request = make_request(status=RequestStatus.AWAITING_APPROVAL.value)
+    _give_email(request)
+    ctx = _requester_ctx(request.id)
+    services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])
+    services.close_open_batches(request.id, reason_code="test")
+
+    batch = services.reopen_batch(_director_ctx(), request_id=request.id, reason="one more")
     assert batch.number == 2
     services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])  # no raise
 
@@ -99,11 +105,15 @@ def test_reopen_batch_refuses_a_cancelled_request(make_request):
         services.reopen_batch(_director_ctx(), request_id=cancelled.id, reason="need more")
 
 
-def test_reopen_batch_refuses_a_request_with_no_email_on_file(open_request):
+def test_reopen_batch_refuses_a_request_with_no_email_on_file(make_request):
     """No `Requester` row at all, same as a request that hasn't been given contact info --
-    and the same as a `NEEDS_PHONE_CHECK` (Q-025) request, which never has an email."""
+    and the same as a `NEEDS_PHONE_CHECK` (Q-025) request, which never has an email.
+
+    S3.4/Q-173: uses AWAITING_APPROVAL so the status guard passes and this actually exercises
+    the no-email guard, not `open_request`'s default SUBMITTED."""
+    request = make_request(status=RequestStatus.AWAITING_APPROVAL.value)
     with pytest.raises(ValueError, match="no email"):
-        services.reopen_batch(_director_ctx(), request_id=open_request.id, reason="need more")
+        services.reopen_batch(_director_ctx(), request_id=request.id, reason="need more")
 
 
 # --- N9: masking uses is_masked_view, not "holds the Administrator role" ----------------
@@ -212,11 +222,12 @@ def test_complete_upload_rejection_audit_carries_project_id(open_request):
     assert event.project_id == open_request.id
 
 
-def test_reopen_batch_audit_carries_project_id(open_request):
-    _give_email(open_request)
-    batch = services.reopen_batch(_director_ctx(), request_id=open_request.id, reason="more")
+def test_reopen_batch_audit_carries_project_id(make_request):
+    request = make_request(status=RequestStatus.AWAITING_APPROVAL.value)
+    _give_email(request)
+    batch = services.reopen_batch(_director_ctx(), request_id=request.id, reason="more")
     event = AuditEvent.objects.get(action="request_media.batch_opened", target_id=str(batch.id))
-    assert event.project_id == open_request.id
+    assert event.project_id == request.id
 
 
 # --- M2: process_item re-checks size via head() before get_object -----------------------

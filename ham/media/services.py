@@ -348,18 +348,29 @@ def _request_resource(ctx: ActorContext, *, request_id: uuid.UUID, **_: object) 
 def reopen_batch(ctx: ActorContext, *, request_id: uuid.UUID, reason: str) -> CommandResult:
     """Leadership "Ask for more photos" (§46, L11). A reason is required.
 
-    PRD guardian N10: refuses a closed/cancelled request (asking a closed request for more
-    photos makes no sense) and a no-email request (there is nothing to email the ask to --
-    Q-025's NEEDS_PHONE_CHECK path has no address on file at all, and a later-verified
-    no-email request still has none)."""
+    PRD-GAP Q-173: the reopen guard is `ham.requests.states.accepts_media_reopen` -- only
+    AWAITING_APPROVAL, RECONSIDERATION_PENDING or APPROVED, and never once closed. A plain
+    `is_request_open` (``closed_at IS NULL``) used to be enough here in step 2, but step 3
+    adds an open (reconsiderable) REJECTED request, which is not closed yet `is_request_open`
+    would still say "open" -- that status must refuse a reopen too (the requester must ask
+    for reconsideration first, approvals.md §2.2). PRD guardian N10: also refuses a no-email
+    request (there is nothing to email the ask to -- Q-025's NEEDS_PHONE_CHECK path has no
+    address on file at all, and a later-verified no-email request still has none)."""
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("a reason is required to reopen a batch")
 
-    from ham.requests.services import is_request_open
+    from ham.requests.models import AssistanceRequest
+    from ham.requests.states import accepts_media_reopen
 
-    if not is_request_open(request_id):
-        raise ValueError("this request is closed; uploads can't be reopened")
+    facts = AssistanceRequest.objects.filter(id=request_id).values("status", "closed_at").first()
+    if facts is None:
+        raise ValueError("this request does not exist")
+    if not accepts_media_reopen(facts["status"], facts["closed_at"]):
+        raise ValueError(
+            "this request is closed or not yet in a state that accepts more photos; "
+            "uploads can't be reopened"
+        )
 
     from ham.requests.models import Requester
 

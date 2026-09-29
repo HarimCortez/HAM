@@ -278,19 +278,22 @@ def test_reopen_batch_requires_a_reason(open_request):
         services.reopen_batch(ctx, request_id=open_request.id, reason="")
 
 
-def test_reopen_batch_closes_the_previous_one_and_opens_a_new_one(open_request):
+def test_reopen_batch_closes_the_previous_one_and_opens_a_new_one(make_request):
     from ham.requests.models import Requester
 
-    Requester.objects.create(request=open_request, full_name="", email="on-file@example.org")
+    # S3.4/Q-173: `reopen_batch` only accepts AWAITING_APPROVAL, RECONSIDERATION_PENDING or
+    # APPROVED -- not `open_request`'s default SUBMITTED (a step-2-only, pre-decision status).
+    request = make_request(status=RequestStatus.AWAITING_APPROVAL.value)
+    Requester.objects.create(request=request, full_name="", email="on-file@example.org")
 
-    ctx = _requester_ctx(open_request.id)
+    ctx = _requester_ctx(request.id)
     services.reserve_uploads(ctx, intents=[UploadIntent("photo", "image/jpeg", 1000)])
-    first_batch = RequestMediaBatch.objects.get(request=open_request, number=1)
+    first_batch = RequestMediaBatch.objects.get(request=request, number=1)
     assert first_batch.is_open
 
     leader_ctx = _director_ctx()
     new_batch = services.reopen_batch(
-        leader_ctx, request_id=open_request.id, reason="need a photo of the roof"
+        leader_ctx, request_id=request.id, reason="need a photo of the roof"
     )
     first_batch.refresh_from_db()
     assert not first_batch.is_open
