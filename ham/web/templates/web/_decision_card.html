@@ -80,6 +80,19 @@ of hiding a duplicate copy from assistive tech.
             <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=decline{% if decision.needs_take_over %}&amp;take_over=1{% endif %}">{% if decision.is_board_route %}Board still didn't approve&hellip;{% elif decision.needs_take_over %}Take over and decline&hellip;{% else %}Decline&hellip;{% endif %}</a>
           </div>
         </div>
+      {% elif decision.can_take_over %}
+        {% comment %}
+        Visual QA M2: the original decider is still active, so this pastor needs the
+        take-over tick -- offer the buttons anyway, leading into A9 with the tick already
+        checked, rather than nothing at all.
+        {% endcomment %}
+        <div class="decision-card__actions">
+          <p>Goes to {{ decision.original_decider_name }}. If they're unavailable, you can take it over when you decide.</p>
+          <div class="decision-pair">
+            <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=approve&amp;take_over=1">Take over and approve&hellip;</a>
+            <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_decide' request_id=detail.id %}?outcome=decline&amp;take_over=1">Take over and decline&hellip;</a>
+          </div>
+        </div>
       {% elif decision.is_board_route %}
         <p class="text-secondary">The Board is reconsidering this. Elder {{ decision.original_decider_name }} will record the outcome.</p>
       {% elif decision.masked %}
@@ -112,7 +125,7 @@ of hiding a duplicate copy from assistive tech.
         {% if decision.took_over_from_name %} &middot; took over from {{ decision.took_over_from_name }}{% endif %}
       </p>
 
-      {% if decision.pending %}
+      {% if decision.can_undo %}
         <div class="inline-alert inline-alert--info" role="status">
           <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
           <div>
@@ -121,11 +134,14 @@ of hiding a duplicate copy from assistive tech.
             <p><a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?approval_id={{ decision.approval_id }}">Undo decision&hellip;</a></p>
           </div>
         </div>
-      {% elif decision.state == "pending" %}
-        {# another approver, during someone else's undo window #}
+      {% elif decision.pending %}
+        {% comment %}
+        Security M1-M3 / UX M2 / Q-181: every OTHER viewer, during the decider's own undo
+        window -- pending, read-only, nothing has gone to the requester yet.
+        {% endcomment %}
         <div class="inline-alert inline-alert--info">
           <span class="inline-alert__icon" aria-hidden="true"><svg width="20" height="20"><use href="{% static 'web/icons.svg' %}#icon-hourglass"></use></svg></span>
-          <p>Decision pending ({{ decision.decided_by_name }}, can be undone until {{ decision.undo_deadline|church_time }}). You can't decide while it can still be undone.</p>
+          <p>Pending: {{ decision.decided_by_name }}, can be undone until {{ decision.undo_deadline|church_time }}. Nothing has gone to the requester yet.</p>
         </div>
       {% endif %}
 
@@ -146,11 +162,18 @@ of hiding a duplicate copy from assistive tech.
 
       {% if decision.urgency_line %}<p class="text-secondary">{{ decision.urgency_line }}</p>{% endif %}
 
-      {% if decision.certify_after_approval %}
+      {% if decision.certify_after_approval or decision.decline_urgency_after_approval %}
         <div class="inline-alert inline-alert--attention">
-          <p>Urgent, not yet certified. The Board approved it; a pastor can certify it.</p>
-          <p><a class="btn btn--primary" href="{% url 'web:request_certify_urgency' request_id=detail.id %}">Certify as urgent&hellip;</a></p>
+          <p>Urgent, not yet certified. The Board approved it; a pastor can certify it or say it isn't urgent.</p>
+          <p>
+            {% if decision.certify_after_approval %}<a class="btn btn--primary" href="{% url 'web:request_certify_urgency' request_id=detail.id %}">Certify as urgent&hellip;</a>{% endif %}
+            {% if decision.decline_urgency_after_approval %}<a class="btn btn--secondary" href="{% url 'web:request_decline_urgency' request_id=detail.id %}">Not urgent&hellip;</a>{% endif %}
+          </p>
         </div>
+      {% endif %}
+
+      {% if decision.awaiting_site_visit %}
+        <p class="text-secondary">Approved, waiting for a site visit.</p>
       {% endif %}
 
       {% if decision.outcome == "approved" and not decision.pending %}

@@ -12,6 +12,7 @@ import uuid
 from typing import Literal
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.http import FileResponse, HttpResponseForbidden, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -77,6 +78,7 @@ from ham.requests.states import (
     decision_is_undoable,
     may_decide_reconsideration,
 )
+from ham.rules import RULES
 
 _DIR_AD = frozenset({roles.HAM_DIRECTOR, roles.ASSISTANT_DIRECTOR})
 _PAS_BRD = frozenset({roles.PASTOR, roles.BOARD_REPRESENTATIVE})
@@ -348,10 +350,20 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
                 original_decider_id=str(recon.original_decider_user_id),
                 original_decider_is_active_pastor=original_active,
             )
-        can_decide = bool(
-            authority
-            and authority.allowed
-            and authorize(ctx, "request.reconsideration.decide", request_row).allowed
+        has_matrix_access = authorize(ctx, "request.reconsideration.decide", request_row).allowed
+        can_decide = bool(authority and authority.allowed and has_matrix_access)
+        # Visual QA M2: another pastor (not the original decider, who's still active) is
+        # refused by `may_decide_reconsideration` without the take-over tick -- but they
+        # still hold the matrix action and must be able to REACH the take-over sheet from
+        # this page, not be shown nothing at all. `can_take_over` offers the same decision
+        # buttons, routed into A9 with the tick already prefilled (Q-157).
+        can_take_over = bool(
+            not can_decide
+            and recon is not None
+            and recon.route == ApprovalRoute.PASTORAL.value
+            and roles.PASTOR in ctx.effective_roles
+            and str(ctx.user_id) != str(recon.original_decider_user_id)
+            and has_matrix_access
         )
         panel.update(
             {
@@ -362,6 +374,7 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
                 "original_decider_name": name_of(recon.original_decider_user_id) if recon else "",
                 "is_board_route": bool(recon and recon.route == ApprovalRoute.BOARD.value),
                 "can_decide": can_decide and not masked and not impersonating,
+                "can_take_over": can_take_over and not masked and not impersonating,
                 "needs_take_over": bool(
                     authority and authority.allowed and authority.took_over_from
                 ),
@@ -382,9 +395,12 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
     if latest is None:
         return None
     is_decider = bool(ctx.user_id) and ctx.user_id == latest.decided_by_user_id
-    pending = (
-        is_decider and not masked and decision_is_undoable(latest.decided_at, now, latest.undone_at)
-    )
+    # Security M1-M3 / UX M2 / Q-181: "pending" is a fact about the DECISION, true for every
+    # viewer while it can still be undone -- not just for the decider. Everyone else gets a
+    # read-only "Pending: {name}, can be undone until {time}" and none of the effects that
+    # depend on the window having closed; only the decider additionally gets the Undo action.
+    pending = decision_is_undoable(latest.decided_at, now, latest.undone_at)
+    window_closed = now >= latest.effective_at
     is_final = status == RequestStatus.REJECTED.value and request_row.closed_at is not None
     urgency_line = ""
     if request_row.urgency_status == UrgencyStatus.CERTIFIED.value:
@@ -399,10 +415,32 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
         and request_row.urgency_status == UrgencyStatus.AWAITING_CERTIFICATION.value
         and authorize(ctx, "request.urgency.review", request_row).allowed
         and not impersonating
+        and not pending
+    )
+    # PRD guardian minor 3 / Q-177: a pastor may also decline urgency from an Approved
+    # (Board-route) request, not only certify it -- reachable from the same card.
+    decline_urgency_after_approval = (
+        status == RequestStatus.APPROVED.value
+        and request_row.urgency_status == UrgencyStatus.AWAITING_CERTIFICATION.value
+        and roles.PASTOR in ctx.effective_roles
+        and not impersonating
+        and not pending
+    )
+    # PRD guardian M4 (§64): the Director/AD awareness card "Approved, waiting for a site
+    # visit" -- only once the decision is effective (nothing to arrange while it's still
+    # undoable) and urgency is settled (an urgent approval already has its own dedicated
+    # alert/next-step copy, so this generic line would be redundant there).
+    awaiting_site_visit = (
+        status == RequestStatus.APPROVED.value
+        and window_closed
+        and request_row.urgency_status != UrgencyStatus.AWAITING_CERTIFICATION.value
+        and is_dir_ad
     )
 
+    # Security M3 / UX B2 / Q-181/Q-182: phone actions/cards stay hidden until the decision
+    # takes effect.
     tell_by_phone = None
-    if not has_email and is_dir_ad and not masked:
+    if not has_email and is_dir_ad and not masked and window_closed:
         if latest.requester_phoned_at is not None:
             tell_by_phone = {
                 "told": True,
@@ -442,6 +480,8 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
             "urgent_approval": latest.urgent_approval,
             "urgency_line": urgency_line,
             "certify_after_approval": certify_after_approval,
+            "decline_urgency_after_approval": decline_urgency_after_approval,
+            "awaiting_site_visit": awaiting_site_visit,
             "is_final": is_final,
             "reconsideration_deadline": (
                 request_row.reconsideration_deadline_at
@@ -452,7 +492,10 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
                 name_of(latest.took_over_from_user_id) if latest.took_over_from_user_id else ""
             ),
             "tell_by_phone": tell_by_phone,
-            "can_undo": is_decider and not masked and not impersonating,
+            # Undo (Q-156/Q-176): only the decider, only while still pending, never masked or
+            # impersonating -- unchanged from before, just no longer conflated with `pending`
+            # itself, which every viewer now sees.
+            "can_undo": is_decider and pending and not masked and not impersonating,
             "can_record_reconsideration_phone": (
                 status == RequestStatus.REJECTED.value
                 and not is_final
@@ -463,6 +506,11 @@ def _decision_panel(ctx, request_row, detail, *, has_email: bool) -> dict | None
             ),
         }
     )
+    if pending:
+        # Security L9 / UX M2: nothing that depends on the settled state may be offered while
+        # the decision is still pending -- a question asked now would be auto-withdrawn the
+        # instant the window closes and the held effects run.
+        panel["can_ask_question"] = False
     return panel
 
 
@@ -564,6 +612,13 @@ def _build_detail_context(ctx, request_id: uuid.UUID, *, revealed=None) -> dict 
                 if m.cancel_reason_code
                 else "",
                 "reasons": [presentation.match_reason_label(r) for r in m.reasons],
+                # PRD guardian M3: the prior decision's outcome, reason and message/note --
+                # already gated on `can_view_matches == can_view_history`, never the
+                # Administrator (Q-167).
+                "decision_outcome": m.decision_outcome,
+                "decision_reason_label": m.decision_reason_label,
+                "decision_message": m.decision_message,
+                "decision_approval_note": m.decision_approval_note,
             }
             for m in matches
         ],
@@ -937,6 +992,21 @@ def _decision_error_redirect(request, request_id: uuid.UUID, *, expected_status:
     return redirect("web:request_detail", request_id=request_id)
 
 
+def _reveal_on_post(request, ctx, request_id: uuid.UUID, *, surface: str):
+    """Security M4: contact details are revealed only by a deliberate POST action -- never on
+    a GET, and never as a side effect of some other form's submit. Sheets that need this
+    (A4 for a no-email request, A5, A11) render a dedicated "Show contact details"/"Call"
+    button, its own small `<form>` posting `show_contact=1` to the same URL; this helper is
+    the one place that decides whether *this* POST is that action, so the reveal audit row
+    happens exactly once per tap."""
+    if request.method != "POST" or request.POST.get("show_contact") != "1":
+        return None
+    try:
+        return reveal_requester_pii(ctx, request_id=request_id, surface=surface)
+    except PermissionDenied:
+        return None
+
+
 def _dual_role(ctx) -> bool:
     return bool({roles.PASTOR, roles.BOARD_REPRESENTATIVE} <= ctx.effective_roles)
 
@@ -993,12 +1063,38 @@ def request_approve(request, request_id: uuid.UUID):
     has_email = Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
 
     if request.method == "POST":
-        route = _route_from_post(request, ctx)
-        board_decided_on = (
-            _board_date_from_post(request) if route == ApprovalRoute.BOARD.value else None
+        route = request.POST.get("route", "")
+        approval_note = request.POST.get("approval_note", "").strip()
+        # PRD guardian B1: urgency review is a pastoral-route-only choice. A Board rep (or a
+        # dual-role user who chose the Board route) must be able to approve an urgent-flagged
+        # request without touching urgency at all -- the route actually posted decides this,
+        # never `is_pastor` alone (a dual-role user might still have chosen "The Board's
+        # decision"). PRD guardian M1/security L6/Q-164: nothing is preselected -- an empty or
+        # unrecognized route is refused (422), not silently defaulted.
+        if route not in (ApprovalRoute.PASTORAL.value, ApprovalRoute.BOARD.value):
+            messages.error(request, "Choose whether this is your decision or the Board's.")
+            return render(
+                request,
+                "web/request_approve.html",
+                _approve_context(
+                    request_row,
+                    ctx,
+                    urgent_mode=urgent_mode,
+                    urgent_awaiting_cert=urgent_awaiting_cert,
+                    has_email=has_email,
+                    approval_note=approval_note,
+                ),
+                status=422,
+            )
+        on_pastoral_route = route == ApprovalRoute.PASTORAL.value
+        board_decided_on = _board_date_from_post(request) if not on_pastoral_route else None
+        certify_urgent = (
+            urgent_awaiting_cert and on_pastoral_route and request.POST.get("mode") == "urgent"
         )
-        certify_urgent = urgent_awaiting_cert and request.POST.get("mode") == "urgent"
-        decline_urgency = urgent_awaiting_cert and request.POST.get("mode") == "not_urgent"
+        decline_urgency = (
+            urgent_awaiting_cert and on_pastoral_route and request.POST.get("mode") == "not_urgent"
+        )
+        told_by_phone = request.POST.get("told_by_phone") == "on"
         try:
             approve_request(
                 ctx,
@@ -1007,8 +1103,8 @@ def request_approve(request, request_id: uuid.UUID):
                 board_decided_on=board_decided_on,
                 certify_urgent=certify_urgent,
                 decline_urgency=decline_urgency,
-                approval_note=request.POST.get("approval_note", "").strip(),
-                told_by_phone=request.POST.get("told_by_phone") == "on",
+                approval_note=approval_note,
+                told_by_phone=told_by_phone,
             )
         except (PermissionDenied, ValueError):
             return _decision_error_redirect(
@@ -1020,18 +1116,42 @@ def request_approve(request, request_id: uuid.UUID):
     return render(
         request,
         "web/request_approve.html",
-        {
-            "request_row": request_row,
-            "urgent_mode": urgent_mode,
-            "urgent_awaiting_cert": urgent_awaiting_cert,
-            "dual_role": _dual_role(ctx),
-            "default_route": _default_route(ctx),
-            "has_email": has_email,
-            "urgency_line": presentation.urgency_line(
-                request_row.urgency_reason, request_row.urgency_justification
-            ),
-        },
+        _approve_context(
+            request_row,
+            ctx,
+            urgent_mode=urgent_mode,
+            urgent_awaiting_cert=urgent_awaiting_cert,
+            has_email=has_email,
+        ),
     )
+
+
+def _approve_context(
+    request_row,
+    ctx,
+    *,
+    urgent_mode: bool,
+    urgent_awaiting_cert: bool,
+    has_email: bool,
+    approval_note: str = "",
+) -> dict:
+    """UX M7: every posted value the sheet doesn't re-derive from the request itself must
+    come back on a 422 re-render, not just on the first GET."""
+    return {
+        "request_row": request_row,
+        "urgent_mode": urgent_mode,
+        "urgent_awaiting_cert": urgent_awaiting_cert,
+        "is_pastor": roles.PASTOR in ctx.effective_roles,
+        "dual_role": _dual_role(ctx),
+        "default_route": None,  # PRD guardian M1/Q-164: nothing is preselected
+        "has_email": has_email,
+        "approval_note": approval_note,
+        "approval_note_max_chars": presentation.APPROVAL_NOTE_MAX_CHARS,
+        "undo_minutes": int(RULES.approvals.DECISION_UNDO_WINDOW.total_seconds() // 60),
+        "urgency_line": presentation.urgency_line(
+            request_row.urgency_reason, request_row.urgency_justification
+        ),
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -1043,9 +1163,13 @@ def request_approve(request, request_id: uuid.UUID):
 def request_decline_urgency(request, request_id: uuid.UUID):
     ctx = request.actor
     request_row = get_request_by_id(ctx, request_id)
+    # PRD guardian minor 3 / Q-177: reachable from either Awaiting Approval or Approved (a
+    # Board approval of an urgent request leaves urgency awaiting -- a pastor may certify or
+    # decline it from either state, so it never waits forever).
     if (
         request_row is None
-        or request_row.status != RequestStatus.AWAITING_APPROVAL.value
+        or request_row.status
+        not in (RequestStatus.AWAITING_APPROVAL.value, RequestStatus.APPROVED.value)
         or request_row.urgency_status != UrgencyStatus.AWAITING_CERTIFICATION.value
     ):
         return render(request, "web/not_found.html", status=404)
@@ -1054,13 +1178,29 @@ def request_decline_urgency(request, request_id: uuid.UUID):
         try:
             review_urgency(ctx, request_id=request_id, certify=False)
         except (PermissionDenied, ValueError):
-            return _decision_error_redirect(
-                request, request_id, expected_status=RequestStatus.AWAITING_APPROVAL.value
-            )
+            messages.error(request, "That didn't go through. Try again.")
+            return redirect("web:request_detail", request_id=request_id)
         messages.success(request, f"Left for normal review · {request_row.display_number}")
-        return redirect("web:request_detail", request_id=request_id)
+        return _redirect_to_undo_offer(request_id)
 
     return render(request, "web/request_decline_urgency.html", {"request_row": request_row})
+
+
+def _redirect_to_undo_offer(request_id: uuid.UUID):
+    """PRD guardian M7: a standalone urgency review (certify/not-urgent) is undoable too
+    (Q-176) -- send the decider straight to the "Can be undone until ... / Undo" offer,
+    instead of a plain detail redirect that leaves the undo action to be found later."""
+    review = (
+        UrgencyReview.objects.filter(request_id=request_id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
+    if review is None:  # pragma: no cover - defensive; review_urgency always creates one
+        return redirect("web:request_detail", request_id=request_id)
+    return redirect(
+        reverse("web:request_decision_undo", kwargs={"request_id": request_id})
+        + f"?review_id={review.id}"
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -1085,7 +1225,7 @@ def request_certify_urgency(request, request_id: uuid.UUID):
             messages.error(request, "That didn't go through. Try again.")
             return redirect("web:request_detail", request_id=request_id)
         messages.success(request, f"Certified as urgent · {request_row.display_number}")
-        return redirect("web:request_detail", request_id=request_id)
+        return _redirect_to_undo_offer(request_id)
 
     return render(
         request,
@@ -1118,17 +1258,37 @@ def request_reject(request, request_id: uuid.UUID):
     has_email = Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
 
     if request.method == "POST":
-        route = _route_from_post(request, ctx)
-        board_decided_on = (
-            _board_date_from_post(request) if route == ApprovalRoute.BOARD.value else None
-        )
+        route = request.POST.get("route", "")
         reason_code = request.POST.get("reason_code", "")
         message = request.POST.get("message", "").strip()
+        told_by_phone = request.POST.get("told_by_phone") == "on"
+        ok = True
+        # PRD guardian M1/security L6/Q-164: nothing is preselected -- a missing/unknown
+        # route is refused, not silently defaulted.
+        if route not in (ApprovalRoute.PASTORAL.value, ApprovalRoute.BOARD.value):
+            ok = False
+            messages.error(request, "Choose whether this is your decision or the Board's.")
         if not reason_code or not message:
+            ok = False
             messages.error(
                 request, "Choose why HAM can't help, and write what we'll tell the requester."
             )
-        else:
+        elif len(message) > presentation.DECLINE_MESSAGE_MAX_CHARS:
+            ok = False
+            messages.error(request, "That message is too long. Please shorten it.")
+        board_decided_on_raw = request.POST.get("board_decided_on", "").strip()
+        board_decided_on = (
+            _board_date_from_post(request) if route == ApprovalRoute.BOARD.value else None
+        )
+        if (
+            route == ApprovalRoute.BOARD.value
+            and board_decided_on_raw
+            and (board_decided_on is None or board_decided_on > clock_now().date())
+        ):
+            # UX M7: validated inline, so the message the pastor already typed survives.
+            ok = False
+            messages.error(request, "Enter the date the Board decided. It can't be in the future.")
+        if ok:
             try:
                 reject_request(
                     ctx,
@@ -1137,7 +1297,7 @@ def request_reject(request, request_id: uuid.UUID):
                     reason_code=reason_code,
                     message=message,
                     board_decided_on=board_decided_on,
-                    told_by_phone=request.POST.get("told_by_phone") == "on",
+                    told_by_phone=told_by_phone,
                 )
             except (PermissionDenied, ValueError):
                 return _decision_error_redirect(
@@ -1148,35 +1308,57 @@ def request_reject(request, request_id: uuid.UUID):
         return render(
             request,
             "web/request_reject.html",
-            {
-                "request_row": request_row,
-                "has_email": has_email,
-                "dual_role": _dual_role(ctx),
-                "default_route": _default_route(ctx),
-                "reason_choices": presentation.REJECTION_REASON_LABELS.items(),
-                "prefills": presentation.REJECTION_REASON_PREFILLS,
-                "selected_reason": reason_code,
-                "message": message,
-                "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
-            },
+            _reject_context(
+                request_row,
+                ctx,
+                has_email=has_email,
+                selected_route=route,
+                selected_reason=reason_code,
+                message=message,
+                told_by_phone=told_by_phone,
+            ),
             status=422,
         )
 
     return render(
         request,
         "web/request_reject.html",
-        {
-            "request_row": request_row,
-            "has_email": has_email,
-            "dual_role": _dual_role(ctx),
-            "default_route": _default_route(ctx),
-            "reason_choices": presentation.REJECTION_REASON_LABELS.items(),
-            "prefills": presentation.REJECTION_REASON_PREFILLS,
-            "selected_reason": "",
-            "message": "",
-            "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
-        },
+        _reject_context(request_row, ctx, has_email=has_email),
     )
+
+
+def _reject_context(
+    request_row,
+    ctx,
+    *,
+    has_email: bool,
+    selected_route: str = "",
+    selected_reason: str = "",
+    message: str = "",
+    told_by_phone: bool = False,
+) -> dict:
+    """UX M7: every posted value comes back on a 422 re-render. PRD guardian M1/Q-164: no
+    route is preselected for a dual-role viewer -- `forced_route` only fills the hidden field
+    for someone who holds exactly one of the two roles, who has no choice to make at all."""
+    from ham.platform.church import church_profile
+
+    deadline_text = presentation.reconsideration_preview_deadline_text(clock_now())
+    return {
+        "request_row": request_row,
+        "has_email": has_email,
+        "dual_role": _dual_role(ctx),
+        "forced_route": _default_route(ctx),
+        "reason_choices": presentation.REJECTION_REASON_LABELS.items(),
+        "prefills": presentation.REJECTION_REASON_PREFILLS,
+        "selected_route": selected_route,
+        "selected_reason": selected_reason,
+        "message": message,
+        "told_by_phone": told_by_phone,
+        "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
+        "reconsideration_deadline_text": deadline_text,
+        "church_phone": church_profile().phone,
+        "undo_minutes": int(RULES.approvals.DECISION_UNDO_WINDOW.total_seconds() // 60),
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -1200,7 +1382,13 @@ def request_decision_undo(request, request_id: uuid.UUID):
             approval = Approval.objects.get(pk=approval_id_raw, request_id=request_id)
         elif review_id_raw:
             review = UrgencyReview.objects.get(pk=review_id_raw, request_id=request_id)
-    except (Approval.DoesNotExist, UrgencyReview.DoesNotExist, ValueError, TypeError):
+    except (
+        Approval.DoesNotExist,
+        UrgencyReview.DoesNotExist,
+        ValueError,
+        TypeError,
+        ValidationError,
+    ):
         return render(request, "web/not_found.html", status=404)
     if approval is None and review is None:
         return render(request, "web/not_found.html", status=404)
@@ -1273,27 +1461,43 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
     needs_take_over = not is_board_route and not is_original and original_active
 
     approve_mode = request.GET.get("outcome", "approve") != "decline"
+    take_over_default = request.GET.get("take_over") == "1"
+    reason = ""
+    reason_code = ""
+    take_over = take_over_default
+    told_by_phone = False
+    board_decided_on_raw = ""
 
     if request.method == "POST":
         approve_mode = request.POST.get("outcome", "approve") != "decline"
         take_over = request.POST.get("take_over") == "on"
         reason = request.POST.get("reason", "").strip()
         reason_code = request.POST.get("reason_code", "")
+        told_by_phone = request.POST.get("told_by_phone") == "on"
+        board_decided_on_raw = request.POST.get("board_decided_on", "").strip()
+        ok = True
         if approve_mode:
-            ok = bool(reason)
-            if not ok:
+            if not reason:
+                ok = False
                 messages.error(
                     request, "Add a short reason. Every reconsideration decision needs one."
                 )
         else:
-            ok = bool(reason_code) and bool(reason)
-            if not ok:
+            if not reason_code or not reason:
+                ok = False
                 messages.error(
                     request, "Choose why HAM can't help, and write what we'll tell the requester."
                 )
+        if len(reason) > presentation.DECLINE_MESSAGE_MAX_CHARS:
+            ok = False
+            messages.error(request, "That's too long. Please shorten it.")
         if needs_take_over and not take_over:
             ok = False
             messages.error(request, "Tick to confirm the original decider isn't available.")
+        board_decided_on = _board_date_from_post(request) if is_board_route else None
+        if is_board_route and board_decided_on_raw and board_decided_on is None:
+            ok = False
+            messages.error(request, "Enter the date the Board decided. It can't be in the future.")
         if ok:
             try:
                 decide_reconsideration(
@@ -1303,8 +1507,11 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
                     reason=reason,
                     reason_code=reason_code if not approve_mode else "",
                     take_over=take_over,
+                    told_by_phone=told_by_phone,
+                    board_decided_on=board_decided_on,
                 )
             except (PermissionDenied, ValueError):
+                # UX M7: every posted error handled here, never a 500 (PRD guardian B2).
                 return _decision_error_redirect(
                     request,
                     request_id,
@@ -1327,7 +1534,15 @@ def request_reconsideration_decide(request, request_id: uuid.UUID):
             "approve_mode": approve_mode,
             "reason_choices": presentation.REJECTION_REASON_LABELS.items(),
             "prefills": presentation.REJECTION_REASON_PREFILLS,
-            "board_decided_on_default": clock_now().date(),
+            "reason": reason,
+            "selected_reason": reason_code,
+            "take_over": take_over,
+            "told_by_phone": told_by_phone,
+            "has_email": Requester.objects.filter(request_id=request_id)
+            .exclude(email=None)
+            .exists(),
+            "board_decided_on_default": board_decided_on_raw or clock_now().date().isoformat(),
+            "max_chars": presentation.DECLINE_MESSAGE_MAX_CHARS,
         },
     )
 
@@ -1348,6 +1563,7 @@ def request_reconsideration_phone(request, request_id: uuid.UUID):
     ):
         return render(request, "web/not_found.html", status=404)
 
+    note = ""
     if request.method == "POST":
         note = request.POST.get("note", "").strip()
         confirmed = request.POST.get("confirmed") == "on"
@@ -1367,7 +1583,8 @@ def request_reconsideration_phone(request, request_id: uuid.UUID):
     return render(
         request,
         "web/request_reconsideration_phone.html",
-        {"request_row": request_row, "max_chars": RECONSIDERATION_NOTE_MAX_CHARS},
+        # UX M7: the posted note comes back on error.
+        {"request_row": request_row, "max_chars": RECONSIDERATION_NOTE_MAX_CHARS, "note": note},
     )
 
 
@@ -1392,7 +1609,8 @@ def request_decision_phoned(request, request_id: uuid.UUID):
     if approval is None:
         return render(request, "web/not_found.html", status=404)
 
-    if request.method == "POST":
+    revealed = _reveal_on_post(request, ctx, request_id, surface="tell_by_phone")
+    if request.method == "POST" and request.POST.get("show_contact") != "1":
         confirmed = request.POST.get("confirmed") == "on"
         if not confirmed:
             messages.error(request, "Tick to confirm you told the requester by phone.")
@@ -1404,11 +1622,6 @@ def request_decision_phoned(request, request_id: uuid.UUID):
             else:
                 messages.success(request, f"Marked as told · {request_row.display_number}")
                 return redirect("web:request_detail", request_id=request_id)
-
-    try:
-        revealed = reveal_requester_pii(ctx, request_id=request_id, surface="tell_by_phone")
-    except PermissionDenied:
-        revealed = None
 
     return render(
         request,
@@ -1449,7 +1662,14 @@ def request_question_ask(request, request_id: uuid.UUID):
         .first()
     )
 
-    if request.method == "POST":
+    # Security M4: never reveal on a GET, and never for an email requester at all (A4 asks by
+    # email; there's nothing to show). No-email sheets get the explicit POST control.
+    revealed = (
+        None if has_email else _reveal_on_post(request, ctx, request_id, surface="ask_question")
+    )
+    question_text = ""
+    phone_answer = ""
+    if request.method == "POST" and request.POST.get("show_contact") != "1":
         question_text = request.POST.get("question", "").strip()
         phone_answer = request.POST.get("phone_answer", "").strip() if not has_email else ""
         phone_confirmed = request.POST.get("phone_confirmed") == "on"
@@ -1464,16 +1684,12 @@ def request_question_ask(request, request_id: uuid.UUID):
                 ask_question(
                     ctx, request_id=request_id, question=question_text, phone_answer=phone_answer
                 )
-            except (PermissionDenied, ValueError) as exc:
-                messages.error(request, str(exc) or "That didn't go through. Try again.")
+            except (PermissionDenied, ValueError):
+                # Security L8: never show an internal refusal string to a user.
+                messages.error(request, "That didn't go through. Try again.")
             else:
                 messages.success(request, f"Question sent · {request_row.display_number}")
                 return redirect("web:request_detail", request_id=request_id)
-
-    try:
-        revealed = reveal_requester_pii(ctx, request_id=request_id, surface="ask_question")
-    except PermissionDenied:
-        revealed = None
 
     return render(
         request,
@@ -1482,7 +1698,9 @@ def request_question_ask(request, request_id: uuid.UUID):
             "request_row": request_row,
             "has_email": has_email,
             "open_question": open_question,
-            "revealed": revealed if not has_email else None,
+            "revealed": revealed,
+            "question": question_text,
+            "phone_answer": phone_answer,
             "max_chars": QUESTION_MAX_LENGTH,
             "answer_max_chars": ANSWER_MAX_LENGTH,
         },
@@ -1504,28 +1722,25 @@ def request_question_record_answer(request, request_id: uuid.UUID, question_id: 
     if question.answered_at is not None or question.closed_at is not None:
         return render(request, "web/not_found.html", status=404)
 
-    if request.method == "POST":
-        answer = request.POST.get("answer", "").strip()
+    revealed = _reveal_on_post(request, ctx, request_id, surface="record_answer")
+    answer_text = ""
+    if request.method == "POST" and request.POST.get("show_contact") != "1":
+        answer_text = request.POST.get("answer", "").strip()
         confirmed = request.POST.get("confirmed") == "on"
-        if not answer:
+        if not answer_text:
             messages.error(request, "Write what they said.")
-        elif len(answer) > ANSWER_MAX_LENGTH:
+        elif len(answer_text) > ANSWER_MAX_LENGTH:
             messages.error(request, "That answer is too long.")
         elif not confirmed:
             messages.error(request, "Tick to confirm you spoke with the requester by phone.")
         else:
             try:
-                record_phone_answer(ctx, question_id=question_id, answer=answer)
+                record_phone_answer(ctx, question_id=question_id, answer=answer_text)
             except (PermissionDenied, ValueError):
                 messages.error(request, "That didn't go through. Try again.")
             else:
                 messages.success(request, f"Answer saved · {request_row.display_number}")
                 return redirect("web:request_detail", request_id=request_id)
-
-    try:
-        revealed = reveal_requester_pii(ctx, request_id=request_id, surface="record_answer")
-    except PermissionDenied:
-        revealed = None
 
     return render(
         request,
@@ -1534,6 +1749,7 @@ def request_question_record_answer(request, request_id: uuid.UUID, question_id: 
             "request_row": request_row,
             "question": question,
             "revealed": revealed,
+            "answer": answer_text,
             "asked_by": display_names_for([question.asked_by_user_id]).get(
                 question.asked_by_user_id, ""
             ),

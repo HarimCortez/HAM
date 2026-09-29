@@ -938,9 +938,14 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
             # explicitly reopens a batch and asks for more (L11) -- design-system §5.2's
             # "closed" line covers all three closed-ish statuses, not only CANCELLED, unless
             # a leader has reopened uploads (`batch.is_open` on an explicit reopened batch).
+            # Security L2: the EFFECTIVE status (`page_data.status.status`, held during a
+            # still-undoable decision's own window, Q-176) -- not the raw, already-flipped
+            # `row.status`, which would show "closed" for photos a moment before the
+            # requester's own page has caught up to the decision at all.
             "can_add_photos": (batch is not None and batch.is_open)
             or (
-                row.status not in {"CANCELLED", "APPROVED", "REJECTED", "RECONSIDERATION_PENDING"}
+                page_data.status.status
+                not in {"CANCELLED", "APPROVED", "REJECTED", "RECONSIDERATION_PENDING"}
                 and (batch is None or batch.is_open)
             ),
             "batch_open": batch is None or batch.is_open,

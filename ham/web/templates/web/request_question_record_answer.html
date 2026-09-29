@@ -29,13 +29,19 @@
           <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
         </p>
       </div>
+    {% else %}
+      {% comment %}Security M4: an explicit tap, never on GET.{% endcomment %}
+      <form method="post">
+        {% csrf_token %}
+        <button class="btn btn--secondary" type="submit" name="show_contact" value="1">Show contact details</button>
+      </form>
     {% endif %}
 
     <form method="post">
       {% csrf_token %}
       <div class="form-field">
         <label for="id_answer">What did they say?</label>
-        <textarea id="id_answer" name="answer" rows="4" maxlength="{{ max_chars }}" required></textarea>
+        <textarea id="id_answer" name="answer" rows="4" maxlength="{{ max_chars }}" required>{{ answer }}</textarea>
       </div>
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="confirmed" required>

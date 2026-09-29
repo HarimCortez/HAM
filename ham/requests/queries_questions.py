@@ -21,7 +21,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 
 from .models import AssistanceRequest, RequestQuestion
 from .queries import is_masked_view, scope_queryset_for_requests
@@ -53,13 +53,18 @@ def waiting_on_requester(ctx: ActorContext) -> list[WaitingOnRequesterRow]:
     (`ham.requests.queries.scope_queryset_for_requests`), that carry at least one open
     (unanswered, not withdrawn/closed) question. A list *view*: nothing here pauses a
     decision or blocks an approver (approvals.md §2.5)."""
-    qs: QuerySet[AssistanceRequest] = (
-        AssistanceRequest.objects.filter(
-            questions__answered_at__isnull=True, questions__closed_at__isnull=True
-        )
-        .distinct()
-        .order_by("-urgent_requested", "submitted_at")
+    # Visual QA M5: `.filter(questions__answered_at__isnull=True, questions__closed_at__
+    # isnull=True)` compiles to a LEFT OUTER JOIN (Django's own behaviour for an `__isnull`
+    # lookup reached through a to-many relation) -- a request with NO questions at all still
+    # matches, because the joined (nonexistent) row's columns are all NULL, satisfying "IS
+    # NULL AND IS NULL". An `Exists()` subquery has no such join, so it only ever matches a
+    # request that actually has at least one open question row.
+    open_question = RequestQuestion.objects.filter(
+        request_id=OuterRef("pk"), answered_at__isnull=True, closed_at__isnull=True
     )
+    qs: QuerySet[AssistanceRequest] = AssistanceRequest.objects.filter(
+        Exists(open_question)
+    ).order_by("-urgent_requested", "submitted_at")
     qs = scope_queryset_for_requests(ctx, qs)
     return [
         WaitingOnRequesterRow(

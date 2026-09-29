@@ -80,7 +80,10 @@ its own page, h2 inside the list page).
                   <p class="text-secondary">
                     <span class="chip chip--{{ m.status_tone }}">{{ m.status_label }}</span>
                     {% if m.cancel_reason_label %} &middot; {{ m.cancel_reason_label }}{% endif %}
+                    {% if m.decision_outcome %} &middot; {% if m.decision_outcome == "approved" %}Approved{% else %}Not approved{% endif %}{% if m.decision_reason_label %} &middot; {{ m.decision_reason_label }}{% endif %}{% endif %}
                   </p>
+                  {% if m.decision_message %}<p class="text-secondary">&ldquo;{{ m.decision_message }}&rdquo;</p>{% endif %}
+                  {% if m.decision_approval_note %}<p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-lock"></use></svg> {{ m.decision_approval_note }}</p>{% endif %}
                   <a href="{% url 'web:request_detail' request_id=m.request_id %}">Open</a>
                 </li>
               {% endfor %}

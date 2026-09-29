@@ -79,6 +79,13 @@ def ask_question(
         raise ValueError("request.question.ask: request is closed")
     if request.status == RequestStatus.NEEDS_PHONE_CHECK.value:
         raise ValueError("request.question.ask: request needs a phone check first")
+    # Security L9 / Q-181: a question asked while the request's latest decision can still be
+    # undone would be auto-withdrawn the instant the window closes and the held effects run
+    # -- refuse it outright rather than let it vanish moments later.
+    from .queries import decision_undo_open
+
+    if decision_undo_open(request_id):
+        raise ValueError("request.question.ask: the decision can still be undone")
 
     now = clock_now()
     create_kwargs: dict[str, object] = {

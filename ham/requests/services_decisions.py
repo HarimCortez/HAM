@@ -57,9 +57,12 @@ from .models import (
     NeedCategory,
     QuestionCloseReason,
     Reconsideration,
+    Requester,
     RequesterChannel,
     UrgencyReview,
 )
+from .presentation import APPROVAL_NOTE_MAX_CHARS, DECLINE_MESSAGE_MAX_CHARS
+from .queries import decision_undo_open
 from .states import (
     RequestAction,
     UrgencyAction,
@@ -76,6 +79,10 @@ if TYPE_CHECKING:
 # see `ham.requests.states`'s own module docstring "Text length limits ... don't go in the
 # rules module").
 RECONSIDERATION_NOTE_MAX_CHARS = 1000
+
+
+def _has_email(request_id: UUID) -> bool:
+    return Requester.objects.filter(request_id=request_id).exclude(email=None).exists()
 
 
 def _resource_request(ctx: Any, *, request_id: UUID, **_: Any) -> AssistanceRequest:
@@ -121,6 +128,14 @@ def approve_request(
         board_decided_on = _church_today(now)  # Q-163: prefilled today
     if board_decided_on is not None and board_decided_on > _church_today(now):
         raise ValueError("request.approve: board_decided_on cannot be in the future")
+    if len(approval_note) > APPROVAL_NOTE_MAX_CHARS:
+        raise ValueError(
+            f"request.approve: approval_note exceeds {APPROVAL_NOTE_MAX_CHARS} characters"
+        )
+    if told_by_phone and _has_email(request_id):
+        # PRD guardian minor 4 / Q-159: "told by phone" is only meaningful for a no-email
+        # requester -- an email requester is always told by email once the window closes.
+        raise ValueError("request.approve: told_by_phone is not allowed for an email requester")
 
     before_urgency = request.urgency_status
     decision = check_transition(
@@ -165,6 +180,10 @@ def approve_request(
         accompanying_urgency=accompanying_urgency,
         requester_phoned_at=now if told_by_phone else None,
         requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
+        # Fix 3A / security M2: known at creation time (== `decision.urgent_approval` below),
+        # so it's set once, at insert, like every other decision fact -- no `ONCE_FIELDS`
+        # update needed.
+        urgent_approval_emitted=decision.urgent_approval,
     )
 
     request.status = decision.target.value
@@ -262,6 +281,10 @@ def reject_request(
         board_decided_on = _church_today(now)
     if board_decided_on is not None and board_decided_on > _church_today(now):
         raise ValueError("request.reject: board_decided_on cannot be in the future")
+    if len(message) > DECLINE_MESSAGE_MAX_CHARS:
+        raise ValueError(f"request.reject: message exceeds {DECLINE_MESSAGE_MAX_CHARS} characters")
+    if told_by_phone and _has_email(request_id):
+        raise ValueError("request.reject: told_by_phone is not allowed for an email requester")
 
     decision = check_transition(
         RequestAction.REJECT,
@@ -302,6 +325,14 @@ def reject_request(
     request.reconsideration_deadline_at = deadline
     request.save(update_fields=["status", "status_changed_at", "reconsideration_deadline_at"])
 
+    if request.urgent_requested:
+        # UX M9: declining an urgent request clears the other pastors' now-stale "needs a
+        # pastor" banner for it -- the request left the awaiting queue by a different door
+        # than certify/decline urgency, but the banner is just as stale.
+        from .notifications import clear_pastor_urgent_banner_on_decline
+
+        clear_pastor_urgent_banner_on_decline(request.id)
+
     from .jobs import defer_held_decision_effects
 
     defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
@@ -329,6 +360,15 @@ def reject_request(
 def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> CommandResult:
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
     now = clock_now()
+    # Fix 3A / security M2 (owner box Q-176: "while a decision can still be undone nothing
+    # else may change the request ... except urgency certification" -- but that carve-out is
+    # for a *different, live* decision being pending, e.g. certifying while an approval is
+    # still in its own separate undo window is fine; a *second* review of urgency itself,
+    # while THIS request's own live approval/urgency-review is still undoable, is refused so
+    # the pastor card and the follow-up bookkeeping never have two pending reviews to reason
+    # about at once).
+    if decision_undo_open(request_id, now):
+        raise ValueError("request.urgency.review refused: decision_undo_window_open")
     action = UrgencyAction.CERTIFY_URGENCY if certify else UrgencyAction.DECLINE_URGENCY
     decision = check_urgency_transition(
         action,
@@ -362,6 +402,10 @@ def review_urgency(ctx: ActorContext, *, request_id: UUID, certify: bool) -> Com
         decided_by_user_id=ctx.user_id,
         decided_at=now,
         effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+        # Fix 3A / security M2: known at creation time -- the stored fact the Q-176 "undone"
+        # follow-up keys on, instead of re-deriving from the request's live status at undo
+        # time.
+        urgent_approval_emitted=bool(certify and decision.becomes_urgent_approval),
     )
 
     if certify and decision.becomes_urgent_approval:
@@ -440,6 +484,10 @@ def request_reconsideration(ctx: RequesterContext, *, note: str = "") -> Command
         reconsideration_deadline_at=request.reconsideration_deadline_at,
         has_reconsideration=has_reconsideration,
         closed_at=request.closed_at,
+        # Security M1/Q-181: while the decline that started this window can still be undone,
+        # a reconsideration must not be requested -- `states.check_transition` already refuses
+        # `DECISION_UNDO_WINDOW_OPEN`; the fact just wasn't being passed.
+        decision_undo_open=decision_undo_open(request.id, now),
     )
     if not decision.allowed:
         raise ValueError(f"requester.reconsideration.request refused: {decision.refusal}")
@@ -493,6 +541,8 @@ def record_reconsideration_by_phone(
         reconsideration_deadline_at=request.reconsideration_deadline_at,
         has_reconsideration=has_reconsideration,
         closed_at=request.closed_at,
+        # Security M1/Q-181: see `request_reconsideration`'s matching comment.
+        decision_undo_open=decision_undo_open(request.id, now),
     )
     if not decision.allowed:
         raise ValueError(f"request.reconsideration.record_phone refused: {decision.refusal}")
@@ -549,10 +599,35 @@ def decide_reconsideration(
     reason: str,
     reason_code: str = "",
     take_over: bool = False,
+    # Fix 3A / UX B1 / Q-182: the same "I've already told them by phone" tick the initial
+    # decision carries, for no-email requests only (PRD guardian minor 4).
+    told_by_phone: bool = False,
+    # PRD guardian B2 / Q-180: required by the Board route, same as `approve_request`/
+    # `reject_request` -- the DB `approval_board_decided_on_required_for_board_route`
+    # constraint otherwise rejects the row with an `IntegrityError`, not a clean refusal.
+    board_decided_on: dt.date | None = None,
 ) -> CommandResult:
+    if len(reason) > DECLINE_MESSAGE_MAX_CHARS:
+        raise ValueError(
+            f"request.reconsideration.decide: reason exceeds {DECLINE_MESSAGE_MAX_CHARS} characters"
+        )
+    if told_by_phone and _has_email(request_id):
+        raise ValueError(
+            "request.reconsideration.decide: told_by_phone is not allowed for an email requester"
+        )
     request = AssistanceRequest.objects.select_for_update().get(pk=request_id)
     now = clock_now()
     recon = Reconsideration.objects.get(request_id=request.id)
+
+    if recon.route == ApprovalRoute.BOARD.value:
+        if board_decided_on is None:
+            board_decided_on = _church_today(now)  # Q-180: prefilled today
+        if board_decided_on > _church_today(now):
+            raise ValueError(
+                "request.reconsideration.decide: board_decided_on cannot be in the future"
+            )
+    else:
+        board_decided_on = None
 
     original_active = True
     if recon.route == ApprovalRoute.PASTORAL.value:
@@ -590,16 +665,33 @@ def decide_reconsideration(
         decided_by_user_id=ctx.user_id,
         decided_at=now,
         effective_at=now + RULES.approvals.DECISION_UNDO_WINDOW,
+        board_decided_on=board_decided_on,
         reason_code=reason_code if not approve else "",
         reason=reason,
         urgent_approval=decision.urgent_approval,
         took_over_from_user_id=decision.took_over_from,
-        unavailable_confirmed=bool(decision.took_over_from),
+        # Q-183: the tick is recorded only for "unavailable_ticked"; "role_ended" never
+        # carries one, even though it's also a take-over.
+        unavailable_confirmed=decision.took_over_basis == "unavailable_ticked",
+        took_over_basis=decision.took_over_basis or "",
+        urgent_approval_emitted=decision.urgent_approval,
+        requester_phoned_at=now if told_by_phone else None,
+        requester_phoned_by_user_id=ctx.user_id if told_by_phone else None,
     )
 
     request.status = decision.target.value
     request.status_changed_at = now
     update_fields = ["status", "status_changed_at"]
+    # Security L2: `closed_at` is set at decide time, not at `effective_at`, deliberately --
+    # the SAME pattern `request.status` itself already follows for every other decision in
+    # this module (set immediately; only the outbox events/side effects are held, contracts.md
+    # §4). `_undo_approval`'s `outcome.reopens_request` clears it again on undo, exactly like
+    # it restores `status`. The requester's OWN page never reads this raw field for "is it
+    # closed" -- `ham.requester_portal.page._effective_status_and_closed` computes its own
+    # held view from `Approval.effective_at`, and media/link-expiry clocks key off the
+    # `Approval`/held-effects timeline (`run_held_decision_effects`), not off `closed_at`
+    # directly. Moving this to `effective_at` would need its own deferred job and would only
+    # duplicate that already-correct held-effects mechanism.
     if decision.closes_request:
         request.closed_at = now
         request.closed_by_user_id = ctx.user_id
@@ -630,7 +722,10 @@ def decide_reconsideration(
         after={
             "outcome": outcome,
             "route": recon.route,
+            # Q-183: the audit `after` carries both facts, not just whether a take-over
+            # happened.
             "took_over": bool(decision.took_over_from),
+            "take_over_basis": decision.took_over_basis or "",
             "approval_id": str(approval.id),
         },
     )
@@ -668,7 +763,9 @@ def finalize_rejection(ctx: SystemContext, *, request_id: UUID) -> CommandResult
 
     from .services_questions import close_open_questions
 
-    close_open_questions(request.id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
+    # PRD guardian minor 2 / Q-162: a decision-driven auto-withdrawal, distinct from a genuine
+    # `cancel_request` close.
+    close_open_questions(request.id, reason=QuestionCloseReason.REQUEST_DECIDED.value)
 
     return CommandResult(
         value=request,
@@ -691,12 +788,27 @@ def finalize_rejection(ctx: SystemContext, *, request_id: UUID) -> CommandResult
 # ------------------------------------------------------------------------------------------
 @command("request.decision.record_phoned", resource_from=_resource_request)
 def record_decision_phoned(ctx: ActorContext, *, request_id: UUID) -> CommandResult:
-    approval = Approval.objects.select_for_update().get(
-        request_id=request_id, stage=ApprovalStage.INITIAL.value, undone_at__isnull=True
+    # UX B1 / PRD guardian M5 / Q-182: key on the latest LIVE decision at either stage
+    # (initial or reconsideration) -- not only the initial approval, which left a no-email
+    # requester's reconsideration outcome unreachable and, worse, showed the *first*
+    # decision's script even after a reconsideration reversed it.
+    approval = (
+        Approval.objects.select_for_update()
+        .filter(request_id=request_id, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
     )
+    if approval is None:
+        raise ValueError("request.decision.record_phoned: no live decision")
+    if _has_email(request_id):
+        raise ValueError("request.decision.record_phoned: this requester has email")
+    now = clock_now()
+    # Security M3 / UX B2 / Q-181: refuse while the decision can still be undone -- the
+    # requester must not be told anything until the held effects are released.
+    if approval.effective_at > now:
+        raise ValueError("request.decision.record_phoned: decision can still be undone")
     if approval.requester_phoned_at is not None:
         raise ValueError("request.decision.record_phoned: already recorded")
-    now = clock_now()
     approval.requester_phoned_at = now
     approval.requester_phoned_by_user_id = ctx.user_id
     approval.save(update_fields=["requester_phoned_at", "requester_phoned_by_user_id"])
@@ -765,6 +877,12 @@ def _undo_approval(ctx: ActorContext, approval_id: UUID) -> CommandResult:
     approval = Approval.objects.select_for_update().get(pk=approval_id)
     request = AssistanceRequest.objects.select_for_update().get(pk=approval.request_id)
     now = clock_now()
+    # Security L1: the held effects have already run (the requester's email may already be
+    # on its way) -- undo is refused from this instant on, even if a clock skew or a
+    # misfired early job run left a sliver of time where `decision_is_undoable` would
+    # otherwise still say yes.
+    if approval.effects_ran_at is not None:
+        raise ValueError("request.decision.undo refused: undo_window_passed")
     kind = _decision_action_for_approval(approval)
 
     # Coordinator fix round (gap 1, Q-176/Q-178): `Approval.prior_urgency`/
@@ -917,6 +1035,14 @@ def run_held_decision_effects(approval_id: UUID) -> None:
         if approval.effects_ran_at is not None:
             return  # idempotent: a retried/duplicate job invocation is a no-op
         now = clock_now()
+        if now < approval.effective_at:
+            # Security L1: a job run before the window has actually closed (a misfired retry,
+            # a clock skew) must never release the held effects early -- re-defer to the
+            # correct instant instead of running now.
+            from .jobs import defer_held_decision_effects
+
+            defer_held_decision_effects(approval.id, effective_at=approval.effective_at)
+            return
         if approval.undone_at is not None:
             # Undone before the window closed: none of the held effects ever run, but the
             # marker is still set so a retried invocation is provably a no-op either way.
@@ -948,7 +1074,7 @@ def run_held_decision_effects(approval_id: UUID) -> None:
 
         from .services_questions import close_open_questions
 
-        close_open_questions(approval.request_id, reason=QuestionCloseReason.REQUEST_CLOSED.value)
+        close_open_questions(approval.request_id, reason=QuestionCloseReason.REQUEST_DECIDED.value)
 
         approval.effects_ran_at = now
         approval.save(update_fields=["effects_ran_at"])

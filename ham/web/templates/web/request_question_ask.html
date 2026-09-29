@@ -28,7 +28,7 @@
       <div class="form-field">
         <label for="id_question">What would you like to ask the requester?</label>
         <p class="form-field__help">One clear question works best. The requester sees exactly what you write. Don't include anyone else's details. Need photos? Use Ask for more photos instead.</p>
-        <textarea id="id_question" name="question" rows="4" maxlength="{{ max_chars }}" required></textarea>
+        <textarea id="id_question" name="question" rows="4" maxlength="{{ max_chars }}" required>{{ question }}</textarea>
       </div>
 
       {% if has_email %}
@@ -47,11 +47,14 @@
               <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
             </p>
           </div>
+        {% else %}
+          {% comment %}Security M4: an explicit tap, never on GET.{% endcomment %}
+          <button class="btn btn--secondary" type="submit" name="show_contact" value="1">Show contact details</button>
         {% endif %}
         <div class="form-field">
           <label for="id_phone_answer">What did they say? <span class="form-field__optional">(optional)</span></label>
           <p class="form-field__help">Leave empty if you couldn't reach them; the question stays open.</p>
-          <textarea id="id_phone_answer" name="phone_answer" rows="4" maxlength="{{ answer_max_chars }}"></textarea>
+          <textarea id="id_phone_answer" name="phone_answer" rows="4" maxlength="{{ answer_max_chars }}">{{ phone_answer }}</textarea>
         </div>
         <label class="choice-card choice-card--statement">
           <input type="checkbox" name="phone_confirmed">

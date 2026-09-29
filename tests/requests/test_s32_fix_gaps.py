@@ -232,6 +232,8 @@ class TestGap3NoDoubleDeliveryOfRequestApproved:
         from ham.authz.context import RequesterContext
         from ham.requests.services_decisions import request_reconsideration
 
+        # Security M1/Q-181: refused while the decline can still be undone.
+        set_clock(FixedClock(approval.effective_at + timedelta(seconds=1)))
         request_reconsideration(RequesterContext(request_id=req.id))
         recon_approval = decide_reconsideration(
             pastor_ctx, request_id=req.id, approve=True, reason="Second look, approved"
@@ -252,5 +254,7 @@ class TestGap3NoDoubleDeliveryOfRequestApproved:
         approval = approve_request(
             pastor_ctx, request_id=req.id, route="pastoral", certify_urgent=True
         )
+        # Security L1: advance to the real scheduled instant, or the job re-defers.
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
         assert OutboxEvent.objects.filter(event_type="RequestApproved").count() == 1

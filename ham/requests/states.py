@@ -428,6 +428,8 @@ class TransitionDecision:
     urgent_approval: bool = False
     # RECONSIDER_*: record ``Approval.took_over_from_user_id`` (Q-157); None = no take-over.
     took_over_from: str | None = None
+    # RECONSIDER_*: record ``Approval.took_over_basis`` (Q-183); None = no take-over.
+    took_over_basis: str | None = None
     # APPROVE / RECONSIDER_APPROVE: the request's urgency after this decision (unchanged,
     # CERTIFIED for "Approve as urgent", NOT_CERTIFIED for "not as urgent", Q-178).
     # None for every other action.
@@ -518,6 +520,7 @@ def check_transition(
     urgent_approval = False
     urgency_after: UrgencyStatus | None = None
     took_over_from: str | None = None
+    took_over_basis: str | None = None
 
     if act is RequestAction.SUBMIT_VERIFIED:
         if email_opt_out:
@@ -604,6 +607,7 @@ def check_transition(
         if not authority.allowed:
             return _refuse(authority.refusal or Refusal.ACTOR_NOT_ALLOWED, t)
         took_over_from = authority.took_over_from
+        took_over_basis = authority.took_over_basis
         if act is RequestAction.RECONSIDER_REJECT:
             refusal = _rejection_text_refusal(reason_code, message)
             if refusal is not None:
@@ -634,6 +638,7 @@ def check_transition(
         closes_request=t.closes_request,
         urgent_approval=urgent_approval,
         took_over_from=took_over_from,
+        took_over_basis=took_over_basis,
         urgency_after=urgency_after,
     )
 
@@ -903,6 +908,11 @@ class ReconsiderationAuthority:
     # The original decider this actor takes over from (record it on the Approval row and
     # tell that person in-app); None when the actor is the original decider or on the Board.
     took_over_from: str | None = None
+    # Fix 3A / Q-183: "unavailable_ticked" (the original pastor still holds the role; the
+    # decider ticked the required confirmation) or "role_ended" (the original pastor no
+    # longer holds an active Pastor role; no tick needed or recorded). None when
+    # ``took_over_from`` is None.
+    took_over_basis: str | None = None
 
 
 def may_decide_reconsideration(
@@ -937,12 +947,17 @@ def may_decide_reconsideration(
     if str(actor_id) == str(original_decider_id):
         return ReconsiderationAuthority(True)
     if not original_decider_is_active_pastor:
-        return ReconsiderationAuthority(True, took_over_from=str(original_decider_id))
+        # Q-183: no tick required or recorded -- the original pastor no longer holds the role.
+        return ReconsiderationAuthority(
+            True, took_over_from=str(original_decider_id), took_over_basis="role_ended"
+        )
     if not take_over:
         return ReconsiderationAuthority(False, Refusal.NOT_YOUR_RECONSIDERATION)
     if not decider_unavailable_confirmed:
         return ReconsiderationAuthority(False, Refusal.TAKE_OVER_CONFIRMATION_REQUIRED)
-    return ReconsiderationAuthority(True, took_over_from=str(original_decider_id))
+    return ReconsiderationAuthority(
+        True, took_over_from=str(original_decider_id), took_over_basis="unavailable_ticked"
+    )
 
 
 def _zone(church_tz: tzinfo | str) -> tzinfo:

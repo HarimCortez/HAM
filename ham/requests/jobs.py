@@ -124,7 +124,10 @@ def _eligible_for_rejection_finalization() -> list[UUID]:
             status=RequestStatus.REJECTED.value,
             closed_at__isnull=True,
             reconsideration_deadline_at__isnull=False,
-            reconsideration_deadline_at__lte=now,
+            # Security L5: strictly past the deadline (`may_request_reconsideration` treats
+            # the deadline instant itself as still in time) -- `__lte` here would race a
+            # request whose deadline is exactly `now`.
+            reconsideration_deadline_at__lt=now,
             reconsideration__isnull=True,
         ).values_list("id", flat=True)
     )
@@ -132,11 +135,19 @@ def _eligible_for_rejection_finalization() -> list[UUID]:
 
 @jobs.periodic_job(name="requests.finalize_rejections", cron="0 * * * *")
 def finalize_rejections(timestamp: int) -> None:  # noqa: ARG001 - Procrastinate periodic contract
+    import logging
+
     from .services_decisions import finalize_rejection
 
+    logger = logging.getLogger(__name__)
     ctx = SystemContext()
+    # Security L5: one bad request must not stop the whole batch -- catch and log per item
+    # (the request id only, never any free text) and keep going.
     for request_id in _eligible_for_rejection_finalization():
-        finalize_rejection(ctx, request_id=request_id)
+        try:
+            finalize_rejection(ctx, request_id=request_id)
+        except Exception:  # noqa: BLE001 - deliberately broad: isolate one request's failure
+            logger.exception("requests.finalize_rejections failed for request_id=%s", request_id)
 
 
 def run_finalize_rejections_now() -> None:

@@ -2042,3 +2042,111 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   that asserted the old shape (`test_s32_decisions.py` had three tests asserting the old
   `RequestApproved(urgent_approval=True)`/`UrgencyCertified(urgent_approval=True)` payloads
   that needed updating alongside the fix, not just new gap-specific tests).
+
+## Fix 3A (parallel step-3 fix round, 2026-09-29): undo-window-holds-for-everyone, notification
+scoping, Board route, view logic
+- **One reusable predicate for "is this request's decision still pending" beats scattering
+  `decision_is_undoable(...)` calls at every call site.** `ham.requests.queries.
+  decision_undo_open(request_id, now=None)` checks the latest live `Approval` *and* the latest
+  live `UrgencyReview` for the request and returns true if either is still inside its own
+  undo window — every one of `request_reconsideration`, `record_reconsideration_by_phone`,
+  `review_urgency`, `ask_question` (in `services_questions.py`) and the leadership detail
+  panel's own "pending" flag import and call this one function rather than recomputing the
+  time-window logic themselves. `queries.py` sits below `services_decisions.py` in this app's
+  own layering (no cycle importing it from there); watch for that direction if you add a
+  fourth caller elsewhere.
+- **"Pending" is a fact about the DECISION, not about the viewer.** The pre-fix `_decision_
+  panel` computed `pending = is_decider and decision_is_undoable(...)`, so every *other*
+  viewer fell straight through to the fully-decided branch (certify/decline-urgency links,
+  "Next: site assessment", tell-by-phone cards, all visible during someone else's 30-minute
+  undo window). Split it into two facts: `pending` (true for everyone while the decision is
+  undoable) and `can_undo` (`is_decider and pending and not masked and not impersonating`,
+  the old meaning) — every place in the template/view that used to gate on the old `pending`
+  meaning "I can undo this" must switch to `can_undo`; every place that means "don't show
+  settled-state UI yet" keeps using `pending`.
+- **A held-effects job function's OWN early-return guard belongs before the `undone_at`
+  check, not after** — `run_held_decision_effects(approval_id)` now checks `now <
+  approval.effective_at` first and re-defers (`defer_held_decision_effects` again, same
+  `effective_at`) before it ever looks at `undone_at`; a misfired early run must never mark
+  `effects_ran_at` regardless of whether the decision was undone. `_undo_approval` separately
+  refuses once `effects_ran_at` is set (a plain early `raise ValueError`, not a `states.py`
+  concept — `check_undo` has no DB access and can't know this), closing the gap where a race
+  between "job runs slightly early" and "decider undoes" could otherwise let both happen.
+- **A DB `CHECK` constraint change for a new required-together field pair needs the OLD
+  constraint removed AND a new one added in the same migration, and every existing test that
+  built a row bypassing the service layer (`_make_approval` test helpers) breaks until it
+  passes the new field too** — `Approval.took_over_basis` (Q-183: `"unavailable_ticked"` vs
+  `"role_ended"`, the latter carrying no `unavailable_confirmed` tick) replaced `approval_
+  takeover_requires_unavailable_confirmed` with two narrower constraints
+  (`approval_takeover_requires_basis`, `approval_unavailable_confirmed_matches_basis`).
+  `states.ReconsiderationAuthority`/`TransitionDecision` both grew a `took_over_basis: str |
+  None` field threaded alongside the existing `took_over_from`, all the way from `may_decide_
+  reconsideration` through `check_transition` to the service's `Approval.objects.create(...)`.
+- **A field that's "known at INSERT time" should be set in the `.objects.create(...)` call
+  itself, never as a post-create `.save(update_fields=[...])`** — even though it *could* be
+  added to `ONCE_FIELDS` and updated after, `Approval.urgent_approval_emitted`/
+  `UrgencyReview.urgent_approval_emitted` (security M2: the Q-176 "urgent approval was
+  undone" follow-up keys on this stored fact, never on re-reading the request's live status)
+  are both already knowable from `decision.urgent_approval`/`decision.becomes_urgent_approval`
+  *before* the row is created, so they're passed straight into `create()`. Only add a field to
+  `ONCE_FIELDS` when the service genuinely can't know the value until after the row exists.
+- **A notification-clearing helper that does `Notification.objects.filter(subject_id=...,
+  requires_ack=True, acknowledged_at__isnull=True).update(...)` with no `kind=`/
+  `recipient_user_id__in=` filter will clear EVERY must-ack banner for that subject, not just
+  the one the caller means** (security H1) — `ham.requests.notifications._clear_urgent_banner`
+  now filters on `kind="request_awaiting_approval"` and `recipient_user_id__in=<every current
+  pastor>` explicitly; a sibling `_clear_urgent_approval_banner` (kind=`request_urgent_
+  approval`, DIR/AD recipients) is the mirror-image helper for the undo-follow-up path (UX
+  M9). When two independent must-ack facts share a `subject_id`, a shared "clear it" helper
+  needs both a `kind=` and a recipient-set filter, not just a `subject_id=` one.
+- **A Django `.filter(reverse_fk__field__isnull=True, reverse_fk__other_field__isnull=True)`
+  across a to-many relation compiles to a LEFT OUTER JOIN, and a row with ZERO related rows
+  still matches** (both joined columns come back NULL, satisfying "IS NULL AND IS NULL") —
+  this is a general Django pitfall, not specific to this codebase; use `Exists(RelatedModel.
+  objects.filter(fk=OuterRef("pk"), ...))` instead whenever the intent is "has at least one
+  related row matching these conditions" (`ham.requests.queries_questions.
+  waiting_on_requester` had exactly this bug: every request with no questions at all counted
+  as "waiting on requester"). Verify empirically with `qs.query` printed, not by reasoning
+  about the ORM — the join type isn't obvious from the filter call site alone.
+- **A view-level bug can hide behind a hidden `<input>` whose value depends on the viewer's
+  role, so a raw `client.post()` in a test that omits it won't reproduce anything** — B1 (a
+  Board rep couldn't approve an urgent-flagged request) lived entirely in `request_approve.
+  html`'s old hidden `mode` field, which defaulted to `"not_urgent"` for ANY urgent-awaiting-
+  cert viewer including a Board-only one; the *service* layer already refused this correctly
+  (which is *why* it 500'd/errored instead of silently doing the wrong thing). When writing a
+  regression test for a template-sourced bug, post the exact field/value the old template
+  would have sent, don't just omit the field and declare victory when the service-level guard
+  alone happens to also catch the omitted case.
+- **The safe fix for "urgency review must only ever apply to the pastoral route" is at the
+  VIEW, computed from the route actually chosen in this POST — never from `is_pastor` alone**
+  (a dual-role user might tick "The Board's decision"): `certify_urgent`/`decline_urgency` in
+  `request_approve` are now `urgent_awaiting_cert and on_pastoral_route and request.POST.
+  get("mode") == ...`, where `on_pastoral_route = route == ApprovalRoute.PASTORAL.value` uses
+  the same `route` variable the approval itself is recorded with.
+- **Q-164 "nothing is preselected for a dual-role user" needs enforcement in the view, not
+  just "don't render a `checked` attribute"** — the old `_route_from_post` silently fell back
+  to `_default_route(ctx)` whenever the posted `route` was missing/unrecognized, so a
+  same-tab-different-request replay or a JS failure would silently record a route the user
+  never chose. `request_approve`/`request_reject` now validate `route in {"pastoral",
+  "board"}` explicitly and return **422** (re-rendering the sheet with every other posted
+  value intact) rather than defaulting, for a dual-role viewer specifically; a single-role
+  viewer still gets a hidden field with their one possible route (not a "preselected choice"
+  since there was never a decision to make).
+- **A service function whose only two callers both compute "is this the Board route, and if
+  so what date" identically is a sign the date-prefill/future-date-guard logic belongs inside
+  the service, not copy-pasted at each call site** — `decide_reconsideration` grew its own
+  `board_decided_on: dt.date | None = None` parameter with the exact same `_church_today`
+  prefill/future-guard `approve_request`/`reject_request` already had (PRD guardian B2/Q-180)
+  — the Board-route reconsideration path had never threaded this through at all, so any
+  Board-route reconsideration decision hit the `approval_board_decided_on_required_for_
+  board_route` CHECK constraint as a raw, unhandled `IntegrityError` (a 500), not a clean
+  `ValueError` the view already knew how to turn into a 422.
+- **An explicit "Show contact details" POST control needs its own sentinel field checked
+  BEFORE the view's main-submit branch, not a second `if` after it** — `_reveal_on_post(
+  request, ctx, request_id, surface=...)` (new, `views_requests.py`) checks `request.method ==
+  "POST" and request.POST.get("show_contact") == "1"` and returns early; every view's main
+  POST-handling block is now itself guarded with `request.POST.get("show_contact") != "1"` so
+  a "Show contact details" tap never also tries to validate/submit the sheet's other fields
+  (which would be blank) and never reveals as a side effect of an unrelated GET (security M4).
+  One reveal button, inside the same `<form>` as the main submit, works fine as long as both
+  branches check the same sentinel.

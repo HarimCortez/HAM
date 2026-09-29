@@ -24,19 +24,16 @@
         <fieldset class="form-field">
           <legend>Record this as</legend>
           <div class="choice-grid choice-grid--single">
-            <label class="choice-card"><input type="radio" name="route" value="pastoral" required {% if default_route == "pastoral" %}checked{% endif %}><span>My decision as a pastor</span></label>
-            <label class="choice-card"><input type="radio" name="route" value="board" {% if default_route == "board" %}checked{% endif %}><span>The Board's decision</span></label>
+            <label class="choice-card"><input type="radio" name="route" value="pastoral" required {% if selected_route == "pastoral" %}checked{% endif %}><span>My decision as a pastor</span></label>
+            <label class="choice-card"><input type="radio" name="route" value="board" {% if selected_route == "board" %}checked{% endif %}><span>The Board's decision</span></label>
           </div>
         </fieldset>
-      {% else %}
-        <input type="hidden" name="route" value="{{ default_route }}">
-      {% endif %}
-
-      {% if default_route == "board" or dual_role %}
         <div class="form-field">
-          <label for="id_board_decided_on">Date the Board decided</label>
+          <label for="id_board_decided_on">Date the Board decided <span class="form-field__optional">(if the Board's decision)</span></label>
           <input id="id_board_decided_on" type="date" name="board_decided_on" value="{% now 'Y-m-d' %}" max="{% now 'Y-m-d' %}">
         </div>
+      {% else %}
+        <input type="hidden" name="route" value="{{ forced_route }}">
       {% endif %}
 
       <fieldset class="form-field">
@@ -58,19 +55,29 @@
         <p class="text-tertiary type-small">Suggested wording, prefilled from the reason you choose. Edit it as you like.</p>
       </div>
 
+      {% comment %}
+      UX M6 / PRD guardian minor 1: this preview must read EXACTLY what E10 sends
+      (`ham.requests.presentation.decline_outcome_text`, the same builder) -- the sympathy
+      line, "once", the real deadline date, and the church phone line, never a hard-coded
+      "14 days".
+      {% endcomment %}
       <section role="region" aria-labelledby="decline-preview-heading" class="message-preview">
-        <p id="decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> What the requester will read</p>
+        <p id="decline-preview-heading" class="type-label"><svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mail"></use></svg> {% if has_email %}What the requester will read{% else %}What to tell them by phone{% endif %}</p>
         <p class="type-body-lg">We're sorry. After looking carefully at your request, we aren't able to help with this one.</p>
         <p class="type-body-lg">Here's why:</p>
         <blockquote id="decline-preview-message" class="quote-block">{{ message }}</blockquote>
-        <p class="type-body-lg">We know this isn't the answer you hoped for. If you think we've missed something, you can ask us to reconsider, once, within the next 14 days.</p>
+        <p class="type-body-lg">
+          We know this isn't the answer you hoped for.
+          {% if reconsideration_deadline_text %}If you think we've missed something, you can ask us to reconsider, once, until {{ reconsideration_deadline_text }}.{% endif %}
+          {% if church_phone %}Or call us at {{ church_phone }} &mdash; we're glad to talk it through.{% endif %}
+        </p>
       </section>
 
-      <p class="text-secondary type-small"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg> If you know the requester, a call first can be kind. The email goes after your 30 minutes to undo.</p>
+      <p class="text-secondary type-small"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-phone"></use></svg> If you know the requester, a call first can be kind. The email goes after your {{ undo_minutes }} minutes to undo.</p>
 
       {% if not has_email %}
         <label class="choice-card choice-card--statement">
-          <input type="checkbox" name="told_by_phone">
+          <input type="checkbox" name="told_by_phone" {% if told_by_phone %}checked{% endif %}>
           <span>I've already told the requester by phone.</span>
         </label>
       {% endif %}

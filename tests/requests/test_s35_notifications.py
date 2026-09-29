@@ -13,6 +13,7 @@ from ham.authz.context import RequesterContext
 from ham.identity.models import RoleAssignment, SharedIdentityProfile
 from ham.notifications.models import Notification
 from ham.outbox.models import OutboxEvent
+from ham.platform.clock import FixedClock, set_clock
 from ham.platform.clock import now as clock_now
 from ham.requests.models import UrgencyReview
 from ham.requests.notifications import (
@@ -243,8 +244,11 @@ class TestUrgentApproval:
             urgent_requested=True,
             urgency_reason="someone_could_get_hurt",
         )
-        approve_request(board_ctx, request_id=req.id, route="board")
+        approval = approve_request(board_ctx, request_id=req.id, route="board")
         assert not OutboxEvent.objects.filter(event_type="RequestUrgentApproval").exists()
+        # Security M2: `review_urgency` refuses while the Board approval it's certifying is
+        # still undoable.
+        set_clock(FixedClock(approval.effective_at))
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
         assert OutboxEvent.objects.filter(event_type="RequestUrgentApproval").count() == 1
 
@@ -276,8 +280,15 @@ class TestUrgentApproval:
         )
         notices = _build_decision_undone_notices(event)
         assert notices is not None
-        assert {n.recipient_user_id for n in notices} == {director.id}
-        assert "undone" in notices[0].title.lower()
+        # UX M9: the Director/AD "undone" follow-up, PLUS the pastors' "needs a pastor"
+        # banner restored -- the request is back to Awaiting Approval with urgency awaiting
+        # certification again, exactly the state that banner describes.
+        assert {n.recipient_user_id for n in notices} == {director.id, _deciding.id}
+        undone_notices = [n for n in notices if n.kind == "request_urgent_approval_undone"]
+        assert undone_notices and "undone" in undone_notices[0].title.lower()
+        restored = [n for n in notices if n.kind == "request_awaiting_approval"]
+        assert restored and restored[0].recipient_user_id == _deciding.id
+        assert restored[0].urgent is True
 
     def test_undo_of_a_non_urgent_approval_gets_no_follow_up(
         self, requester_ctx, system_ctx, make_user
@@ -316,7 +327,8 @@ class TestUrgentApproval:
             urgent_requested=True,
             urgency_reason="someone_could_get_hurt",
         )
-        approve_request(board_ctx, request_id=req.id, route="board")
+        approval = approve_request(board_ctx, request_id=req.id, route="board")
+        set_clock(FixedClock(approval.effective_at))
         review_urgency(pastor_ctx, request_id=req.id, certify=True)
         review = UrgencyReview.objects.get(request_id=req.id)
         undo_decision(pastor_ctx, review_id=review.id)
@@ -342,7 +354,7 @@ class TestReconsiderationRequested:
         _grant(director, roles.HAM_DIRECTOR)
 
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             pastor_ctx,
             request_id=req.id,
             route="pastoral",
@@ -350,6 +362,8 @@ class TestReconsiderationRequested:
             message="message",
         )
         req.refresh_from_db()
+        # Security M1/Q-181: refused while the decline can still be undone.
+        set_clock(FixedClock(approval.effective_at))
         result = request_reconsideration(RequesterContext(request_id=req.id), note="please")
         event = _event(
             "ReconsiderationRequested",
@@ -376,7 +390,7 @@ class TestReconsiderationRequested:
         _grant(other_pastor, roles.PASTOR)
 
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             pastor_ctx,
             request_id=req.id,
             route="pastoral",
@@ -387,6 +401,7 @@ class TestReconsiderationRequested:
         RoleAssignment.objects.filter(user=deciding_pastor, role=roles.PASTOR).update(
             revoked_at=clock_now()
         )
+        set_clock(FixedClock(approval.effective_at))
         result = request_reconsideration(RequesterContext(request_id=req.id), note="please")
         event = _event(
             "ReconsiderationRequested",
@@ -409,7 +424,7 @@ class TestReconsiderationRequested:
         board_ctx = actor_ctx(roles=frozenset({roles.BOARD_REPRESENTATIVE}), user_id=board.id)
 
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             board_ctx,
             request_id=req.id,
             route="board",
@@ -417,6 +432,7 @@ class TestReconsiderationRequested:
             message="message",
         )
         req.refresh_from_db()
+        set_clock(FixedClock(approval.effective_at))
         result = request_reconsideration(RequesterContext(request_id=req.id), note="please")
         event = _event(
             "ReconsiderationRequested",

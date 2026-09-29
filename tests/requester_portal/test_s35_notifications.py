@@ -17,6 +17,7 @@ import pytest
 from django.test import Client
 
 from ham.outbox.models import OutboxEvent
+from ham.platform.clock import FixedClock, set_clock
 from ham.requester_portal import services
 from ham.requester_portal.models import RequesterAccessLink
 from ham.requester_portal.notifications import (
@@ -169,7 +170,7 @@ class TestApprovedEmail:
 
     def test_reconsideration_stage_wording(self, requester_ctx, system_ctx, pastor_ctx):
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             pastor_ctx,
             request_id=req.id,
             route="pastoral",
@@ -179,6 +180,8 @@ class TestApprovedEmail:
         req.refresh_from_db()
         from ham.authz.context import RequesterContext
 
+        # Security M1/Q-181: refused while the decline can still be undone.
+        set_clock(FixedClock(approval.effective_at))
         recon_ctx = RequesterContext(request_id=req.id)
         request_reconsideration(recon_ctx, note="Please look again")
         decide_reconsideration(
@@ -267,7 +270,7 @@ class TestRejectedEmail:
 
     def test_final_wording_no_deadline_clause(self, requester_ctx, system_ctx, pastor_ctx):
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             pastor_ctx,
             request_id=req.id,
             route="pastoral",
@@ -277,6 +280,7 @@ class TestRejectedEmail:
         req.refresh_from_db()
         from ham.authz.context import RequesterContext
 
+        set_clock(FixedClock(approval.effective_at))
         request_reconsideration(
             RequesterContext(request_id=req.id),
             note="Please look again",
@@ -345,7 +349,7 @@ class TestQuestionAskedEmail:
 class TestReconsiderationReceivedEmail:
     def test_confirmation_email(self, requester_ctx, system_ctx, pastor_ctx):
         req = _awaiting(requester_ctx, system_ctx)
-        reject_request(
+        approval = reject_request(
             pastor_ctx,
             request_id=req.id,
             route="pastoral",
@@ -355,6 +359,7 @@ class TestReconsiderationReceivedEmail:
         req.refresh_from_db()
         from ham.authz.context import RequesterContext
 
+        set_clock(FixedClock(approval.effective_at))
         result = request_reconsideration(
             RequesterContext(request_id=req.id),
             note="Please look again",
@@ -401,6 +406,8 @@ class TestUndoneDecisionSendsNothing:
         undo_decision(pastor_ctx, approval_id=approval.id)
 
         mail.outbox.clear()
+        # Security L1: a run before `effective_at` re-defers instead of releasing.
+        set_clock(FixedClock(approval.effective_at))
         run_held_decision_effects(approval.id)
 
         approval = Approval.objects.get(pk=approval.id)
