@@ -100,6 +100,12 @@ REJECTED_FINAL_NEXT_STEP = "You're welcome to send a new request in the future i
 _RECONSIDERATION_PENDING_SENTENCE = "We're taking another look at your request."
 RECONSIDERATION_PENDING_NEXT_STEP = "We'll let you know what we decide, by email and on this page."
 
+# R10 status table: "Awaiting Approval + question open" replaces the plain AWAITING_APPROVAL
+# next-step pair with this one line while a question is open (design-system §5.1).
+AWAITING_APPROVAL_QUESTION_NEXT_STEP = (
+    "We have a question for you below. Your answer helps us decide."
+)
+
 
 def approved_sentence(*, after_reconsideration: bool) -> str:
     """R14 / R18a "Good news" sentence (never the §11 line -- that's in `APPROVED_NEXT_STEPS`)."""
@@ -130,6 +136,11 @@ def reconsider_ask_line(last_day: dt.date) -> str:
     """R15: "You can ask until Thu, Nov 5." -- the church-local calendar date the deadline
     ends on (`ham.requests.states.reconsideration_last_day`), never a time of day."""
     return f"You can ask until {last_day.strftime('%a, %b %-d')}."
+
+
+def access_until_line(access_ends_at: dt.date) -> str:
+    """R18b/R18c footer: "This page will stay available until {date}." (Q-116)."""
+    return f"This page will stay available until {access_ends_at.strftime('%a, %b %-d')}."
 
 
 # Q-107/Q-140: pre-decision cancel reasons, in the requester's own words (never "spam", which
@@ -230,6 +241,7 @@ def masked_contact(
 
 __all__ = [
     "APPROVED_NEXT_STEPS",
+    "AWAITING_APPROVAL_QUESTION_NEXT_STEP",
     "MaskedContact",
     "REJECTED_FINAL_NEXT_STEP",
     "REJECTED_SYMPATHY_LINE",
@@ -238,6 +250,7 @@ __all__ = [
     "REQUESTER_STATUS_CHIPS",
     "STATUS_NEXT_STEPS",
     "URGENT_CERTIFIED_ALERT",
+    "access_until_line",
     "approved_sentence",
     "cancel_reason_offers_new_request",
     "mask_email",

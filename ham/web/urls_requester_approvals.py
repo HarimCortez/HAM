@@ -1,19 +1,35 @@
-"""S3.0 URL stub (approvals.md §6, §8 slice table "S3.7 Requester screens"; docs/ux/
-approvals.md screen codes R13/R14). Empty today, same shape/reasoning as
-`ham.web.urls_requests_approvals`'s own module docstring -- S3.7 fills these in against
-`ham/web/views_requester.py` (existing), without colliding with `ham/web/urls_requester.py`'s
-already-live step-2 routes.
+"""S3.7 requester step-3 screens (docs/ux/approvals.md §6 R13-R19; approvals-contracts.md §8).
+Views live in the existing `ham/web/views_requester.py` (S3.7 owns that file too, alongside
+`ham/web/templates/web/requester/*`); this module only holds the two new routes, kept separate
+from `ham/web/urls_requester.py` per S3.0's original split note (avoids two slices colliding
+on the same URL module during the parallel build).
 
-Exact names S3.4/S3.5/S3.7 code against (`docs/architecture/approvals-contracts.md` §8 is the
-one source of truth -- this list must match it). Both sit under the existing token-scoped
-secure-page prefix (`request-help/r/<str:token>/...`, same as every other requester route).
+Both sit under the existing token-scoped secure-page prefix
+(`request-help/r/<str:token>/...`), same as every other requester route -- per-request access
+control is the link token the view resolves fresh on every call
+(`ham.requester_portal.services.resolve_token`), never a session.
 
 | URL name | Path | Screen |
 |---|---|---|
-| `request_help_reconsider` | `request-help/r/<str:token>/reconsider` | R13 |
-| `request_help_question_answer` | `.../r/<str:token>/questions/<uuid:question_id>/answer` | R14 |
+| `request_help_reconsider` | `request-help/r/<str:token>/reconsider` | R16 |
+| `request_help_question_answer` | `.../r/<str:token>/questions/<uuid:question_id>/answer` | R13 |
 """
 
 from __future__ import annotations
 
-urlpatterns: list = []
+from django.urls import path
+
+from . import views_requester as views
+
+urlpatterns = [
+    path(
+        "request-help/r/<str:token>/reconsider",
+        views.request_help_reconsider,
+        name="request_help_reconsider",
+    ),
+    path(
+        "request-help/r/<str:token>/questions/<uuid:question_id>/answer",
+        views.request_help_question_answer,
+        name="request_help_question_answer",
+    ),
+]

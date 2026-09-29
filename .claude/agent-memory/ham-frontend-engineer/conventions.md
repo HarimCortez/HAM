@@ -513,3 +513,84 @@
     real fail-before/pass-after proof across *many* files at once in one shot, instead of
     reverting one CSS rule at a time — as long as you commit your in-progress work first so
     `HEAD`/`HEAD~1` are meaningful anchors, and restore before continuing.
+
+## Step 3 (Approvals), S3.7: requester screens R13-R19
+- **Files:** views/urls stay in the existing `ham/web/views_requester.py` (two new view
+  functions: `request_help_question_answer`, `request_help_reconsider`) and the new, previously
+  empty `ham/web/urls_requester_approvals.py` (S3.0's URL-name contract, don't invent names —
+  `docs/architecture/approvals-contracts.md` §8 is the source of truth). Templates:
+  `r10_secure_page.html` grew the step-3 cards in place (no new template for R13/R14/R15/R17/
+  R18 — they're all states of the one R10 page); `r16_reconsider.html` is the one genuinely new
+  page. CSS: appended under a "Step 3 requester (S3.7)" banner at the end of `shell.css`.
+- **`ham.requester_portal.page.secure_page_data`/`projection` are S3.4's contract, but had two
+  real gaps this slice had to fix (both are legitimate contract fixes, not workarounds) since
+  S3.7 is the *only* consumer:**
+  1. `_status_card`'s step-1/2 fallback branch called `projection.status_wording(status)`
+     without `cancel_reason` — silently dropped the CANCELLED reason line the pre-existing view
+     computed by hand. Threaded `cancel_reason`/`has_open_question` kwargs through
+     `secure_page_data` → `_status_card` instead (also adds the "Awaiting Approval + question
+     open" row's one-line next-step, `projection.AWAITING_APPROVAL_QUESTION_NEXT_STEP`).
+  2. `SecurePageData` had nothing for R17's "What you told us" (the `Reconsideration.
+     requester_note`/`requested_at`) or R18b/c's footer access-until date — added
+     `reconsideration_note`/`reconsideration_requested_at`/`access_ends_at` fields, the last via
+     `ham.requester_portal.validity.normal_access_ends_at` (already existed, just not wired to
+     this dataclass).
+- **`page_data.reconsider` is `None` whenever the *current* status isn't an open rejection** —
+  including `RECONSIDERATION_PENDING`, which is exactly the "already asked" state a stale R16
+  page needs to detect. Don't gate "already requested" on `reconsider.already_requested`; query
+  `Reconsideration.objects.filter(request_id=...).exists()` directly in the view for that
+  specific check (R19 "already asked, another tab -> lands on R17 with no error").
+- **A withdrawn (auto-closed) question is invisible to `page.secure_page_data`** — S3.4's
+  `_question_cards` skips any `RequestQuestion` with `closed_at` set entirely (by design: a
+  closed question is never shown as if still open). R13's "we don't need this answer anymore"
+  soft notice therefore can't be rendered *inside* the `open_questions` loop (the row won't be
+  in it by the time the redirect's `?withdrawn_question=<id>` param is read) — render it as its
+  own standalone card, keyed only by the id the redirect query param carried, outside that loop.
+- **CSS `display` on a class beats the UA `[hidden]` rule at equal specificity, regardless of
+  source order** (same family of bug as FIX-C's `.filter-bar-sheet` note above, different
+  direction this time): `.form-field__offline-reason { display: flex; ... }` made the "You're
+  offline" reason line visible on every normal page load, `hidden` attribute or not, because an
+  author `display` declaration always wins over the UA stylesheet's own `[hidden] { display:
+  none }`. Fix: scope the rule to `:not([hidden])`. Caught by a Playwright test with a
+  `page.wait_for_timeout(200)` before asserting `is_visible() is False` — `wait_for_selector`
+  on server-rendered text proves nothing about whether the deferred client script has run yet.
+- **Never seed a form's initial offline-detection state from `navigator.onLine` on load** — it
+  can read `false` in a sandboxed/headless runner even though the page just finished loading
+  over real HTTP a moment ago (this box's Playwright environment does exactly that). A page
+  that finished loading is online by definition; only wire the *live* `online`/`offline` window
+  events, seed the initial UI state as "online" unconditionally.
+- **A date inside `<time>` must be *only* the date, never the whole sentence.** Putting
+  `{{ reconsider.ask_line }}` ("You can ask until Thu, Oct 8.") inside `<time>` with
+  `white-space: nowrap` forced the entire sentence onto one unbreakable line — a real horizontal
+  -scroll bug at 390+200% text (caught by the always-on Playwright no-sideways-scroll test, not
+  by eyeballing a screenshot). Split it in the template: plain text "You can ask until " +
+  `<time>{{ date|date:'D, M j' }}</time>` + ".", so only the short date itself is nowrap and the
+  sentence around it wraps normally. Also don't make the wrapping `<p>` itself `display: flex`
+  for a "icon + text" row that needs to wrap — flex children don't wrap by default; keep the
+  icon `vertical-align`-inline instead of flexing the whole paragraph.
+- **`can_add_photos` (carried over from step 2) only ever excluded `CANCELLED`** — once step 3
+  added APPROVED/REJECTED/RECONSIDERATION_PENDING statuses reachable from the same page, the
+  "Add photos" card kept showing on a rejected-but-open request with no batch row (caught by
+  visual QA screenshot, not a unit test at first — worth eyeballing every new status's
+  screenshot, not just asserting individual strings appear). Fixed by excluding all three
+  step-3 "nothing to add photos toward" statuses *unless* a leader has explicitly reopened a
+  batch (`batch.is_open` on a real reopened-kind batch overrides the status exclusion).
+- **One "Things we need from you" heading, not two.** The pre-existing photo-upload card had
+  its own `<h2>Things we need from you</h2>` separate from R13's question-card section's own
+  heading; when both apply on the same page (an open question + open uploads) they rendered as
+  two adjacent identical headings. Merged into one heading above both blocks, with the open-
+  question count only shown when there are open questions (`{% if open_questions %} (N){% endif
+  %}`).
+- **Text-limit constants for a still-`NotImplementedError`-stubbed sibling service:** when the
+  service you're calling (`ham.requests.services_decisions.request_reconsideration`, S3.2's
+  file) is still a stub, don't add a new constant to its module — define the UI-side limit
+  locally in the view (`RECONSIDERATION_NOTE_MAX_LENGTH` in `views_requester.py`, same "form
+  validation constant, not a rules-module entry" reasoning as `services_questions.
+  ANSWER_MAX_LENGTH`) so your slice doesn't collide with the parallel slice's own file. Once
+  S3.2 landed for real, its actual signature/exceptions (raises `ValueError` on a refused
+  `check_transition`, same shape as every other decision command) matched the contract doc
+  exactly — no view changes were needed after the merge, only dropping the `xfail` marker.
+- **`xfail(strict=True)` for "my view already calls a real contract signature, the callee just
+  isn't implemented yet" is the right tool** (not skip, not a TODO comment) — it fails loudly if
+  the stub starts silently returning something instead of raising, and disappears cleanly (one
+  line removed, test starts passing for real) the moment the parallel slice merges.

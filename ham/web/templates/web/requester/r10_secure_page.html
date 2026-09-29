@@ -18,6 +18,21 @@
   {% endcomment %}
   <h1>Your request &middot; {{ row.display_number }}</h1>
 
+  {% comment %}R17: shown once, on arrival right after sending -- design-system §5.5.{% endcomment %}
+  {% if just_reconsidered %}
+    <div class="inline-alert inline-alert--success" role="status" tabindex="-1" id="reconsidered-notice">
+      <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check"></use></svg>
+        Thank you. We've received your request to reconsider.</p>
+    </div>
+    <script>document.getElementById("reconsidered-notice").focus();</script>
+  {% endif %}
+  {% if stale_reconsider %}
+    <div class="inline-alert inline-alert--info" role="status" tabindex="-1" id="stale-reconsider-notice">
+      <p>The time to ask us to reconsider has passed. You're welcome to send a new request, or call us.</p>
+    </div>
+    <script>document.getElementById("stale-reconsider-notice").focus();</script>
+  {% endif %}
+
   <div class="status-card">
     {% if row.urgent_requested %}<span class="chip chip--danger"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span> Urgent</span>{% endif %}
     <span class="chip chip--{{ status_chip.tone }} chip--lg"><span class="chip__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-{{ status_chip.icon }}"></use></svg></span> {{ status_chip.label }}</span>
@@ -28,7 +43,26 @@
           danger, call <a href="tel:911">911</a>.</p>
       </div>
     {% endif %}
-    {% if next_steps %}
+    {% if urgent_alert %}
+      <div class="inline-alert inline-alert--attention" role="status">
+        <p>{{ urgent_alert|linebreaksbr }}</p>
+      </div>
+    {% endif %}
+
+    {% comment %}R15: not approved -- the reason and sympathy line (design-system §5.3).{% endcomment %}
+    {% if decision and decision.outcome == "rejected" %}
+      <p class="type-label">Here's why:</p>
+      <figure class="quote-block">
+        <blockquote>&ldquo;{{ decision.reason_message }}&rdquo;</blockquote>
+      </figure>
+      {% if decision.closed %}
+        <p>You're welcome to send a new request in the future if things change.</p>
+      {% else %}
+        <p>We know this isn't the answer you hoped for.</p>
+      {% endif %}
+    {% elif next_steps|length == 1 %}
+      <p>{{ next_steps.0 }}</p>
+    {% elif next_steps %}
       <p class="type-label">What happens next</p>
       <ol>
         {% for step in next_steps %}<li>{{ step }}</li>{% endfor %}
@@ -37,8 +71,99 @@
     {% if welcome and masked.email %}<p class="text-secondary">We've emailed a link to this page to {{ masked.email }} so you can check on your request anytime.</p>{% endif %}
   </div>
 
+  {% comment %}
+  R13/R9: everything on Doris's own to-do list lives under one "Things we need from you"
+  heading, never two separate headings competing for attention (design-system §5.1's own
+  single-heading anatomy) -- an open question card, then "Add photos" if uploads are open.
+  {% endcomment %}
+  {% if open_questions or withdrawn_question_id or can_add_photos %}
+    <h2>Things we need from you{% if open_questions %} ({{ open_questions|length }}){% endif %}</h2>
+  {% endif %}
+  {% if open_questions or withdrawn_question_id %}
+    {% comment %}
+    R19 "Question withdrawn while she was typing": the auto-close (a decision landed) already
+    removed this question from `open_questions` (page.py never shows a closed question), so
+    it's rendered here as its own notice, keyed only by the id the redirect carried -- not
+    inside the loop below, which only ever sees questions that are still open.
+    {% endcomment %}
+    {% if withdrawn_question_id %}
+      <div class="action-card action-card--question" id="q-{{ withdrawn_question_id }}">
+        <h3>HAM has a question for you</h3>
+        <div class="inline-alert inline-alert--info" role="status" tabindex="-1" id="withdrawn-notice-{{ withdrawn_question_id }}">
+          <p>Thanks. We don't need this answer anymore, because we've made a decision. See the update above.</p>
+        </div>
+        <script>document.getElementById("withdrawn-notice-{{ withdrawn_question_id }}").focus();</script>
+      </div>
+    {% endif %}
+    {% for q in open_questions %}
+      <div class="action-card action-card--question" id="q-{{ q.id }}">
+        <h3>HAM has a question for you</h3>
+        <figure class="quote-block">
+          <figcaption>From HAM &middot; {{ q.asked_at|requester_date }}</figcaption>
+          <blockquote>&ldquo;{{ q.question }}&rdquo;</blockquote>
+        </figure>
+        {% if answer_failed_question_id == q.id|stringformat:"s" %}
+          <div class="inline-alert inline-alert--danger" role="alert">
+            <p>We couldn't send your answer just now. It's still here. Please try again.</p>
+          </div>
+        {% endif %}
+        <form method="post" action="{% url 'web:request_help_question_answer' token=token question_id=q.id %}" class="question-answer-form" data-question-id="{{ q.id }}">
+          {% csrf_token %}
+          <div class="form-field">
+            <label for="id_answer_{{ q.id }}">Your answer</label>
+            <textarea id="id_answer_{{ q.id }}" name="answer" rows="4"
+                      aria-describedby="id_answer_{{ q.id }}-offline"
+                      data-max-length="{{ answer_max_length }}"></textarea>
+            <p class="char-counter" data-counter-for="id_answer_{{ q.id }}" hidden></p>
+          </div>
+          <p class="action-card__mic-tip">
+            <svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mic"></use></svg>
+            Tip: tap the microphone on your keyboard to speak instead of typing.
+          </p>
+          <p class="form-field__offline-reason" id="id_answer_{{ q.id }}-offline" hidden>
+            <svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-cloud-off"></use></svg>
+            You're offline. Your answer is saved on this device. You can send it when you're connected.
+          </p>
+          <button class="btn {% if forloop.first %}btn--primary{% else %}btn--secondary{% endif %}" type="submit">Send answer</button>
+        </form>
+        {% if church.phone %}<p>Prefer to talk? Call <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a> and mention {{ row.display_number }}.</p>{% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% comment %}R15 reconsider block (design-system §5.3).{% endcomment %}
+  {% if reconsider and reconsider.eligible %}
+    <div class="reconsider-block">
+      <h2>Ask us to look again</h2>
+      <p>If you think we've missed something, you can ask us to reconsider, once.</p>
+      <p class="reconsider-block__deadline">
+        <svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-calendar-clock"></use></svg>
+        You can ask until <time datetime="{{ reconsider.last_day|date:'c' }}">{{ reconsider.last_day|date:'D, M j' }}</time>.
+      </p>
+      <a class="btn btn--secondary" href="{{ reconsider_url }}">Ask us to reconsider</a>
+      {% if church.phone %}<p>Or call us at <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a>. We're glad to talk it through.</p>{% endif %}
+    </div>
+  {% endif %}
+
+  {% comment %}R17: "What you told us" (design-system §5.5).{% endcomment %}
+  {% if row.status == "RECONSIDERATION_PENDING" %}
+    {% if reconsideration_note %}
+      <p class="type-label">What you told us</p>
+      <figure class="quote-block">
+        <figcaption>Sent {{ reconsideration_requested_at|requester_date }}</figcaption>
+        <blockquote>{{ reconsideration_note }}</blockquote>
+      </figure>
+    {% endif %}
+  {% endif %}
+
+  {% comment %}R18b/R18c: closed after a decision (final) -- Ask for help + footer date.{% endcomment %}
+  {% if decision and decision.closed %}
+    <a class="btn btn--secondary" href="{% url 'web:request_help_start' %}">Ask for help</a>
+    {% if church.phone %}<p>Questions? Call us at <a href="tel:{{ church.phone }}">{{ church.phone|phone_national }}</a>.</p>{% endif %}
+    {% if access_until_line %}<p class="text-secondary">{{ access_until_line }}</p>{% endif %}
+  {% endif %}
+
   {% if can_add_photos and batch_open %}
-    <h2>Things we need from you</h2>
     <div class="action-card">
       <h3>Add photos of the problem</h3>
       <p>They help us understand the work.</p>
@@ -46,6 +171,10 @@
         <p class="quiet-block"><span class="type-label">HAM asked:</span> &ldquo;{{ batch_reopen_reason }}&rdquo;</p>
       {% endif %}
       <a class="btn btn--primary" href="{% url 'web:request_help_photos' token=token %}">Add photos</a>
+    </div>
+  {% elif row.status == "APPROVED" or row.status == "REJECTED" or row.status == "RECONSIDERATION_PENDING" %}
+    <div class="inline-alert inline-alert--info">
+      <p>Photo uploads are closed for now. If HAM needs more, we'll ask.</p>
     </div>
   {% endif %}
 
@@ -68,6 +197,32 @@
     <dt>Visits</dt><dd>{{ availability|default:"Not specified" }}</dd>
     <dt>Photos</dt><dd>{{ photo_count }}</dd>
   </dl>
+
+  {% if answered_questions %}
+    <h2>Questions and answers ({{ answered_questions|length }})</h2>
+    <ol class="qa-thread">
+      {% for q in answered_questions %}
+        <li class="qa-thread__item" id="q-{{ q.id }}">
+          <p class="qa-thread__meta">From HAM &middot; {{ q.asked_at|requester_date }}</p>
+          <figure class="quote-block">
+            <blockquote>&ldquo;{{ q.question }}&rdquo;</blockquote>
+          </figure>
+          {% if just_answered_question_id == q.id|stringformat:"s" %}
+            <p class="type-h3" tabindex="-1" id="answered-confirmation-{{ q.id }}">
+              <svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-circle-check"></use></svg>
+              Thank you. We've got your answer.
+            </p>
+            <script>document.getElementById("answered-confirmation-{{ q.id }}").focus();</script>
+          {% endif %}
+          <figure class="quote-block">
+            <figcaption>Your answer &middot; {{ q.answered_at|requester_datetime }}</figcaption>
+            <blockquote>{{ q.answer }}</blockquote>
+          </figure>
+          {% if church.phone %}<p class="text-secondary">Want to add something? Call us at {{ church.phone|phone_national }}.</p>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
 
   <div class="masked-block masked-block--self">
     <p>{{ masked.email }}{% if masked.email and masked.phone %} &middot; {% endif %}{{ masked.phone }}</p>
@@ -92,4 +247,6 @@
   </p>
   </div>
   </div>
+
+  <script src="{% static 'web/requester-questions.js' %}" defer></script>
 {% endblock %}

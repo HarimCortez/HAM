@@ -113,6 +113,34 @@ def relative_age(moment) -> str:
 
 
 @register.filter
+def requester_date(moment) -> str:
+    """`{{ question.asked_at|requester_date }}` -- "Oct 6", church-local (§70.5), grade-6
+    plain wording for the requester's own quote captions ("From HAM · Oct 6", R13)."""
+    if moment is None:
+        return ""
+    from zoneinfo import ZoneInfo
+
+    from ham.platform.church import church_profile
+
+    zone = ZoneInfo(church_profile().time_zone)
+    return moment.astimezone(zone).strftime("%b %-d")
+
+
+@register.filter
+def requester_datetime(moment) -> str:
+    """`{{ question.answered_at|requester_datetime }}` -- "Oct 7, 9:12 AM", church-local
+    (§70.5), for the requester's own "Sent ..."/"Your answer ..." captions."""
+    if moment is None:
+        return ""
+    from zoneinfo import ZoneInfo
+
+    from ham.platform.church import church_profile
+
+    zone = ZoneInfo(church_profile().time_zone)
+    return moment.astimezone(zone).strftime("%b %-d, %-I:%M %p")
+
+
+@register.filter
 def brand_static(filename: str) -> str:
     """Build the static URL for a file inside the active brand's folder
     (`design-system/brands/<HAM_BRAND>/<filename>`, e.g. `{{ church.logo_mark|brand_static }}`).

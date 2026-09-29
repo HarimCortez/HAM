@@ -38,6 +38,7 @@ from ham.requester_portal import (
     services,
     verification,
 )
+from ham.requester_portal import page as requester_page
 from ham.requester_portal.choices import (
     AVAILABILITY_AFTERNOONS,
     AVAILABILITY_ANY_TIME,
@@ -55,9 +56,19 @@ from ham.requester_portal.choices import (
     UrgencyReason,
 )
 from ham.requester_portal.models import RequesterVerificationChallenge
+from ham.requests import services_decisions
 from ham.requests.certifications import RelationshipToProperty, statement_text_for
+from ham.requests.models import Reconsideration
 from ham.requests.queries import get_request_for_requester
+from ham.requests.services_questions import ANSWER_MAX_LENGTH, answer_question
 from ham.rules import RULES
+
+# S3.7 (approvals-contracts.md §8, owner box "Text limits ... reconsideration note 1,000"):
+# form-validation constant, same shape/reasoning as `services_questions.QUESTION_MAX_LENGTH`/
+# `ANSWER_MAX_LENGTH` -- not a rules-module entry (it's UI input validation, not a business
+# rule). Lives here rather than in `ham.requests.services_decisions` because that module is
+# S3.2's own stub today; move it there once S3.2 lands if it defines its own constant.
+RECONSIDERATION_NOTE_MAX_LENGTH = 1000
 
 # --------------------------------------------------------------------------------------
 # Wizard step order and per-step field ownership (for filtering R6's whole-payload
@@ -848,6 +859,16 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
     if row is None:
         return render(request, "web/requester/r12_not_available.html", _base_context(request))
 
+    # S3.7: the step-3 cards (status chip/sentence, decision, reconsider block, Q&A) all come
+    # from S3.4's page-data contract -- `secure_page_data` already handles the undo window
+    # (Q-176, the page shows the prior state while a decision is still live and undoable) and
+    # every step-2 status too (it falls back to `projection.status_wording`/`STATUS_NEXT_STEPS`
+    # for those), so this is the *only* place `row.status`-derived chip/sentence/next-steps are
+    # computed now -- never a second, separate computation that could disagree with it.
+    page_data = requester_page.secure_page_data(ctx.request_id)
+    if page_data is None:  # pragma: no cover - defensive; row already proved the request exists
+        return render(request, "web/requester/r12_not_available.html", _base_context(request))
+
     church = church_profile()
     # `RequesterContext` is duck-type-compatible with `ActorContext` for `.effective_roles`
     # (intake-contracts.md §1) but is not a nominal subtype, hence the ignore.
@@ -864,27 +885,44 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
         city=row.city,
         postal_code=row.postal_code,
     )
-    status_chip_tuple = projection.REQUESTER_STATUS_CHIPS.get(row.status)
     context = _base_context(request)
     context.update(
         {
             "welcome": request.GET.get("welcome") == "1",
+            # R17: shown once, on arrival right after sending (GET redirect with this flag);
+            # a later visit to the plain secure-page URL omits it (design-system §5.5).
+            "just_reconsidered": request.GET.get("reconsidered") == "1",
+            # R19 "Reconsider after the window (a stale page)": her tab was open on R16 past
+            # the deadline, or she already asked from another tab.
+            "stale_reconsider": request.GET.get("stale_reconsider") == "1",
+            # R19 "Question withdrawn": the card she was answering was withdrawn (a decision
+            # landed) between load and submit -- an info notice, never an error.
+            "withdrawn_question_id": request.GET.get("withdrawn_question", ""),
+            "answer_failed_question_id": request.GET.get("answer_failed", ""),
+            "just_answered_question_id": request.GET.get("answered", ""),
             "row": row,
             "token": token,
             # M6: greet by first name only, never the full name; "Thank you." with no comma
             # when there's nothing sensible to put after it (an empty/blank full name).
             "first_name": (row.full_name or "").split(" ")[0] or "",
-            "status_sentence": projection.status_wording(
-                row.status, cancel_reason=row.cancel_reason_code or None
-            ),
+            "status_sentence": page_data.status.sentence,
             "status_chip": {
-                "label": status_chip_tuple[0],
-                "tone": status_chip_tuple[1],
-                "icon": status_chip_tuple[2],
-            }
-            if status_chip_tuple
-            else {"label": row.status, "tone": "neutral", "icon": "circle-help"},
-            "next_steps": projection.STATUS_NEXT_STEPS.get(row.status, []),
+                "label": page_data.status.chip_label,
+                "tone": page_data.status.chip_tone,
+                "icon": page_data.status.chip_icon,
+            },
+            "next_steps": page_data.status.next_steps,
+            "urgent_alert": page_data.status.urgent_alert,
+            "decision": page_data.decision,
+            "reconsider": page_data.reconsider,
+            "reconsider_url": reverse("web:request_help_reconsider", kwargs={"token": token}),
+            "open_questions": page_data.open_questions,
+            "answered_questions": page_data.answered_questions,
+            "reconsideration_note": page_data.reconsideration_note,
+            "reconsideration_requested_at": page_data.reconsideration_requested_at,
+            "access_until_line": projection.access_until_line(page_data.access_ends_at)
+            if page_data.access_ends_at
+            else "",
             "offers_new_request": projection.cancel_reason_offers_new_request(
                 row.cancel_reason_code or None
             ),
@@ -895,11 +933,21 @@ def request_help_secure_page(request: HttpRequest, token: str) -> HttpResponse:
             "availability": _availability_display(row.preferred_availability),
             "photo_count": gallery.counts.photos,
             "video_count": gallery.counts.videos,
-            "can_add_photos": row.status not in {"CANCELLED"} and (batch is None or batch.is_open),
+            # R14/R15/R17 "Photo uploads are closed for now": once a decision (or a
+            # reconsideration) is in play there's nothing to add photos toward until HAM
+            # explicitly reopens a batch and asks for more (L11) -- design-system §5.2's
+            # "closed" line covers all three closed-ish statuses, not only CANCELLED, unless
+            # a leader has reopened uploads (`batch.is_open` on an explicit reopened batch).
+            "can_add_photos": (batch is not None and batch.is_open)
+            or (
+                row.status not in {"CANCELLED", "APPROVED", "REJECTED", "RECONSIDERATION_PENDING"}
+                and (batch is None or batch.is_open)
+            ),
             "batch_open": batch is None or batch.is_open,
             "batch_reopen_reason": batch.reason
             if batch and batch.is_open and batch.kind == "reopened"
             else "",
+            "answer_max_length": ANSWER_MAX_LENGTH,
             "church": church,
         }
     )
@@ -1047,6 +1095,137 @@ def request_help_media_remove(request: HttpRequest, token: str, item_id: UUID) -
             json.dumps({"error": str(exc)}), status=409, content_type="application/json"
         )
     return HttpResponse(json.dumps({"ok": True}), content_type="application/json")
+
+
+# --------------------------------------------------------------------------------------
+# R13: her answer to a HAM question (docs/ux/approvals.md §6; approvals-contracts.md §8).
+# Always redirects back to the secure page (R10) -- there's no separate "answer sent" page,
+# the confirmation lives inline on the card she was already looking at.
+# --------------------------------------------------------------------------------------
+@require_http_methods(["POST"])
+@never_cache
+def request_help_question_answer(
+    request: HttpRequest, token: str, question_id: UUID
+) -> HttpResponse:
+    ctx = services.resolve_token(token)
+    if ctx is None or ctx.request_id is None:
+        return render(request, "web/requester/r12_not_available.html", _base_context(request))
+
+    secure_url = reverse("web:request_help_secure_page", kwargs={"token": token})
+    answer = request.POST.get("answer", "").strip()
+    try:
+        answer_question(ctx, question_id=question_id, answer=answer)
+    except PermissionDenied:
+        # Not this request's question (a forwarded/stale link) -- say nothing about why,
+        # same "never leak why" shape as every other requester-facing denial.
+        return redirect(secure_url)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "requester.question.answer: question is closed":
+            # R13 "Withdrawn while she was typing": a decision landed and auto-closed it.
+            # Not an error -- her text wasn't sent, the card shows the soft notice instead.
+            return redirect(f"{secure_url}?withdrawn_question={question_id}#q-{question_id}")
+        if message == "requester.question.answer: already answered":
+            # Another tab already sent one -- the card already shows the answer; no error.
+            return redirect(f"{secure_url}#q-{question_id}")
+        # Empty or over ANSWER_MAX_LENGTH: R19 "Answer send failed", text kept client-side
+        # (the card's own textarea still holds what she typed; this is a fresh GET).
+        return redirect(f"{secure_url}?answer_failed={question_id}#q-{question_id}")
+    return redirect(f"{secure_url}?answered={question_id}#q-{question_id}")
+
+
+# --------------------------------------------------------------------------------------
+# R16: "Ask us to reconsider" (docs/ux/approvals.md §6 R16; approvals-contracts.md §8).
+# GET shows the form; POST sends it. No second confirmation screen -- the page itself is the
+# confirmation step (UX R16); a successful send redirects to R10/R17.
+# --------------------------------------------------------------------------------------
+@require_http_methods(["GET", "POST"])
+@never_cache
+def request_help_reconsider(request: HttpRequest, token: str) -> HttpResponse:
+    ctx = services.resolve_token(token)
+    if ctx is None or ctx.request_id is None:
+        return render(request, "web/requester/r12_not_available.html", _base_context(request))
+
+    page_data = requester_page.secure_page_data(ctx.request_id)
+    if page_data is None:  # pragma: no cover - defensive
+        return render(request, "web/requester/r12_not_available.html", _base_context(request))
+
+    row = get_request_for_requester(ctx.request_id)
+    if row is None:  # pragma: no cover - defensive
+        return render(request, "web/requester/r12_not_available.html", _base_context(request))
+
+    secure_url = reverse("web:request_help_secure_page", kwargs={"token": token})
+    reconsider = page_data.reconsider
+    # `page_data.reconsider` is only populated while the *current* status is an open rejection
+    # (page.py `_reconsider_eligibility`) -- once a `Reconsideration` row exists the status has
+    # usually already moved to RECONSIDERATION_PENDING, where `reconsider` is simply `None`
+    # rather than "not eligible, already requested". Check the fact directly so "already asked"
+    # is recognized in every status it can show up in.
+    already_requested = Reconsideration.objects.filter(request_id=ctx.request_id).exists()
+
+    def _stale_redirect() -> HttpResponse:
+        # R19: "Already asked" (another tab) lands on R17 with no error; a genuinely stale
+        # page (window passed, or no rejection to reconsider at all) lands on R18c/current
+        # state with the info notice.
+        if already_requested:
+            return redirect(secure_url)
+        return redirect(f"{secure_url}?stale_reconsider=1")
+
+    if request.method == "POST":
+        if reconsider is None or not reconsider.eligible:
+            return _stale_redirect()
+
+        note = request.POST.get("note", "").strip()
+        errors: dict[str, str] = {}
+        if len(note) > RECONSIDERATION_NOTE_MAX_LENGTH:
+            errors["note"] = (
+                f"Please keep this to {RECONSIDERATION_NOTE_MAX_LENGTH} characters or fewer."
+            )
+        if errors:
+            context = _base_context(request)
+            context.update(
+                {
+                    "token": token,
+                    "row": row,
+                    "reconsider": reconsider,
+                    "note": note,
+                    "errors": errors,
+                    "note_max_length": RECONSIDERATION_NOTE_MAX_LENGTH,
+                }
+            )
+            return render(request, "web/requester/r16_reconsider.html", context)
+
+        try:
+            services_decisions.request_reconsideration(ctx, note=note)
+        except (PermissionDenied, ValueError):
+            context = _base_context(request)
+            context.update(
+                {
+                    "token": token,
+                    "row": row,
+                    "reconsider": reconsider,
+                    "note": note,
+                    "send_failed": True,
+                    "note_max_length": RECONSIDERATION_NOTE_MAX_LENGTH,
+                }
+            )
+            return render(request, "web/requester/r16_reconsider.html", context)
+        return redirect(f"{secure_url}?reconsidered=1")
+
+    if reconsider is None or not reconsider.eligible:
+        return _stale_redirect()
+
+    context = _base_context(request)
+    context.update(
+        {
+            "token": token,
+            "row": row,
+            "reconsider": reconsider,
+            "note": "",
+            "note_max_length": RECONSIDERATION_NOTE_MAX_LENGTH,
+        }
+    )
+    return render(request, "web/requester/r16_reconsider.html", context)
 
 
 # --------------------------------------------------------------------------------------
