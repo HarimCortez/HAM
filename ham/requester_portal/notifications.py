@@ -31,6 +31,8 @@ longer works" wording is accurate either way, since a link is always revoked at 
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from django.conf import settings
 from django.urls import reverse
 
@@ -278,12 +280,205 @@ def _build_closed_email(event: OutboxEvent) -> NotificationEmail | None:
 # immediate-delivery mechanism as codes/links); once its link is clicked and confirmed, the
 # actual "here's your link" announcement is the shared E3 builder below.
 # ---------------------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------------------
+# S3.5 (approvals.md §4, docs/ux/approvals.md E9/E9u/E10/E13, Q-171/Q-174/Q-175). Every
+# builder below carries the secure link (Q-102), a neutral subject ("Update on your HAM
+# #047"), and never the decider's name or route (Q-171 -- the requester is only ever told
+# "we"/"HAM"). No email at all for a no-email requester (`requester.email is None`), and
+# none for `RequestCategoryChanged` (Q-109), `UrgencyNotCertified`/"not yet approved"
+# `UrgencyCertified`, `RequestRejectionFinalized` (E14 -- she already had the deadline on
+# E10) or `RequesterQuestionAnswered`/withdrawn (E15) -- none of those events are
+# registered onto this module's builders at all, which is itself the "no email" decision
+# (nothing to silently forget).
+#
+# Idempotency: every builder below is a pure read of already-committed rows keyed off the
+# event's own ids/payload -- calling it twice for the same event returns the same
+# `NotificationEmail` (or `None`), so a redelivered `OutboxDelivery` (outbox/dispatch.py's
+# retry) never changes what would be sent, only whether it already was (that bookkeeping is
+# `OutboxDelivery.status`'s job, not this module's).
+# ---------------------------------------------------------------------------------------
+def _reconsideration_deadline_text(request) -> str:
+    """Q-174: the church-local calendar day printed in the email, e.g. "Tue, Oct 20"."""
+    if request.reconsideration_deadline_at is None:
+        return ""
+    zone = ZoneInfo(church_profile().time_zone)
+    local = request.reconsideration_deadline_at.astimezone(zone)
+    return local.strftime("%a, %b %-d")
+
+
+def _live_approval_for_stage(request_id, stage: str):
+    from ham.requests.models import Approval
+
+    return (
+        Approval.objects.filter(request_id=request_id, stage=stage, undone_at__isnull=True)
+        .order_by("-decided_at")
+        .first()
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# E9 / E9u / E12: "Update on your HAM #047" -- approved (initial or on reconsideration),
+# held (RequestApproved is only ever emitted at `effective_at`, never at decide time --
+# approvals-contracts.md §4).
+# ---------------------------------------------------------------------------------------
+def _build_approved_email(event: OutboxEvent) -> NotificationEmail | None:
+    request, requester = _request_and_requester(event.aggregate_id)
+    if request is None or requester is None or requester.email is None:
+        return None
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
+        return None
+    link_url = _link_url(link)
+
+    first = _first_name(requester.full_name)
+    stage = event.payload.get("stage")
+    urgent = bool(event.payload.get("urgent_approval"))
+    if stage == "reconsideration":
+        opener = f"Good news, {first}: after taking another look, we've approved your request."
+    else:
+        opener = f"Good news, {first}: your request is approved."
+    # PRD §11 / owner decisions box: this exact line must survive -- "the visit helps us
+    # plan; it doesn't yet promise the work" -- on every approval email, urgent or not.
+    if urgent:
+        next_steps = (
+            "Because it's urgent, HAM's leaders have been told right away and will contact "
+            "you soon. If anyone is in danger, call 911. The visit helps us plan; it "
+            "doesn't yet promise the work can be done."
+        )
+    else:
+        next_steps = (
+            "Next, someone from HAM will call you to arrange a visit to look at the work. "
+            "The visit helps us plan; it doesn't yet promise the work can be done."
+        )
+    text = f"{opener} {next_steps}\n\nOpen my request page: {link_url}"
+    return NotificationEmail(
+        to=requester.email,
+        subject=f"Update on your {request.display_number}",
+        text_body=text,
+        category="requester_decision",
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# E10 / E13: "Update on your HAM #047" -- not approved (`final=false`, still
+# reconsiderable) or final (`final=true`, on reconsideration or after 14 days). Held, same
+# as E9/E9u above.
+# ---------------------------------------------------------------------------------------
+def _build_rejected_email(event: OutboxEvent) -> NotificationEmail | None:
+    request, requester = _request_and_requester(event.aggregate_id)
+    if request is None or requester is None or requester.email is None:
+        return None
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
+        return None
+    link_url = _link_url(link)
+
+    stage = event.payload.get("stage", "initial")
+    final = bool(event.payload.get("final"))
+    approval = _live_approval_for_stage(request.id, stage)
+    message = approval.reason.strip() if approval else ""
+    first = _first_name(requester.full_name)
+
+    if final:
+        # Q-154: the requester's kind message goes in the body; subject stays neutral.
+        text = (
+            f"Hi {first}, we looked at your request again, and we're sorry, we're still "
+            f"not able to help with this one. Here's why: \"{message}\". You're welcome to "
+            "send a new request in the future if things change."
+            f"\n\nOpen my request page: {link_url}"
+        )
+    else:
+        deadline = _reconsideration_deadline_text(request)
+        deadline_clause = f" You can ask us to reconsider until {deadline}." if deadline else ""
+        text = (
+            f"Hi {first}, we're sorry. After looking carefully at your request, we aren't "
+            f'able to help with this one. Here\'s why: "{message}".{deadline_clause}'
+            f"\n\nOpen my request page: {link_url}"
+        )
+    return NotificationEmail(
+        to=requester.email,
+        subject=f"Update on your {request.display_number}",
+        text_body=text,
+        category="requester_decision",
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# E8: "A question about your HAM request #047" (RequesterQuestionAsked) -- the only
+# requester email whose subject isn't the neutral "Update on your ..." form (Q-102's own
+# example text).
+# ---------------------------------------------------------------------------------------
+def _build_question_asked_email(event: OutboxEvent) -> NotificationEmail | None:
+    from ham.requests.models import RequestQuestion
+
+    question_id = event.payload.get("question_id")
+    question = RequestQuestion.objects.filter(id=question_id).first()
+    if question is None:
+        return None
+    if question.answered_at is not None:
+        # Asked and answered in the same step (a no-email request's phone callback, Q-159)
+        # -- nothing for the requester to do, and a no-email request has no email anyway.
+        return None
+    request, requester = _request_and_requester(question.request_id)
+    if request is None or requester is None or requester.email is None:
+        return None
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
+        return None
+    link_url = _link_url(link)
+
+    text = (
+        f'We have a question about your request: "{question.question}". You can answer '
+        f"on your request page.\n\nOpen my request page: {link_url}"
+    )
+    return NotificationEmail(
+        to=requester.email,
+        subject=f"A question about your {request.display_number}",
+        text_body=text,
+        category="requester_question",
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# E11: "Update on your HAM #047" -- reconsideration request received (Q-175). Fires for
+# both `via` (secure page and Director/AD-recorded phone) -- a no-email requester simply
+# has no `requester.email` to send to either way, so the phone path is naturally silent.
+# ---------------------------------------------------------------------------------------
+def _build_reconsideration_received_email(event: OutboxEvent) -> NotificationEmail | None:
+    request, requester = _request_and_requester(event.aggregate_id)
+    if request is None or requester is None or requester.email is None:
+        return None
+    link = _current_link(request.id)
+    if link is None:  # pragma: no cover - defensive
+        return None
+    link_url = _link_url(link)
+
+    first = _first_name(requester.full_name)
+    text = (
+        f"Thank you, {first}. We've received your request to reconsider, and we'll take "
+        f"another look. We'll let you know what we decide.\n\nOpen my request page: {link_url}"
+    )
+    return NotificationEmail(
+        to=requester.email,
+        subject=f"Update on your {request.display_number}",
+        text_body=text,
+        category="requester_reconsideration_received",
+    )
+
+
 def register() -> None:
     """Called once from `RequesterPortalConfig.ready()`."""
     register_notification("RequestSubmitted", _build_request_received_email)
     register_notification("RequesterAccessLinkIssued", _build_new_link_email)
     register_notification("RequestMediaBatchOpened", _build_more_photos_email)
     register_notification("RequestCancelled", _build_closed_email)
+    # S3.5 (approvals.md §4, Q-171/Q-174/Q-175).
+    register_notification("RequestApproved", _build_approved_email)
+    register_notification("RequestRejected", _build_rejected_email)
+    register_notification("RequesterQuestionAsked", _build_question_asked_email)
+    register_notification("ReconsiderationRequested", _build_reconsideration_received_email)
 
 
 __all__ = ["register"]
