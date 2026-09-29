@@ -34,6 +34,7 @@ def shell(request):
     # notification for this person — needs to show on every signed-in page, not only Home/
     # Inbox, so it lives here rather than being threaded through every view's context.
     urgent_banner = None
+    urgent_banner_count = 0
     if (
         actor is not None
         and actor.is_authenticated
@@ -42,9 +43,11 @@ def shell(request):
         # request/render cycle; guard against that shape here too, not only a real UUID.
         and isinstance(getattr(actor, "user_id", None), uuid.UUID)
     ):
-        from ham.notifications.services import urgent_banner_for
+        from ham.notifications.services import urgent_banner_count_for, urgent_banner_for
 
         urgent_banner = urgent_banner_for(actor)
+        if urgent_banner is not None:
+            urgent_banner_count = urgent_banner_count_for(actor)
     items = nav_items_for(request)
     bottom_items = bottom_nav_items_for(request)
     current = getattr(request, "resolver_match", None)
@@ -74,4 +77,5 @@ def shell(request):
         "bottom_nav_active_key": bottom_active_key,
         "impersonation_target_full_name": impersonation_target_full_name,
         "urgent_banner": urgent_banner,
+        "urgent_banner_count": urgent_banner_count,
     }

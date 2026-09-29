@@ -14,13 +14,20 @@ until acknowledged — "Open" goes to the request; acknowledging clears it for t
   <div class="urgent-banner-slot">
     <div class="urgent-banner" role="region" aria-label="Urgent">
       <span class="urgent-banner__icon" aria-hidden="true"><svg width="16" height="16"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg></span>
-      <span class="urgent-banner__text">{{ urgent_banner.title }}</span>
+      <span class="urgent-banner__text">
+        {% comment %}
+        M12: when more than one urgent item is waiting, lead with the count -- acknowledging
+        the one shown still leaves the rest for the next page load, so "I've seen this"
+        (singular) undersold what was actually still outstanding.
+        {% endcomment %}
+        {% if urgent_banner_count > 1 %}{{ urgent_banner_count }} urgent requests need you &middot; {% endif %}{{ urgent_banner.title }}
+      </span>
       <span class="urgent-banner__actions">
         <a class="btn btn--secondary" href="{% maybe_url 'web:request_detail' urgent_banner.subject_id %}">Open</a>
         <form method="post" action="{% url 'web:notification_acknowledge' notification_id=urgent_banner.id %}">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          <button class="btn btn--ghost" type="submit">{% if urgent_banner.acknowledge_label %}{{ urgent_banner.acknowledge_label }}{% else %}I&#39;ve seen this{% endif %}</button>
+          <button class="btn btn--ghost" type="submit">Got it</button>
         </form>
       </span>
     </div>

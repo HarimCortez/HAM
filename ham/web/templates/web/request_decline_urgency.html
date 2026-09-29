@@ -17,11 +17,11 @@
         <blockquote>{{ urgency_line }}</blockquote>
       </figure>
     {% endif %}
-    <p>{{ request_row.display_number }} will stay with the pastors and Board as a normal request.
-      The Urgent label comes off and it moves into the normal order. The requester's page
-      switches to the normal wording. No one is emailed.</p>
     <form method="post">
       {% csrf_token %}
+      <p>{{ request_row.display_number }} will stay with the pastors and Board as a normal request.
+        The Urgent label comes off and it moves into the normal order. The requester's page
+        switches to the normal wording. No one is emailed.</p>
       <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">

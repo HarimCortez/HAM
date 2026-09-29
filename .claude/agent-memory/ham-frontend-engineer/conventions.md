@@ -775,3 +775,81 @@
   template change needed. Also handed back: M6/M7/M9 (decline preview WYSIWYG, dual-role route
   preselect, hard-coded rule values/names) — explicitly FIX-3A's per the wave brief's
   file-ownership split, even though they live in files this slice otherwise owns.
+
+## Step 3 fix pass FIX-3D (step3-ui-visual-qa.md "Re-check at 089473e"), round 2
+- **CSS specificity beats source order for `@container`/`@media` overrides.** Adding
+  `container-type: inline-size` to a wider ancestor (`.sheet--fullscreen`, for N1's h1 fix)
+  does make it the "nearest container" for descendants that have no closer container (e.g. a
+  standalone `.choice-card--statement` with no `.choice-grid` around it) — so a *later*
+  `@container` rule scoped to plain `.choice-card` *does* start applying to it for free. But if
+  an *earlier* rule used a more specific selector for the same property (`.sheet--fullscreen
+  .choice-card { gap: ... }`, two classes) than your new one (`.choice-card { gap: ... }`, one
+  class), the earlier-but-more-specific rule still wins regardless of source order — match or
+  exceed the existing selector's specificity, not just add a rule after it. Caught by measuring
+  the *computed* `gap`/`font-size` via Playwright (not by reading the CSS and assuming it
+  applies).
+- **M10 residue's real fix needed three numbers shrunk together, not one.** "available"/
+  "reconsider"/"Something" (9-10 letters) still broke mid-word at 195px even after the standard
+  22em choice-card padding trim, because those three sheets use standalone
+  `.choice-card--statement` (no `.choice-grid`, so it never got the icon-drop rule at all) or a
+  no-icon single-column category grid — the fixed 24px checkbox/radio + `body-lg` (18px) font
+  left only ~74px for the label, and even `break-word` will still split a word wider than its
+  available box. Fixed by shrinking, together, only inside `@container (max-width: 22em)` on
+  `.sheet--fullscreen .choice-card`: font down to `type-small` (13px), the input to 18px, gap to
+  `space-1` (4px), padding-inline to `space-1`. Verify with the geometric per-word `Range
+  .getClientRects().length` check (same one B3 introduced), not just "does it fit visually" —
+  the first two shrink attempts (16px font/20px input/space-2 gap, then still 16px font) each
+  *looked* like enough headroom by arithmetic but still measured 2 line(s) for the word.
+- **`position: sticky; bottom: 0` on the very last child of a flex column can appear "pinned"
+  at the viewport bottom on first paint even with scrollY=0**, if its containing block (the
+  `<form>`, once B2 wraps the whole sheet body in it) is taller than the viewport — sticky
+  clamps the element so its bottom never exceeds the viewport's bottom edge *within the
+  containing block's own extent*, which visually looks identical to "docked to the bottom of
+  the screen" whether or not the rest of the document is short or long. Don't assert `bar.bottom
+  >= documentHeight` (wrong — fails even on a correctly-fixed page whose content overflows one
+  screen); assert `bar.bottom >= viewportHeight - epsilon` instead. Whenever a geometric sticky
+  assertion is surprising, dump the raw `getBoundingClientRect()`/`scrollY`/computed `position`
+  first rather than trusting the first plausible-looking assertion.
+- **A submit button that only needs to POST a side-effect (e.g. "Show contact details") must
+  get `formnovalidate`** once it's merged into the same `<form>` as other `required` fields
+  (B2's A5/A11 single-form merge) — otherwise clicking it triggers the browser's native
+  required-field validation on fields that have nothing to do with that button's action, and the
+  click silently does nothing.
+- **B2's "form wraps the whole sheet body" is judged relative to A2's own established pattern,
+  not literally "every visible line."** A2/A3's `h1`/subtitle stay outside `<form>` (shell
+  chrome); everything else (quote blocks, urgency text, consequence copy, the fields, the bar)
+  goes inside. A2c/A2n/A2u had their intro `<figure>`/`<p>` sitting *before* `<form>` (same
+  visual shape as A2's *passing* case) yet were still flagged — the residual bug wasn't really
+  about which specific lines were outside the form, it was A5/A11 having a genuinely *separate*
+  sibling `<form>` for "Show contact details" (see above) and U1 never having wrapped its
+  consequence `<ul>`/deadline `<p>` in the first place. Fixed all of them the same way (move the
+  intro content inside the one `<form>`) for consistency, but the two real, different root
+  causes are worth remembering next time a QA note says "form wraps only the bar."
+- **`RequestListRow.is_final`/`.markers` are still unset in `ham.requests.queries`** as of this
+  round (grep found zero assignments) even though `requests_list.html`'s "· Final" rendering
+  (`{% if row.is_final %}`) has existed since FIX-3B — the template-side work for M3/M4 was
+  already done a round ago and needs no further template change; only the backend field
+  (blocked by this round's file-ownership split, `ham/requests/*` is FIX-3C's) is still missing.
+  Don't re-"fix" the template when a QA note says a row marker is missing — check whether the
+  template already reads the field first (`grep row.is_final` before touching
+  `requests_list.html`).
+- **M12's real per-request Home cards need `ham/requests/attention.py`** (`reconsideration_
+  cards`/`pastor_certify_card`/`decision_phone_card` are all still single-aggregate-card
+  builders, "Reconsideration for you (1)" not one card per request) — entirely inside
+  `ham/requests/*`, blocked by this round's file-ownership split. What *is* fair game and owned
+  by `ham.notifications` (a separate app, not `ham/requests/*`): the banner's own count/copy.
+  Added `urgent_banner_count_for(ctx)` next to the existing `urgent_banner_for(ctx)` in
+  `ham/notifications/services.py`, threaded through `ham.web.context_processors.shell` as
+  `urgent_banner_count`, and `_urgent_banner.html` now says "N urgent requests need you · " (N>1
+  only) and "Got it" (was "I've seen this", and dropped the always-`None` `acknowledge_label`
+  dead branch). Updating this copy required also updating `tests/e2e/test_fix3b_urgent_banner
+  .py`'s old `'button:has-text("I\'ve seen this")'` selector — grep every old string literal
+  before a copy change, not just the ones your own new tests touch.
+- **Proof-test discipline, reinforced:** every fix in this round was checked against
+  `git checkout bcb1a61 -- <paths>` (`bcb1a61`, this round's real pre-fix branch tip) before
+  trusting a "passes" result — caught two tests that looked correct on paper but actually passed
+  even pre-fix (the first draft of the U1 bar-pinning Playwright geometry test, and the first
+  draft of the N2 chip test using the Decision card's own status chip instead of the narrower L5
+  duplicate-panel chip the QA screenshot actually showed the break on) — both had to be
+  rewritten (U1 became a structural DOM-order assertion instead of a sticky-geometry one; N2
+  moved to the L5 panel with a `RequestMatch` fixture) before they were real regression guards.

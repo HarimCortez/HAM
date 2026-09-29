@@ -18,24 +18,24 @@
       </div>
       <p><a class="btn btn--secondary" href="{% url 'web:request_detail' request_id=request_row.id %}">Close</a></p>
     {% else %}
-      <ul>
-        {% if requester_phoned_at %}
-          <li>You told them by phone at {{ requester_phoned_at|church_time }}{% if requester_phoned_by %} ({{ requester_phoned_by }}){% endif %}. Please call them back to say the decision is being looked at again.</li>
-        {% elif not has_email %}
-          <li>They don't use email, so nothing was sent.</li>
-        {% else %}
-          <li>Nothing has been sent to the requester. Their email is cancelled.</li>
-        {% endif %}
-        <li>{{ request_row.display_number }} goes back to its previous state, and anyone who can decide may decide it again.</li>
-        {% if urgent_approval %}<li>The Director and Assistant Director were already alerted. They'll get a note that it was undone.</li>{% endif %}
-        <li>The decision and the undo both stay in the history.</li>
-      </ul>
-      <p class="text-secondary type-small">You can undo until <time datetime="{{ undo_deadline|date:'c' }}">{{ undo_deadline|church_time }}</time>.</p>
-
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="approval_id" value="{{ approval_id }}">
         <input type="hidden" name="review_id" value="{{ review_id }}">
+        <ul>
+          {% if requester_phoned_at %}
+            <li>You told them by phone at {{ requester_phoned_at|church_time }}{% if requester_phoned_by %} ({{ requester_phoned_by }}){% endif %}. Please call them back to say the decision is being looked at again.</li>
+          {% elif not has_email %}
+            <li>They don't use email, so nothing was sent.</li>
+          {% else %}
+            <li>Nothing has been sent to the requester. Their email is cancelled.</li>
+          {% endif %}
+          <li>{{ request_row.display_number }} goes back to its previous state, and anyone who can decide may decide it again.</li>
+          {% if urgent_approval %}<li>The Director and Assistant Director were already alerted. They'll get a note that it was undone.</li>{% endif %}
+          <li>The decision and the undo both stay in the history.</li>
+        </ul>
+        <p class="text-secondary type-small">You can undo until <time datetime="{{ undo_deadline|date:'c' }}">{{ undo_deadline|church_time }}</time>.</p>
+
         <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Keep my decision</a></p>
         <div class="action-bar">
           <div class="action-bar__inner">

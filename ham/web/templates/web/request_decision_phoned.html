@@ -12,39 +12,36 @@
     <h1>Tell the requester by phone &middot; {{ request_row.display_number }}</h1>
     <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
-    <p class="type-label">What to say</p>
-    <figure class="quote-block">
-      <blockquote>
-        {% if approval.outcome == "approved" %}
-          Your request has been approved. Someone from HAM will call you to arrange a visit. The
-          visit helps us plan; it doesn't yet promise the work.
-        {% else %}
-          {{ message }}
-          {% if reconsideration_deadline %}You can ask us to reconsider once, until {{ reconsideration_deadline|church_time }}.{% endif %}
-        {% endif %}
-      </blockquote>
-    </figure>
-
-    {% if revealed %}
-      <div class="masked-block masked-block--revealed">
-        <p>{{ revealed.full_name }}</p>
-        <p>
-          <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
-          <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
-        </p>
-      </div>
-    {% else %}
-      {% comment %}
-      Security M4: never revealed on GET -- a deliberate tap, one action, one audit row.
-      {% endcomment %}
-      <form method="post">
-        {% csrf_token %}
-        <button class="btn btn--secondary" type="submit" name="show_contact" value="1">Show contact details</button>
-      </form>
-    {% endif %}
-
     <form method="post">
       {% csrf_token %}
+      <p class="type-label">What to say</p>
+      <figure class="quote-block">
+        <blockquote>
+          {% if approval.outcome == "approved" %}
+            Your request has been approved. Someone from HAM will call you to arrange a visit. The
+            visit helps us plan; it doesn't yet promise the work.
+          {% else %}
+            {{ message }}
+            {% if reconsideration_deadline %}You can ask us to reconsider once, until {{ reconsideration_deadline|church_time }}.{% endif %}
+          {% endif %}
+        </blockquote>
+      </figure>
+
+      {% if revealed %}
+        <div class="masked-block masked-block--revealed">
+          <p>{{ revealed.full_name }}</p>
+          <p>
+            <a href="tel:{{ revealed.phone }}">{{ revealed.phone|phone_national }}</a>
+            <a class="btn btn--secondary" href="tel:{{ revealed.phone }}">Call</a>
+          </p>
+        </div>
+      {% else %}
+        {% comment %}
+        Security M4: never revealed on GET -- a deliberate tap, one action, one audit row.
+        {% endcomment %}
+        <button class="btn btn--secondary" type="submit" name="show_contact" value="1" formnovalidate>Show contact details</button>
+      {% endif %}
+
       <label class="choice-card choice-card--statement">
         <input type="checkbox" name="confirmed" required>
         <span>I told the requester by phone.</span>

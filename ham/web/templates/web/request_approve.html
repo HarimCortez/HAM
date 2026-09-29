@@ -11,16 +11,10 @@
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     {% if urgent_mode %}
       <h1>Approve {{ request_row.display_number }} as urgent?</h1>
-      <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
-      <figure class="quote-block">
-        <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
-        <blockquote>{{ urgency_line }}</blockquote>
-      </figure>
-      <p>By approving as urgent, you certify that this is urgent. HAM can go ahead without waiting for the Board.</p>
     {% else %}
       <h1>Approve {{ request_row.display_number }}</h1>
-      <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
     {% endif %}
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     <form method="post">
       {% csrf_token %}
@@ -31,6 +25,14 @@
       against the route actually posted either way.
       {% endcomment %}
       <input type="hidden" name="mode" value="{% if urgent_mode %}urgent{% else %}{% if urgent_awaiting_cert and is_pastor %}not_urgent{% endif %}{% endif %}">
+
+      {% if urgent_mode %}
+        <figure class="quote-block">
+          <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
+          <blockquote>{{ urgency_line }}</blockquote>
+        </figure>
+        <p>By approving as urgent, you certify that this is urgent. HAM can go ahead without waiting for the Board.</p>
+      {% endif %}
 
       {% if dual_role %}
         <fieldset class="form-field">
