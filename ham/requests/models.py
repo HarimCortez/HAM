@@ -762,12 +762,21 @@ class RequestQuestion(AppendOnlyOnceMixin, models.Model):
             ),
         ]
         constraints = [
+            # S3.3 fix: the original CHECK here was a biconditional (`answer='' <=>
+            # answered_at IS NULL`), which blocks the Q-145 retention erasure this same model
+            # is built to support (`erase_text_for_retention` blanks `answer` only, keeping
+            # `answered_at` so "Answered on {date}" and outcome reporting still work --
+            # approvals-contracts.md §1.4, approvals.md §2.1 "reason codes ... and dates are
+            # kept"). The only invariant that actually needs enforcing is one-directional: an
+            # answer's text can't exist without an `answered_at` to go with it; the reverse
+            # (an `answered_at` surviving with the text erased) is the retention state itself,
+            # not a bug. Regression: `tests/requests/test_s33_questions.py::TestRetention`
+            # (confirmed to fail against the original biconditional CHECK, pass against this
+            # one) and `test_step3_models.py::TestRequestQuestion::
+            # test_answer_requires_answered_at` (still refused: text with no `answered_at`).
             models.CheckConstraint(
-                condition=(
-                    models.Q(answer="", answered_at__isnull=True)
-                    | (~models.Q(answer="") & models.Q(answered_at__isnull=False))
-                ),
-                name="reqq_answer_iff_answered_at",
+                condition=(models.Q(answer="") | models.Q(answered_at__isnull=False)),
+                name="reqq_answer_requires_answered_at",
             ),
             models.CheckConstraint(
                 condition=~(
