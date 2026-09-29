@@ -1,0 +1,84 @@
+{% extends "web/base_public.html" %}
+{% load static web_extras %}
+
+{% block title %}Ask us to reconsider &middot; {{ church.short_name }} HAM{% endblock %}
+
+{% block public_content %}
+  <h1 tabindex="-1" id="r16-h1">Ask us to reconsider</h1>
+  <p>We'll look at your request again. You can only ask once, so if there's anything new or
+    anything we may have missed, please tell us.</p>
+
+  {% if send_failed %}
+    <div class="inline-alert inline-alert--danger" role="alert">
+      <p>We couldn't send your request just now. Please try again{% if church.phone %}, or call us at
+        {{ church.phone|phone_national }}{% endif %}.</p>
+    </div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="form-field{% if errors.note %} form-field--error{% endif %}">
+      <label for="id_note">Anything you'd like us to know? (optional)</label>
+      <textarea id="id_note" name="note" rows="5"
+                aria-describedby="id_note-mic{% if errors.note %} id_note-error{% endif %}"
+                {% if errors.note %}aria-invalid="true"{% endif %}
+                data-max-length="{{ note_max_length }}">{{ note|default:"" }}</textarea>
+      {% if errors.note %}<p class="form-field__error" id="id_note-error">{{ errors.note }}</p>{% endif %}
+      <p class="char-counter" data-counter-for="id_note" hidden></p>
+    </div>
+    <p class="action-card__mic-tip" id="id_note-mic">
+      <svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-mic"></use></svg>
+      Tip: tap the microphone on your keyboard to speak instead of typing.
+    </p>
+    {% if reconsider.last_day %}
+      <p class="reconsider-block__deadline">
+        <svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-calendar-clock"></use></svg>
+        You can ask until <time datetime="{{ reconsider.last_day|date:'c' }}">{{ reconsider.last_day|date:'D, M j' }}</time>.
+      </p>
+    {% endif %}
+
+    <p class="wizard-back-link"><a href="{% url 'web:request_help_secure_page' token=token %}">Not now</a></p>
+
+    <div class="action-bar">
+      <div class="action-bar__inner">
+        <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_help_secure_page' token=token %}">Not now</a>
+        <button class="btn btn--primary" type="submit" data-guard-double-submit>Send my request to reconsider</button>
+      </div>
+    </div>
+  </form>
+
+  <script>
+    document.getElementById("r16-h1").focus();
+    (function () {
+      var form = document.querySelector("form");
+      var textarea = document.getElementById("id_note");
+      var counter = document.querySelector('[data-counter-for="id_note"]');
+      function updateCounter() {
+        if (!textarea || !counter) return;
+        var max = parseInt(textarea.getAttribute("data-max-length"), 10);
+        var length = textarea.value.length;
+        if (length >= max * 0.9) {
+          counter.hidden = false;
+          counter.textContent = length + " of " + max;
+          counter.classList.toggle("char-counter--over", length > max);
+        } else {
+          counter.hidden = true;
+        }
+      }
+      if (textarea) {
+        textarea.addEventListener("input", updateCounter);
+        updateCounter();
+      }
+      // Double-send guard (UX R16): lock the primary after one tap.
+      if (form) {
+        form.addEventListener("submit", function () {
+          var button = form.querySelector("[data-guard-double-submit]");
+          if (button) {
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+          }
+        });
+      }
+    })();
+  </script>
+{% endblock %}

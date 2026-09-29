@@ -2577,3 +2577,124 @@ fieldset:has(
   margin-inline: auto;
   border-radius: var(--ham-radius-md);
 }
+
+/* ============================================================================================
+   Step 3 requester (S3.7): R13-R19 (docs/ux/approvals.md §6; design-system/screens/
+   approvals.md §5; components.md C§35/C§38 requester variants). Tokens only.
+   ============================================================================================ */
+
+/* --- Quote block (C35) ----------------------------------------------------------------------- */
+.quote-block {
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-sm);
+  border-left: var(--ham-size-accent-bar) solid var(--ham-border-strong);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  margin: var(--ham-space-3) 0;
+}
+
+.quote-block figcaption {
+  font-size: var(--ham-type-body-size);
+  color: var(--ham-text-secondary);
+  margin-bottom: var(--ham-space-1);
+}
+
+.quote-block blockquote {
+  margin: 0;
+  color: var(--ham-text-primary);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.quote-block--muted blockquote {
+  color: var(--ham-text-secondary);
+}
+
+/* --- Action card: HAM has a question for you (R13) -------------------------------------------- */
+.action-card--question textarea {
+  width: 100%;
+  min-height: 6em;
+}
+
+.action-card__mic-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ham-space-2);
+  color: var(--ham-text-tertiary);
+  margin: var(--ham-space-2) 0;
+}
+
+.action-card__mic-tip svg {
+  flex-shrink: 0;
+  margin-top: 0.15em;
+}
+
+.char-counter {
+  text-align: right;
+  color: var(--ham-text-secondary);
+  font-variant-numeric: tabular-nums;
+  margin: var(--ham-space-1) 0 0;
+}
+
+.char-counter--over {
+  color: var(--ham-tone-danger-fg);
+}
+
+/* --- Questions and answers (C38, requester side) ------------------------------------------- */
+.qa-thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.qa-thread__item {
+  margin-bottom: var(--ham-space-4);
+}
+
+.qa-thread__meta {
+  font-size: var(--ham-type-body-size);
+  color: var(--ham-text-secondary);
+  margin: 0 0 var(--ham-space-1);
+}
+
+/* --- Reconsider block (R15) ------------------------------------------------------------------ */
+/* Plain (not flex) so the sentence wraps naturally at 200% text -- only the date itself
+   (`<time>`) stays on one line, never the whole row (a `display:flex` row here would refuse
+   to wrap at all and force a wide overflow). */
+.reconsider-block__deadline {
+  font-size: var(--ham-type-body-lg-size);
+  color: var(--ham-text-secondary);
+  margin: var(--ham-space-3) 0;
+}
+
+.reconsider-block__deadline svg {
+  vertical-align: -0.2em;
+  margin-right: var(--ham-space-2);
+}
+
+.reconsider-block__deadline time {
+  font-weight: var(--ham-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.reconsider-block .btn {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .reconsider-block .btn {
+    width: auto;
+  }
+}
+
+/* --- Offline / send-failed reason lines (R19) ------------------------------------------------ */
+/* `:not([hidden])`: an author `display` declaration on this class would otherwise always beat
+   the UA stylesheet's `[hidden] { display: none }` (same specificity, author wins over UA
+   regardless of source order), showing the reason line even while `hidden` is present -- it
+   must only ever become visible once JS explicitly removes the attribute. */
+.form-field__offline-reason:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  color: var(--ham-text-secondary);
+  margin: 0 0 var(--ham-space-2);
+}

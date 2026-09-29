@@ -38,6 +38,7 @@ from ham.requests.queries import RequesterPageRow, get_request_for_requester
 from ham.requests.states import RequestStatus, UrgencyStatus, may_request_reconsideration
 
 from . import projection
+from .validity import normal_access_ends_at
 
 # Q-176: the prior status a live, not-yet-effective decision's stage produced *from* --
 # "during the undo window, nothing changes for the requester" (task brief §2): the page shows
@@ -109,6 +110,14 @@ class SecurePageData:
     reconsider: ReconsiderEligibility | None
     open_questions: tuple[QuestionCard, ...]
     answered_questions: tuple[QuestionCard, ...]
+    # R17 "What you told us" -- her own note (Q-158), "" when she left it blank or hasn't
+    # asked. Never the leaders' own reconsideration reason (that's `Approval.reason`, not
+    # this -- and it's never shown to the requester at all).
+    reconsideration_note: str
+    reconsideration_requested_at: dt.datetime | None
+    # R18b/R18c footer "This page will stay available until {date}." -- the church-local
+    # calendar date normal access ends, only set once the request is finally closed.
+    access_ends_at: dt.date | None
 
 
 def _effective_status_and_closed(
@@ -135,6 +144,8 @@ def _status_card(
     closed: dt.datetime | None,
     decision: DecisionCard | None,
     urgent_certified: bool,
+    cancel_reason: str | None = None,
+    has_open_question: bool = False,
 ) -> StatusCard:
     closed_flag = closed is not None
     after_reconsideration = (
@@ -186,15 +197,19 @@ def _status_card(
         )
 
     # Step 1-2 statuses (SUBMITTED, NEEDS_PHONE_CHECK, AWAITING_APPROVAL, CANCELLED) keep the
-    # existing step-2 wording (`projection.status_wording`/`STATUS_NEXT_STEPS`).
+    # existing step-2 wording (`projection.status_wording`/`STATUS_NEXT_STEPS`), plus the
+    # step-3 "question open" row (R10 table: "Awaiting Approval + question open").
     chip_tuple = projection.REQUESTER_STATUS_CHIPS.get(status)
+    next_steps = projection.STATUS_NEXT_STEPS.get(status, [])
+    if status == RequestStatus.AWAITING_APPROVAL.value and has_open_question:
+        next_steps = [projection.AWAITING_APPROVAL_QUESTION_NEXT_STEP]
     return StatusCard(
         status=status,
         chip_label=chip_tuple[0] if chip_tuple else status,
         chip_tone=chip_tuple[1] if chip_tuple else "neutral",
         chip_icon=chip_tuple[2] if chip_tuple else "circle-help",
-        sentence=projection.status_wording(status),
-        next_steps=projection.STATUS_NEXT_STEPS.get(status, []),
+        sentence=projection.status_wording(status, cancel_reason=cancel_reason),
+        next_steps=next_steps,
         urgent_alert="",
     )
 
@@ -311,14 +326,19 @@ def secure_page_data(request_id: UUID, *, now: dt.datetime | None = None) -> Sec
         and urgency_status == UrgencyStatus.CERTIFIED.value
     )
 
+    open_questions, answered_questions = _question_cards(request_id)
+
     status_card = _status_card(
         effective_status,
         closed=effective_closed_at,
         decision=decision_card,
         urgent_certified=urgent_certified,
+        cancel_reason=row.cancel_reason_code or None,
+        has_open_question=bool(open_questions),
     )
 
-    already_requested = Reconsideration.objects.filter(request_id=request_id).exists()
+    reconsideration = Reconsideration.objects.filter(request_id=request_id).first()
+    already_requested = reconsideration is not None
     reconsider = _reconsider_eligibility(
         decision=decision_card,
         already_requested=already_requested,
@@ -326,7 +346,12 @@ def secure_page_data(request_id: UUID, *, now: dt.datetime | None = None) -> Sec
         now=now,
     )
 
-    open_questions, answered_questions = _question_cards(request_id)
+    access_ends_at: dt.date | None = None
+    if effective_closed_at is not None:
+        church_tz = ZoneInfo(church_profile().time_zone)
+        access_end = normal_access_ends_at(status=effective_status, closed_at=effective_closed_at)
+        if access_end is not None:
+            access_ends_at = access_end.astimezone(church_tz).date()
 
     return SecurePageData(
         status=status_card,
@@ -334,6 +359,9 @@ def secure_page_data(request_id: UUID, *, now: dt.datetime | None = None) -> Sec
         reconsider=reconsider,
         open_questions=open_questions,
         answered_questions=answered_questions,
+        reconsideration_note=reconsideration.requester_note if reconsideration else "",
+        reconsideration_requested_at=reconsideration.requested_at if reconsideration else None,
+        access_ends_at=access_ends_at,
     )
 
 

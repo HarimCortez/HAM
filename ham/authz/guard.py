@@ -69,6 +69,11 @@ PUBLIC_ROUTES: frozenset[str] = frozenset(
         "request_help_media_remove",
         "request_help_link_expired_send",
         "request_help_find",
+        # S3.7: step-3 requester screens (approvals-contracts.md §8). Same reasoning -- the
+        # access-link token, resolved fresh on every request, is the real control
+        # (`requester.question.answer`/`requester.reconsideration.request`, Scope.OWN_REQUEST).
+        "request_help_question_answer",
+        "request_help_reconsider",
     }
 )
 
