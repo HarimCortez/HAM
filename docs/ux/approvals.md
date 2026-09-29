@@ -1,5 +1,52 @@
 # Approvals: deciding on a request, urgent certification, questions to the requester, and reconsideration
 
+> **Owner decisions and reconciliation (2026-09-28). These override the text below and the other step-3 plan where they differ.** The source of truth is `docs/prd-open-questions.md`, Q-153 to Q-176. The reconciliation follows the PRD-guardian plan review.
+>
+> **Owner decisions**
+> - **D1, Q-153 (decided): the first recorded decision settles the request.** That holds for an approval or a rejection. Other approvers then see who decided.
+> - **D2, Q-154 (decided): a reason list plus a kind message.** The approver picks a reason and edits a pre-filled message, which is required. The reason codes are grounded in §5:
+>   - `family_or_others_can_help`
+>   - `owner_or_landlord_responsible`
+>   - `not_help_ham_offers`
+>   - `couldnt_confirm`
+>   - `another_reason`
+>
+>   "Outside the area" and "needs a licensed professional" are dropped. The message goes in the email body, and the subject stays neutral. Pastors review the wording before launch.
+> - **D3, Q-155 (decided): 14 days to ask for reconsideration.** The window ends at the end of the church-local day printed in the email (Q-174). After that, HAM finalizes the rejection automatically.
+> - **D4, Q-156 (decided): the decider confirms on a preview first, and may undo for 30 minutes.** The requester email is held for those 30 minutes and cancelled on undo. The undo is audited, and the decision record is kept and marked undone, never deleted. Q-176 has the details:
+>   - only the person who decided can undo;
+>   - the batch close, question withdrawal and leader updates wait out the window too;
+>   - the urgent-approval alert to Director/AD goes immediately, with an in-app follow-up if the decision is undone;
+>   - other approvers can't decide during the window.
+>
+> **Reconciliation (architect vs UX)**
+> - **Change category:** Director and AD only. Not blocked while impersonating. No requester email; the requester page shows the current category (Q-109).
+> - **Urgent requests:** only a pastor certifies. A Board approval of an urgent request leaves urgency *awaiting certification*, and a pastor may certify later. The urgent alert fires once, either order (Q-160, Q-161). Certification is also possible after approval.
+> - **Take-over:** one step (take over and decide) with a required tick, "Pastor X isn't available to decide this" (Q-157).
+> - **Notes:** one optional "Why approved (leaders only)" note, on approval only (Q-169). There is no leadership note on a decline or on "not urgent".
+> - **Requester's name:** leadership copy says "the requester" until this viewer uses Show contact details (Q-170). The requester never sees who decided (Q-171).
+> - **Administrator:** sees question text and "Answered on {date}" only, never answer text or reconsideration notes (Q-124/Q-151).
+> - **Questions:** open questions are withdrawn automatically when a decision takes effect. New questions may be asked after approval. For a no-email requester, the asker phones and records the answer (Q-162, Q-159).
+> - **Told by phone:** the decider may tick "I've already told them by phone" (no-email requests only). Otherwise the Director/AD get a "Call to share a decision" card. Only the Director/AD record a reconsideration asked by phone (Q-159).
+> - **Who is told:**
+>   - the reconsideration request goes to the original decider, or all pastors if that person lost the role, and to every Board rep on the Board route;
+>   - decisions go in-app to Director, AD and the other approvers;
+>   - approvals also go by email to Director/AD, per their preference;
+>   - no "left for normal review" update is sent.
+>
+>   (Q-168)
+> - **Reconsideration confirmation:** the requester gets a confirmation email when a reconsideration request arrives (Q-175).
+> - **Dual role:** someone who is both Pastor and Board rep must choose the route each time; nothing is preselected (Q-164).
+> - **Closing after a decision:** allowed as "requester withdrew" from Approved or Reconsideration Pending only (Q-165).
+> - **Blocked while impersonating:** every decision, undo and question action and every phone record. Change category is allowed (Q-172).
+> - **Reopening uploads:** not while a rejection can still be reconsidered (Q-173).
+> - **Buttons and copy:**
+>   - Approve and Decline carry equal visual weight; urgent requests lead with "Approve as urgent".
+>   - The approval email keeps the §11 line: "the visit helps us plan; it doesn't yet promise the work".
+>   - Use the UX codes (A1–A13, R13–R19, E8–E15, L-E5–L-E12). The architect's L12–L18 and its own E-numbers are superseded.
+>   - Text limits: question 500 characters, answer 1,000, reconsideration note 1,000.
+> - **Project creation** moves to step 4 (`Project.id` = request id). Step 3 emits `RequestApproved` only.
+
 Build-order step 3 (Approvals). Owner: ham-ux-designer. Draft 2026-09-28, written in parallel with the architect's step-3 plan; where the two differ, the owner's reconciliation box in the architecture doc wins, as in step 2.
 Personas: [personas.md](personas.md). Navigation, global states, requester status wording and the access table: [navigation.md](navigation.md) (**N§n**). Step-2 conventions reused: [intake.md](intake.md) (**I§n**; screens L1–L11, R1–R12, emails E1–E7 and L-E1–L-E4). Components: `design-system/components.md` (**C§n**); patterns: `design-system/patterns.md` (**P§n**). Scope split: `docs/architecture/intake.md` §1 and its owner box ("Moved to step 3").
 

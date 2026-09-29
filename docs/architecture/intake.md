@@ -96,7 +96,7 @@ Everything else in this plan uses a sensible default. These seven are hard to un
 | Media (§45, §46) | Initial batch, reopen batch (Director, AD, pastor, Board rep), processing, viewing | Batches close when the request is decided | `media.services.close_open_batches(request_id)` |
 | Requester notifications (§35) | Request received, additional photos requested, new-link notice, cancellation | Approval, rejection, reconsideration outcome | Requester email builders live in `ham/requester_portal/notifications.py`; step 3 adds builders there |
 | Leadership triage | Requests list/detail, PII reveal with logging, Home attention cards, real Inbox | Decision buttons on the same detail page | Attention-provider registry |
-| Project identity | Request number "HAM #047" | Project created with **the same UUID and number** as its request | Audit `project_id` = request id from intake onward, so the audit "project" filter shows the full history |
+| Project identity | Request number "HAM #047" | Step 3 emits `RequestApproved`; step 4 creates the Project with **the same UUID and number** as its request (see approvals.md) | Audit `project_id` = request id from intake onward, so the audit "project" filter shows the full history |
 
 ---
 
