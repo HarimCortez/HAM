@@ -21,7 +21,7 @@ def volunteer_client(client, make_user):
 def test_home_renders(volunteer_client):
     response = volunteer_client.get(reverse("web:home"))
     assert response.status_code == 200
-    assert b"Your to-do list will appear here" in response.content
+    assert b"Nothing needs your attention right now" in response.content  # FIX-3B UX m18
 
 
 @pytest.mark.django_db

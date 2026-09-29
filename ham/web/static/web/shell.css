@@ -173,9 +173,19 @@ a:hover {
 }
 
 /* --- Urgent banner (PRD §10, §35, Q-123; docs/ux/intake.md §12.3 G1) ---------------------- */
+/* B1 (step3 visual QA): a sizing container of its own, so "does the banner have room to sit
+   beside its buttons" is judged against the banner's own available width, not the viewport --
+   the banner still needs to be static (never sticky) below 22em even on a wide viewport where
+   something else (e.g. a sheet's own inset padding) narrows the space it actually has. */
+.urgent-banner-slot {
+  container-type: inline-size;
+}
+
 .urgent-banner {
-  position: sticky;
-  top: var(--ham-size-appbar-height);
+  /* C§40: static by default. Sticky is opt-in once there's real room (>=22em) -- below that,
+     a sticky banner plus a sheet's own pinned action bar can together exceed the viewport
+     height at large text, blocking every control underneath (B1/B2). */
+  position: static;
   z-index: var(--ham-z-appbar);
   background: var(--ham-tone-danger-bg);
   color: var(--ham-tone-danger-fg);
@@ -187,6 +197,13 @@ a:hover {
   gap: var(--ham-space-2) var(--ham-space-4);
   font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
     var(--ham-font-ui);
+}
+
+@container (min-width: 22em) {
+  .urgent-banner {
+    position: sticky;
+    top: var(--ham-size-appbar-height);
+  }
 }
 
 .urgent-banner__icon {
@@ -203,10 +220,18 @@ a:hover {
   min-width: 0;
 }
 
+/* B1: the actions row drops to its own full-width line and wraps its own buttons instead of
+   forcing "I've seen this" to shrink off the visible edge at 200% text/195px. */
 .urgent-banner__actions {
   display: flex;
   gap: var(--ham-space-2);
-  flex: none;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.urgent-banner__actions .btn {
+  flex: 1 1 auto;
 }
 
 /* --- Impersonation banner (navigation.md §6, C§1 "not dismissable") --------------------- */
@@ -666,6 +691,14 @@ a:hover {
   /* Minor 13: labels wrap onto a full row rather than breaking mid-word or squeezing. */
   white-space: normal;
   text-wrap: balance;
+  /* B3 (step3 visual QA): a button living inside a `<p>` (e.g. the Decision card's inline
+     alerts) inherits that ancestor's `overflow-wrap: anywhere`/`word-break`, so its own label
+     ("Undo decision...") can break one letter per line once its min-content is squeezed. A
+     button's label is never an arbitrary long unbroken value like a URL or email address --
+     it only ever needs to wrap between words. Reset both explicitly so no ancestor rule can
+     re-introduce a mid-word break here. */
+  overflow-wrap: normal;
+  word-break: normal;
   transition:
     background-color var(--ham-duration-fast) ease,
     color var(--ham-duration-fast) ease;
@@ -1697,6 +1730,28 @@ input[type="radio"] {
     min-height: 100vh;
     margin: 0;
     border-radius: 0;
+    box-shadow: none;
+    /* B2: the sheet used to keep its normal `.sheet` card padding (space-6) plus the page
+       gutter, a "double inset" that narrowed the content column enough that the 22em
+       action-bar/choice-grid container queries never actually fired at 390px. A full-screen
+       sheet is its own page, not a card floating on one -- space-4 (the page's own gutter) is
+       enough. */
+    padding-inline: var(--ham-space-4);
+    /* B2: flex column so the action bar (`margin-top: auto` below) can pin to the bottom of a
+       short sheet (U1, A2n, A12, A9-decider) instead of floating mid-screen with empty canvas
+       under it. */
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sheet--fullscreen > form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sheet--fullscreen .action-bar {
+    margin-top: auto;
   }
 }
 
@@ -2748,20 +2803,24 @@ fieldset:has(
   margin: var(--ham-space-3) 0;
 }
 
-.quote-block figcaption {
+/* Minor 13 (step3 visual QA): scoped to `.public-shell` -- an earlier, unscoped copy of these
+   two rules overrode the leadership side's own `.quote-block figcaption`/`blockquote` (S3.6,
+   above) globally, replacing its `type-small` caption everywhere regardless of which side of
+   the app rendered it. */
+.public-shell .quote-block figcaption {
   font-size: var(--ham-type-body-size);
   color: var(--ham-text-secondary);
   margin-bottom: var(--ham-space-1);
 }
 
-.quote-block blockquote {
+.public-shell .quote-block blockquote {
   margin: 0;
   color: var(--ham-text-primary);
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
-.quote-block--muted blockquote {
+.public-shell .quote-block--muted blockquote {
   color: var(--ham-text-secondary);
 }
 
@@ -2853,4 +2912,238 @@ fieldset:has(
   gap: var(--ham-space-2);
   color: var(--ham-text-secondary);
   margin: 0 0 var(--ham-space-2);
+}
+
+/* ================================================================================================
+   Step 3 fix pass FIX-3B (docs/ux/reviews/step3-ui-visual-qa.md, step3-ux-usability.md).
+   Tokens only. See the individual rules above (B1 urgent banner, B2 sheet action bars, B3 .btn
+   overflow-wrap, .public-shell .quote-block scoping) for fixes made in place; this block holds
+   the fixes that needed a brand-new rule instead of editing an existing one.
+   ================================================================================================ */
+
+/* Minor 17: a script-triggered `.focus()` on a non-interactive `tabindex="-1"` heading (used
+   to move a screen reader's virtual cursor on load, R16/every requester step) can still match
+   `:focus-visible` in Chromium even though the user never pressed a key -- reads as an error
+   box on first paint. The heading still needs a real focus target for assistive tech; it just
+   never needs the visible ring a keyboard user's Tab press earns everywhere else. */
+h1[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+/* B4/M1: the request detail becomes two columns only once there's real room for a side
+   column (~42em), via a container query, not a viewport media query -- so the Decision card
+   is never sticky, and the layout is never two columns, inside a viewport that's wide but a
+   narrow pane (e.g. the 1280 split view's detail column, C§33). */
+.request-detail {
+  container-type: inline-size;
+}
+
+@container (min-width: 42em) {
+  .request-detail__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--ham-size-aside, 22em);
+    column-gap: var(--ham-space-6);
+    align-items: start;
+  }
+
+  .request-detail__main {
+    grid-column: 1;
+  }
+
+  .request-detail__side {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+
+  .request-detail__side .decision-card {
+    position: sticky;
+    top: calc(var(--ham-size-appbar-height) + var(--ham-space-6));
+  }
+
+  .request-detail__side .decision-card__actions .btn {
+    width: 100%;
+  }
+}
+
+/* B4: never sticky on a short viewport (e.g. a landscape phone), even inside the two-column
+   layout -- a pinned card can otherwise take up most of the visible height with nothing to
+   scroll it out of the way. */
+@media (max-height: 479px) {
+  .request-detail__side .decision-card {
+    position: static;
+  }
+}
+
+/* M1: one column ≥768 and <42em-container still wants the Decision card's own actions capped
+   to a comfortable line length instead of spanning the full stretched column (an 1000px+ wide
+   "Ask a question" button). */
+@media (min-width: 768px) {
+  .request-detail__main,
+  .request-detail__side {
+    max-width: var(--ham-size-form-max);
+  }
+}
+
+@container (min-width: 42em) {
+  .request-detail__main,
+  .request-detail__side {
+    max-width: none;
+  }
+}
+
+/* M1: the Requests list keeps its full sidebar-style rail at ≥1280 the same as it does at
+   1024-1279 (patterns.md §2 v1.4 wants the compact icon rail there instead, once a
+   two-column detail exists to make room for it). */
+@media (min-width: 1280px) and (max-width: 1535.98px) {
+  .app-shell:has(.list-detail) .nav--sidebar {
+    display: none;
+  }
+
+  .app-shell:has(.list-detail) .nav--rail {
+    display: flex;
+  }
+}
+
+/* M3: staff status chips never grow past their content, so an icon-only chip on a narrow
+   staff row still reads correctly (see M11 below for the requester-facing chip fix, which
+   applies more broadly). */
+.decision-card .chip {
+  align-items: flex-start;
+}
+
+/* M8: the inline "Replace your message with the suggested one?" confirmation row (A3/A9),
+   shown instead of silently overwriting an edited decline message. Hidden until the reason
+   -change script shows it. */
+.reason-replace-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ham-space-2) var(--ham-space-3);
+  background: var(--ham-bg-sunken);
+  border-radius: var(--ham-radius-md);
+  padding: var(--ham-space-3) var(--ham-space-4);
+  margin: var(--ham-space-2) 0;
+}
+
+.reason-replace-row[hidden] {
+  display: none;
+}
+
+/* M10: statement-style choice cards (A9 "Ruth isn't available", the phone-confirmation
+   ticks) and the sheet header's request/category line wrap between words at every width
+   instead of overflowing, matching the ordinary choice-card labels' own rule above. */
+.choice-card--statement,
+.choice-card > span {
+  overflow-wrap: break-word;
+}
+
+/* M10: the A4 open-question quote is a `.quote-block`, which already wraps (`overflow-wrap:
+   anywhere`) -- nothing further needed there; this rule instead narrows the choice-card's own
+   inline padding a little more once the *sheet's* grid (not just the page) is genuinely
+   narrow, since the sheet's own inset (B2) still leaves less width than a full-bleed page. */
+.sheet--fullscreen .choice-grid {
+  container-type: inline-size;
+}
+
+@container (max-width: 22em) {
+  .sheet--fullscreen .choice-card {
+    padding-inline: var(--ham-space-2);
+    gap: var(--ham-space-2);
+  }
+}
+
+/* M11: a chip's height was fixed and its label `white-space: nowrap` -- at 200% text or on a
+   long requester-status label ("Taking another look"), the label ran out of its own pill
+   sideways instead of wrapping onto a second line, and the chip's icon (a fixed 16px box)
+   dropped below the text baseline instead of scaling with it. */
+.chip {
+  height: auto;
+  min-height: var(--ham-size-chip, 1.75rem);
+  max-width: 100%;
+  white-space: normal;
+}
+
+.chip__icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
+.chip__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* M12: the pastor Home to-do list and the Director/AD "Call to share a decision" row render
+   as one-per-request cards, not a single "(N)" summary link -- each card carries its own HAM
+   #, category and reason, so tapping it goes straight to that request instead of via the
+   list. Falls back gracefully to the old summary-link look when a provider hasn't been
+   updated to the new per-card shape yet (`item.href`/`item.meta` absent). */
+.attention-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ham-space-1);
+  padding: var(--ham-space-4);
+  border: 1.5px solid var(--ham-border-default);
+  border-radius: var(--ham-radius-md);
+  background: var(--ham-bg-surface);
+}
+
+.attention-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  color: var(--ham-text-secondary);
+  font: var(--ham-type-small-weight) var(--ham-type-small-size) / var(--ham-type-small-line-height)
+    var(--ham-font-ui);
+}
+
+/* M13: "Why it's urgent" gets its own attention-toned block, ahead of What's needed, instead
+   of being folded into the description as grey secondary text. */
+.urgency-block {
+  background: var(--ham-tone-danger-bg);
+  color: var(--ham-tone-danger-fg);
+  border-left: var(--ham-size-accent-bar) solid var(--ham-tone-danger-icon);
+  border-radius: var(--ham-radius-sm);
+  padding: var(--ham-space-4);
+  margin-bottom: var(--ham-space-6);
+}
+
+.urgency-block__label {
+  display: flex;
+  align-items: center;
+  gap: var(--ham-space-2);
+  font: var(--ham-type-label-weight) var(--ham-type-label-size) / var(--ham-type-label-line-height)
+    var(--ham-font-ui);
+  margin: 0 0 var(--ham-space-2);
+}
+
+.urgency-block blockquote {
+  margin: var(--ham-space-2) 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* UX M15: at 390 + 200% text, the header actions (Ask for more photos, Close request) used
+   to sit above the Decision card, pushing Approve/Decline off the first screen. Reordered in
+   the template (`_request_detail.html`) into the card's own secondary row at <1024; this CSS
+   just keeps them visually secondary (never Primary-styled) wherever they land. */
+.request-detail__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ham-space-2);
+  margin-bottom: var(--ham-space-4);
+}
+
+/* The header copy (>=1024 only) and the after-Decision-card copy (<1024 only) are mutually
+   exclusive -- never both visible, never neither. */
+@media (max-width: 1023.98px) {
+  .request-detail__header-actions:not(.request-detail__header-actions--after-decision) {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .request-detail__header-actions--after-decision {
+    display: none;
+  }
 }

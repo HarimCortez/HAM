@@ -97,6 +97,10 @@ def home(request):
     # approval requests at once) breaks the "one primary action" pattern.
     first_urgent = next((item for item in items if item.urgent and not item.muted), None)
     context["first_urgent_kind"] = first_urgent.kind if first_urgent else None
+    # FIX-3B UX m1: "{n} things need you" in the greeting -- a small, additively-named context
+    # key (not a template-side count, since `attention_items` may hold aggregate cards worth
+    # more than 1 each in a future round; today it's just `len()`).
+    context["attention_count"] = len(items)
     return render(request, "web/home.html", context)
 
 

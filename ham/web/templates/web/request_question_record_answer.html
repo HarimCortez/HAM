@@ -4,11 +4,14 @@
 {% block title %}Record their answer · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Record their answer{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
+{% block messages %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Record their answer</h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     {% if messages %}
       <div class="inline-alert inline-alert--danger" role="alert" tabindex="-1">
@@ -41,9 +44,10 @@
         <input type="checkbox" name="confirmed" required>
         <span>I spoke with the requester by phone.</span>
       </label>
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Save answer</button>
         </div>
       </div>

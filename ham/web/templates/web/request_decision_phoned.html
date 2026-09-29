@@ -4,11 +4,13 @@
 {% block title %}Tell by phone · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Tell by phone{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Tell the requester by phone &middot; {{ request_row.display_number }}</h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
 
     <p class="type-label">What to say</p>
     <figure class="quote-block">
@@ -39,9 +41,10 @@
         <input type="checkbox" name="confirmed" required>
         <span>I told the requester by phone.</span>
       </label>
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Mark as told</button>
         </div>
       </div>

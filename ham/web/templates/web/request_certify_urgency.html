@@ -1,14 +1,16 @@
 {% extends "web/base.html" %}
-{% load static %}
+{% load static web_extras %}
 
 {% block title %}Certify as urgent · {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}Certify as urgent{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     <h1>Certify {{ request_row.display_number }} as urgent?</h1>
+    <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
     <figure class="quote-block">
       <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
       <blockquote>{{ urgency_line }}</blockquote>
@@ -19,9 +21,10 @@
       <div class="quiet-block">
         <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-info"></use></svg> Marcus and Andre are alerted right away, on every channel.</p>
       </div>
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">Certify as urgent</button>
         </div>
       </div>

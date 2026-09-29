@@ -172,7 +172,12 @@
       {% endif %}
       <a class="btn btn--primary" href="{% url 'web:request_help_photos' token=token %}">Add photos</a>
     </div>
-  {% elif row.status == "APPROVED" or row.status == "REJECTED" or row.status == "RECONSIDERATION_PENDING" %}
+  {% elif row.status == "APPROVED" %}
+    {% comment %}
+    UX Minor m22: only shown on an approved request (HAM might still ask for more before
+    the visit) -- a declined or reconsideration-pending request never gets this "we'll ask"
+    line, since it reads as though HAM might still want photos for a request it turned down.
+    {% endcomment %}
     <div class="inline-alert inline-alert--info">
       <p>Photo uploads are closed for now. If HAM needs more, we'll ask.</p>
     </div>
@@ -241,10 +246,16 @@
     We're glad to help.
   </p>
 
-  <p class="text-secondary">
-    No longer need help? Call us{% if church.phone %} at {{ church.phone|phone_national }}{% endif %} and we'll
-    close your request.
-  </p>
+  {% if row.status != "REJECTED" and not decision.closed %}
+    {% comment %}
+    UX Minor m22: hidden once declined -- there's nothing left to close on a request HAM
+    already turned down -- and hidden once any other decision is closed/final.
+    {% endcomment %}
+    <p class="text-secondary">
+      No longer need help? Call us{% if church.phone %} at {{ church.phone|phone_national }}{% endif %} and we'll
+      close your request.
+    </p>
+  {% endif %}
   </div>
   </div>
 

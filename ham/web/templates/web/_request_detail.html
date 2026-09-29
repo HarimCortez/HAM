@@ -23,7 +23,14 @@ its own page, h2 inside the list page).
         {% if contact_state %}{{ contact_state }} &middot; {% endif %}Updates by {{ updates_by }}
       </p>
     </div>
-    <div class="form-actions">
+    {% comment %}
+    UX M15: at 390 + 200% text these used to sit above the Decision card, pushing Approve /
+    Decline below the first screen. Rendered once here (visible >=1024, in the header row) and
+    once again after the Decision card below (visible <1024, so it lands after Approve /
+    Decline instead of before them) -- `.request-detail__header-actions` hides one or the
+    other by viewport width, never both at once.
+    {% endcomment %}
+    <div class="form-actions request-detail__header-actions">
       {% if can_verify_phone %}
         <a class="btn btn--primary" href="{% url 'web:request_phone_check' request_id=detail.id %}">Record phone check</a>
       {% endif %}
@@ -41,12 +48,52 @@ its own page, h2 inside the list page).
     </div>
   </div>
 
-  {% comment %}
-  S3.6: the Decision card (docs/ux/approvals.md A1) replaces the old plain "With the pastors
-  and Board since..." banner for AWAITING_APPROVAL -- its own state line covers that, per role.
-  {% endcomment %}
-  {% include "web/_decision_card.html" %}
+  <div class="request-detail__grid">
+    <div class="request-detail__side">
+      {% comment %}
+      S3.6: the Decision card (docs/ux/approvals.md A1) replaces the old plain "With the
+      pastors and Board since..." banner for AWAITING_APPROVAL -- its own state line covers
+      that, per role. B4/M1: lives in the side column so it's never sticky except in the real
+      two-column layout, and never overlaps the "Earlier request found" alert (that alert is
+      in the main column instead).
+      {% endcomment %}
+      {% include "web/_decision_card.html" %}
 
+      {% comment %}
+      M13: its own attention-toned block, directly under the Decision card -- it's the basis a
+      pastor certifies on, so it needs more visual weight than the grey secondary text it used
+      to render as inside "What's needed" below.
+      {% endcomment %}
+      {% if detail.urgent_requested and urgency_line %}
+        <section class="urgency-block" aria-labelledby="request-detail-urgency-{{ detail.id }}">
+          <p class="urgency-block__label" id="request-detail-urgency-{{ detail.id }}">
+            <svg width="20" height="20" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg>
+            Why it's urgent
+          </p>
+          <blockquote>&ldquo;{{ urgency_line }}&rdquo;</blockquote>
+        </section>
+      {% endif %}
+
+      {% comment %}UX M15: the <1024 copy, after the Decision card / Approve / Decline.{% endcomment %}
+      <div class="form-actions request-detail__header-actions request-detail__header-actions--after-decision">
+        {% if can_verify_phone %}
+          <a class="btn btn--primary" href="{% url 'web:request_phone_check' request_id=detail.id %}">Record phone check</a>
+        {% endif %}
+        {% if can_reopen_media %}
+          {% if has_email %}
+            <a class="btn btn--secondary" href="{% url 'web:request_more_photos' request_id=detail.id %}">Ask for more photos</a>
+          {% else %}
+            <span class="btn btn--secondary" aria-disabled="true">Ask for more photos</span>
+            <p class="text-secondary type-label">No email on file. We'll take photos at the visit.</p>
+          {% endif %}
+        {% endif %}
+        {% if can_cancel %}
+          <a class="btn btn--secondary" href="{% url 'web:request_close' request_id=detail.id %}">Close request&hellip;</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="request-detail__main">
   {% if detail.status == "CANCELLED" %}
     <div class="inline-alert inline-alert--neutral" role="status">
       <p>Closed {{ detail.closed_at|church_time }} &middot; {{ cancel_reason_label }}</p>
@@ -97,7 +144,6 @@ its own page, h2 inside the list page).
   <section aria-labelledby="request-detail-need-{{ detail.id }}">
     <{{ heading_tag }} id="request-detail-need-{{ detail.id }}">What's needed</{{ heading_tag }}>
     <p>{{ detail.description }}</p>
-    {% if detail.urgent_requested %}<p class="text-secondary">Urgent: {{ urgency_line }}</p>{% endif %}
   </section>
 
   <section aria-labelledby="request-detail-safety-{{ detail.id }}">
@@ -226,4 +272,6 @@ its own page, h2 inside the list page).
       </ul>
     </section>
   {% endif %}
+    </div>
+  </div>
 </article>

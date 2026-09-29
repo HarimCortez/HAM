@@ -4,12 +4,14 @@
 {% block title %}Approve {{ request_row.display_number }} · {{ church.short_name }} HAM{% endblock %}
 {% block app_bar_title %}{% if urgent_mode %}Approve as urgent{% else %}Approve{% endif %}{% endblock %}
 {% block bottom_nav %}{% endblock %}
+{% block urgent_banner %}{% endblock %}
 
 {% block content %}
   <div class="sheet sheet--fullscreen">
     <p><a href="{% url 'web:request_detail' request_id=request_row.id %}">&larr; Back to {{ request_row.display_number }}</a></p>
     {% if urgent_mode %}
       <h1>Approve {{ request_row.display_number }} as urgent?</h1>
+      <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
       <figure class="quote-block">
         <figcaption><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-siren"></use></svg> Why it's urgent</figcaption>
         <blockquote>{{ urgency_line }}</blockquote>
@@ -17,6 +19,7 @@
       <p>By approving as urgent, you certify that this is urgent. HAM can go ahead without waiting for the Board.</p>
     {% else %}
       <h1>Approve {{ request_row.display_number }}</h1>
+      <p class="text-secondary">{{ request_row.display_number }} &middot; {{ request_row.need_category|need_category_label }}</p>
     {% endif %}
 
     <form method="post">
@@ -75,9 +78,10 @@
         <p><a class="link-button" href="?mode=normal">Approve, but not as urgent</a></p>
       {% endif %}
 
+      <p class="wizard-back-link"><a href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a></p>
       <div class="action-bar">
         <div class="action-bar__inner">
-          <a class="btn btn--ghost" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
+          <a class="btn btn--ghost action-bar__back" href="{% url 'web:request_detail' request_id=request_row.id %}">Cancel</a>
           <button class="btn btn--primary" type="submit">
             {% if urgent_mode %}Certify and approve{% else %}Approve {{ request_row.display_number }}{% endif %}
           </button>

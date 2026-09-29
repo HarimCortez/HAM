@@ -118,7 +118,8 @@ of hiding a duplicate copy from assistive tech.
           <div>
             <p class="type-label">Can be undone until <time datetime="{{ decision.undo_deadline|date:'c' }}">{{ decision.undo_deadline|church_time }}</time></p>
             <p>Nothing has been sent to the requester yet.{% if decision.urgent_approval %} The Director and Assistant Director were alerted right away.{% endif %}</p>
-            <p><a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?approval_id={{ decision.approval_id }}">Undo decision&hellip;</a></p>
+            {# B3: a direct child of the alert body, not inside a `<p>` -- the ancestor `.request-detail p` rule's `overflow-wrap: anywhere` inherits into any button nested in a `<p>` and can break "Undo decision..." mid-word at large text. #}
+            <a class="btn btn--secondary" href="{% url 'web:request_decision_undo' request_id=detail.id %}?approval_id={{ decision.approval_id }}">Undo decision&hellip;</a>
           </div>
         </div>
       {% elif decision.state == "pending" %}
@@ -149,7 +150,7 @@ of hiding a duplicate copy from assistive tech.
       {% if decision.certify_after_approval %}
         <div class="inline-alert inline-alert--attention">
           <p>Urgent, not yet certified. The Board approved it; a pastor can certify it.</p>
-          <p><a class="btn btn--primary" href="{% url 'web:request_certify_urgency' request_id=detail.id %}">Certify as urgent&hellip;</a></p>
+          <a class="btn btn--primary" href="{% url 'web:request_certify_urgency' request_id=detail.id %}">Certify as urgent&hellip;</a>
         </div>
       {% endif %}
 
@@ -159,7 +160,7 @@ of hiding a duplicate copy from assistive tech.
         {% if decision.reconsideration_deadline %}
           <p><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-calendar-clock"></use></svg> The requester can ask us to reconsider until {{ decision.reconsideration_deadline|church_time }}.</p>
           {% if decision.can_record_reconsideration_phone %}
-            <p><a class="btn btn--secondary" href="{% url 'web:request_reconsideration_phone' request_id=detail.id %}">Record request to reconsider (phone)&hellip;</a></p>
+            <a class="btn btn--secondary" href="{% url 'web:request_reconsideration_phone' request_id=detail.id %}">Record request to reconsider (phone)&hellip;</a>
           {% endif %}
         {% elif decision.is_final %}
           <p class="text-secondary"><svg width="16" height="16" aria-hidden="true"><use href="{% static 'web/icons.svg' %}#icon-ban"></use></svg> Final. The request is closed.</p>

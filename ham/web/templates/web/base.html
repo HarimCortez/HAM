@@ -21,7 +21,12 @@
       <p class="app-bar__title">{% block app_bar_title %}{% endblock %}</p>
     </header>
 
-    {% include "web/_urgent_banner.html" %}
+    {% comment %}
+    B1: full-screen sheets (block bottom_nav {% endblock %}) also empty this block -- a
+    decision is already in progress there, and the sticky banner otherwise stacks with the
+    sheet's own pinned action bar and can cover the whole viewport at large text (B1/B2).
+    {% endcomment %}
+    {% block urgent_banner %}{% include "web/_urgent_banner.html" %}{% endblock %}
     {% include "web/_impersonation_banner.html" %}
 
     <div id="offline-status" class="offline-banner" role="status" hidden>
@@ -46,15 +51,23 @@
       </nav>
 
       <main id="main-content" class="app-shell__main" tabindex="-1">
-        {% if messages %}
-          <ul class="messages">
-            {% for message in messages %}
-              <li class="inline-alert inline-alert--{{ message.tags|default:'info' }}" role="status">
-                {{ message }}
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
+        {% comment %}
+        UX usability review ("Duplicate error messages"): full-screen sheets render `messages`
+        themselves, inline in their own `.inline-alert`, styled and focusable at the top of the
+        sheet body -- they override this block to nothing so each message is shown and
+        announced exactly once, not once here and once again inside the sheet.
+        {% endcomment %}
+        {% block messages %}
+          {% if messages %}
+            <ul class="messages">
+              {% for message in messages %}
+                <li class="inline-alert inline-alert--{{ message.tags|default:'info' }}" role="status">
+                  {{ message }}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endblock %}
         {% block content %}{% endblock %}
       </main>
     </div>
