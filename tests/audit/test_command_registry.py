@@ -64,13 +64,9 @@ PLACEHOLDER_ACTIONS = frozenset(
         "intake_source.manage",
         # S3.0 (approvals.md §8.1): matrix rows + service *signatures* declared this slice as
         # `NotImplementedError` stubs (docs/architecture/approvals-contracts.md §2). S3.2
-        # (decisions/reconsideration/category/undo/finalize) has now wired its real
-        # `@command(...)` sites (ham/requests/services_decisions.py) -- moved out below. S3.3
-        # (questions) has not landed in this worktree yet.
-        "request.question.ask",
-        "request.question.record_answer",
-        "request.question.withdraw",
-        "requester.question.answer",
+        # (decisions/reconsideration/category/undo/finalize, ham/requests/services_decisions.py)
+        # and S3.3 (questions, ham/requests/services_questions.py) have both now wired their
+        # real `@command(...)` sites -- nothing left in this set from step 3.
         # `system.media.process`/`system.media.purge`: SYSTEM-scoped background jobs
         # (`ham/media/jobs.py::process_item`/`_purge_item`) that write their own audit rows
         # by hand (`request_media.rejected`/`request_media.purged`/`request_media.purged`)

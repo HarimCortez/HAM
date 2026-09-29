@@ -1769,4 +1769,150 @@ service, `build_tokens --check`, pip-audit (non-blocking).
   constraint like this by editing the model and **regenerating the same migration** (`migrate
   <app> <prior>`, delete the migration file, `makemigrations`, `migrate`) rather than adding a
   second one — confirm the fix is real by reverting the constraint change temporarily, running
-  the new regression test (must fail), then restoring it (must pass) before committing.
+  the new regression test (must fail), then restoring it (must pass) before committing. **Only
+  do this when the migration is still your own slice's, not yet relied on by anyone else** — a
+  migration another already-merged/parallel slice's code and tests depend on (e.g. S3.0's
+  shared `requests/0004`, containing `Approval`/`Reconsideration`/`RequestQuestion` in full,
+  not a stub) should get a normal new follow-up migration (`0005_fix_...`) instead;
+  regenerating an already-relied-upon migration in place risks silently rewriting history
+  other parallel worktrees' own migration state assumes is fixed.
+
+## S3.3 (HAM questions to the requester)
+- **A `CheckConstraint` written as a biconditional (`answer='' <=> answered_at IS NULL`) on a
+  model whose own manager method exists specifically to *erase text while keeping the date*
+  (Q-145 retention: "blank `answer`, keep `answered_at` so 'Answered on {date}' and outcome
+  reporting still work") is a bug the moment that method actually runs** — S3.0's
+  `RequestQuestion` shipped exactly this shape (`reqq_answer_iff_answered_at`), which
+  `erase_text_for_retention`'s own `.update(answer="")` immediately violates. The fix is
+  loosening the CHECK to the one-directional invariant that was actually meant (`answer<>'' ⇒
+  answered_at IS NOT NULL`; the reverse — a surviving `answered_at` with erased text — is the
+  retention state itself, not a defect), in a new migration since `0004` was already shared/
+  relied-upon (see the note above). Lesson: whenever a contract promises "blank text field X,
+  keep timestamp Y", write the retention test *first* and actually run it against the real
+  constraint before trusting the schema someone else wrote is compatible with it.
+- **Requester ownership proof = "came from a token resolved fresh, right now" — a
+  `RequesterContext` is never itself the proof, only the vehicle.** `answer_question`'s job is
+  just `ctx.request_id == question.request_id` (the matrix's own `Scope.OWN_REQUEST` already
+  does this before the function body runs; the in-body check is defense in depth for a caller
+  that builds a `RequesterContext` by hand). The actual security property — "a forwarded/old
+  link can't act" — lives one layer up, in `ham.requester_portal.services.resolve_token`
+  always being called per-request, never cached/reused across requests; there is nothing a
+  callee holding a `RequesterContext` can check to detect "this came from a stale token",
+  because a freshly-resolved context for the *current* (surviving) link is indistinguishable
+  in shape from one that was somehow held onto longer. Test this at the integration seam
+  (`resolve_token(old_token) is None` after a second `issue_link` supersedes it), not by
+  trying to fabricate a "stale" `RequesterContext` object directly — that object carries no
+  timestamp/staleness of its own to assert against.
+- **Reuse `ham.requests.queries.is_masked_view(ctx)` for any new "Administrator sees X but not
+  Y" rule** (Q-124/Q-151) rather than re-deriving the Administrator-role-without-leadership-
+  role-and-not-impersonating-around-it check again — it already handles the impersonation
+  loophole (`ctx.real_user_id` check) that's easy to miss on a first pass.
+- **Implementing a stub the seam-owner (S3.0-style) declared touches three shared files, not
+  just the stub's own module**: (1) the stub's own file: replace `NotImplementedError` bodies
+  with real `@command`-wrapped ones; (2) the shared `tests/.../test_*_service_stubs.py` (or
+  equivalent) that pins "still raises `NotImplementedError`" for the whole seam — remove only
+  *your* functions' `lambda:` entries from its parametrize list, leave the other slice's stubs
+  (still genuinely unimplemented) alone; (3) `tests/audit/test_command_registry.py`'s
+  `PLACEHOLDER_ACTIONS` — remove your now-wired action codes so
+  `test_every_mutating_matrix_action_is_wired_or_a_known_placeholder` doesn't silently pass
+  for the wrong reason (a `@command` site now exists, it should count as wired, not as an
+  ignored placeholder). All three are usually owned by someone else's slice on paper, but
+  editing them minimally (only the lines your own newly-real functions touch) and flagging it
+  in the hand-back is the expected move, not leaving the shared file broken/stale.
+- **An "owner decisions and reconciliation" box's numbers can contradict the *same document's*
+  contracts-file appendix, not just its own prose body** — approvals.md's box said "question
+  500 characters, answer 1,000"; approvals-contracts.md §1.4 (written by the same slice,
+  S3.0) still said question ≤500/answer ≤2000 in the model docstring, an unfixed copy-paste
+  from before the box was added. The box wins (repo rule: "overrides the text below and the
+  other step-3 plan where they differ"), but the mismatched contracts-file text is worth
+  flagging in the hand-back for whoever reconciles docs — a later reader trusting the
+  contracts file alone would get the wrong number.
+- **A test asserting a cross-cutting "every closing edge does X" rule (approvals.md §2.2
+  "auto-closes open questions ... in the same transaction") must check the *actual* real
+  command, not just call the lower-level helper it's supposed to wire in** — writing
+  `cancel_request(...)` then asserting the question got auto-closed looked like the obvious
+  test, but `cancel_request` (a different slice's file, not yet updated to call
+  `close_open_questions`) doesn't do this yet; the test would have been asserting future/
+  wished-for behavior, and (as happened here) failed immediately, revealing it's not wired.
+  Test your own function directly, and flag in the hand-back what the *other* file still
+  needs to call, rather than writing an integration test across a not-yet-built seam.
+
+## S3.2 (decisions core: approve/reject/certify/reconsider/undo/held effects)
+- **"First decision wins" concurrency needs no special mechanism beyond the existing
+  `select_for_update()` pattern.** `approve_request`/`reject_request`/`decide_reconsideration`
+  already `select_for_update()` the `AssistanceRequest` row before calling `check_transition`;
+  a second concurrent decider's transaction blocks on that row lock until the first commits,
+  then re-reads a status that's already moved on, so `check_transition` returns `WRONG_STATE`
+  on its own. The `Approval` table's partial unique index (`condition=Q(undone_at__isnull=
+  True)`) is a DB-level backstop for any write path that *doesn't* go through this lock, not
+  the primary mechanism. Testing this for real needs `@pytest.mark.django_db(transaction=True)`
+  + two real `threading.Thread`s (a plain `db` fixture's single wrapping transaction can't
+  demonstrate cross-transaction blocking) — **and that real-commit test must clean up after
+  itself**: every job it deferred (including an unrelated one a shared test helper enqueues,
+  e.g. `submit_request`'s own `defer_complete_intake_checks` even when the test also calls
+  `complete_intake_checks` directly right after) survives the test's DB flush as a real
+  `procrastinate_jobs` row. Don't call `run_due_jobs_now()` to "clean up" — it *executes*
+  every due job, including that unrelated stale one, which can now fail loudly against
+  already-decided state (`wrong_state`) and crash the test. Instead, delete the leftover
+  `todo` rows directly (`DELETE FROM procrastinate_jobs WHERE status = 'todo'`) so nothing
+  survives to be picked up by an unrelated *later* test's own `run_due_jobs_now()` call
+  (confirmed empirically: without this, two unrelated tests two files away failed with
+  `AssistanceRequest.DoesNotExist` purely from running the suite in full vs. deselecting the
+  one `transaction=True` test — order/isolation bugs like this only show up at full-suite
+  scale, never in isolation).
+- **A held-decision-effects job doesn't need its own new outbox/effects table — reuse the
+  decision's own `effective_at` + a same-shaped idempotency marker (`effects_ran_at`,
+  `ONCE_FIELDS`) already declared on the `Approval` row, and `ham.jobs.defer_later(...,
+  schedule_at=...)`** (the existing "defer a job for a specific future instant" primitive,
+  distinct from `periodic_job`'s cron shape). The job itself: re-fetch under
+  `select_for_update()`, check `undone_at` first (still mark `effects_ran_at` even when
+  undone — that's what makes a retried/duplicate invocation provably a no-op either way), then
+  release effects and mark `effects_ran_at`. Release = emit the *same* `RequestApproved`/
+  `RequestRejected` outbox event the deciding command *didn't* emit at decide time (the normal
+  `@command` pattern doesn't apply to this one event for this one purpose) plus call the
+  already-real `close_open_questions(request_id, reason="request_closed")` — never re-derive
+  "what does closing mean" logic in the job; call the one function that already knows.
+- **"The urgent-approval alert is never held" means literally emit the decision's own outbox
+  event (`RequestApproved`/`UrgencyCertified` with `urgent_approval=True`) a second time,
+  immediately, from inside the deciding `@command`'s own transaction** (via `ham.outbox.api.
+  emit` called by hand, same shape as `complete_intake_checks`'s hand-written second audit
+  row) — *not* a new, separate "alert" event type. The held copy still goes out later at
+  `effective_at` for the batch-close/question-close/leader-update side effects; the immediate
+  copy exists purely so the leadership notification builder (a later slice) can react to
+  `urgent_approval=True` right away. This means `RequestApproved` can legitimately be
+  delivered twice for one urgent decision (once immediate, once held) — every subscriber for
+  it must already be a safe no-op on a repeat for the same `request_id`/`stage` (media close
+  and `close_open_questions` already are; flag any new one that isn't in the hand-back rather
+  than silently assuming).
+- **`Approval` stores no "urgency before this decision" field** — a decision that bundled a
+  certify/decline (`approve_request(certify_urgent=True/decline_urgency=True)`) can't have
+  that urgency choice reconstructed and restored by a later `undo_decision` call; undo can
+  only safely restore the request's *status* (and `closed_at`/`reconsideration_deadline_at`
+  where the decision closed/opened the request). Don't invent a reconstruction heuristic
+  (e.g. "certify implies it was AWAITING_CERTIFICATION") — it's genuinely ambiguous (could
+  also have been NOT_CERTIFIED) with today's schema. Flag it as a real gap in the hand-back
+  instead of guessing.
+- **A matrix action declared `ANY` scope with `resource_from` omitted is fine** — `Scope.ANY`
+  never inspects the resource `authorize()` receives, so a command like `request.decision.undo`
+  (looked up by `approval_id`, not `request_id`) doesn't need a `resource_from` at all; don't
+  manufacture one just to match a pattern other commands in the same file happen to use.
+- **Extending an existing edge's actor set to include already-closable states (the CANCEL
+  extension, Q-165) means auditing every existing caller of `check_transition` for that
+  action, not just adding the new source states to `states.py`.** `ham.requests.services.
+  cancel_request` (a different slice's original file) had never passed `now`/`closed_at`/
+  `decision_undo_open` to `check_transition` at all — harmless while CANCEL's only sources
+  were pre-decision statuses (nothing there is ever "closed" or mid-undo-window), but once
+  APPROVED/RECONSIDERATION_PENDING joined the source set those three facts are exactly what
+  gates "not while closed already" (`ALREADY_FINAL`) and "not while the decision that
+  produced this state can still be undone" (`DECISION_UNDO_WINDOW_OPEN`). Grep every call
+  site of an edge before assuming "the rule lives in states.py" is the whole story — a caller
+  built before the edge grew new guards can silently bypass them by omitting the new kwargs
+  (they all default away to "no restriction").
+- **When a coordinator/merge note says "every closing edge must call `close_open_questions`
+  in the same transaction," that's about *immediate* closes (cancel, finalize) — it does
+  *not* override a slice's own already-decided held-effects design for a *different* set of
+  edges (the Approval-driven approve/reject/reconsider-reject closes, which intentionally
+  hold question-closing until `effective_at` per the undo contract).** Read a coordinator
+  note as "the specific gap it names," not as blanket license to unwind a documented,
+  deliberate design difference elsewhere — when genuinely unsure whether it's one or the
+  other, that's a "stop and report the conflict" moment, not a silent pick.

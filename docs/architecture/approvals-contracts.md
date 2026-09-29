@@ -112,7 +112,7 @@ Retention: `Reconsideration.objects.erase_text_for_retention(request)` blanks
 | `request` | FK → `AssistanceRequest`, `related_name="questions"` | |
 | `asked_by_user_id` / `asked_at` | | |
 | `question` | `TextField` — **C** | ≤500 chars (form-level); **never edited**, not in `ONCE_FIELDS` |
-| `answer` | `TextField`, blank — **C** | ≤2000 chars (form-level); `ONCE_FIELDS`, written once |
+| `answer` | `TextField`, blank — **C** | ≤1000 chars (form-level, owner box; `ANSWER_MAX_LENGTH`); `ONCE_FIELDS`, written once |
 | `answered_at` / `answered_via` / `answer_recorded_by_user_id` | | `ONCE_FIELDS`, set together with `answer` |
 | `closed_at` / `close_reason` / `closed_by_user_id` | | `ONCE_FIELDS`; `close_reason` is `QuestionCloseReason` (`withdrawn` \| `request_closed`) |
 

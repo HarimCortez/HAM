@@ -343,6 +343,19 @@ def test_two_approvers_deciding_at_once_only_one_wins(
         AuditEvent.objects.filter(action__in=["request.approved", "request.rejected"]).count() == 1
     )
 
+    # This is a `transaction=True` test (real commits, so the row lock genuinely serializes
+    # the two threads): every job this test deferred (the duplicate-check job `_awaiting`'s
+    # `submit_request` call always enqueues, the held-effects job the winning decision
+    # defers, ...) was committed for real and would otherwise survive this test's own DB
+    # flush -- an unrelated later test's own `run_due_jobs_now()` would then pick up a stale
+    # `complete_intake_checks` job for an already-decided request id (`wrong_state`) or a
+    # stale delivery pointed at an already-flushed row. Discard them without running them:
+    # this test has already made and checked every assertion it needs to.
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE status = 'todo'")
+
 
 # ------------------------------------------------------------------------------------------
 # review_urgency

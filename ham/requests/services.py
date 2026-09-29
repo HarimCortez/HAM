@@ -41,7 +41,6 @@ from ham.requests.models import (
     RequestContactVerification,
     Requester,
     RequestMatch,
-    RequestQuestion,
     UrgencyReason,
     next_reference_number,
 )
@@ -760,9 +759,16 @@ def purge_expired_request(ctx: SystemContext, *, request_id: UUID) -> CommandRes
     # S3.2 (approvals-contracts.md §1.2-§1.4, Q-127/Q-145): the same 7-year purge also blanks
     # decision messages/notes, the reconsideration note and question text/answers -- codes
     # (`reason_code`, `outcome`, `route`), dates and ids are kept (outcome reporting).
+    # `erase_question_text` (S3.3, coordinator note) is the one call site for the question
+    # side -- a thin, request-id-keyed wrapper around `RequestQuestion.objects.
+    # erase_text_for_retention` this module never calls directly, so there is exactly one
+    # legal caller of that manager method (mirrors `RequestContactVerification`'s own
+    # single-call-site convention above).
+    from .services_questions import erase_question_text
+
     Approval.objects.erase_text_for_retention(request)
     Reconsideration.objects.erase_text_for_retention(request)
-    RequestQuestion.objects.erase_text_for_retention(request)
+    erase_question_text(request.id)
 
     return CommandResult(
         value=request,
