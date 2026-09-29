@@ -36,7 +36,7 @@ from typing import Any
 
 from .types import CalendarYears, Pending
 
-RULES_VERSION = "2026.09.28-8"
+RULES_VERSION = "2026.09.28-9"
 
 
 def rule(
@@ -349,11 +349,11 @@ class RequesterAccessRules:
         label="Normal requester link keeps working this long after a request closes without "
         "being completed (Cancelled, Not Executable, or a final rejection); after that the "
         "requester can get a new 14-day link",
-        sources=("PRD §7.3", "PRD §52", "Q-116"),
+        sources=("PRD §7.3", "PRD §52", "Q-116", "Q-155"),
         note=proposed(
             "Q-116",
             "Mirrors the 7 days after completion. A rejection that can still be reconsidered "
-            "is not a close.",
+            "is not a close: a decline closes when it becomes final (Q-155).",
         ),
         provisional=("Q-116",),
     )
@@ -556,13 +556,19 @@ class MediaRules:
         timedelta(days=30),
         label="Project videos are deleted this long after the project is Completed or Rejected "
         "(unless approved for publication)",
-        sources=("PRD §47.1", "PRD §47.4", "PRD §76"),
+        sources=("PRD §47.1", "PRD §47.4", "PRD §76", "Q-155"),
+        note="For a declined request the clock starts when the decline becomes final (after "
+        "the reconsideration window or the reconsideration decision), not at the first "
+        "decision (Q-155).",
     )
     PHOTO_RETENTION_AFTER_CLOSE: timedelta = rule(
         timedelta(days=90),
         label="Project photos are deleted this long after the project is Completed or Rejected "
         "(unless approved for publication)",
-        sources=("PRD §47.2", "PRD §47.4", "PRD §76"),
+        sources=("PRD §47.2", "PRD §47.4", "PRD §76", "Q-155"),
+        note="For a declined request the clock starts when the decline becomes final (after "
+        "the reconsideration window or the reconsideration decision), not at the first "
+        "decision (Q-155).",
     )
     MEDIA_RETENTION_CLOCK_ON_CANCELLATION: bool = rule(
         True,
@@ -837,6 +843,39 @@ class AuthRules:
 
 
 # --------------------------------------------------------------------------------------
+# Approvals and reconsideration (PRD §8, §8.3, §8.4; step 3)
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ApprovalRules:
+    # Church-local CALENDAR days, not elapsed time (Q-174): the window ends at the end of the
+    # church-local day this many days after the decision's church-local day. Compute it only
+    # with ``ham.requests.states.reconsideration_deadline``; never ``decided_at + days``.
+    RECONSIDERATION_REQUEST_WINDOW: int = rule(
+        14,
+        label="A requester may ask HAM to take another look at a declined request until the "
+        "end of this day after the decision (church time); then the decline becomes final",
+        unit="days",
+        unit_one="day",
+        sources=("PRD §8.4", "PRD §7.3", "PRD §47", "Q-155", "Q-174"),
+        note=proposed(
+            "Q-174",
+            "14 days is decided (Q-155). The cutoff is the end (23:59:59) of the church-local "
+            "calendar day printed in the email, 14 days after the decision's church-local day; "
+            "stored in UTC. An undone and re-made decision starts a new window.",
+        ),
+        provisional=("Q-174",),
+    )
+    DECISION_UNDO_WINDOW: timedelta = rule(
+        timedelta(minutes=30),
+        label="The person who recorded a decision may undo it for; the requester email and "
+        "other held effects wait until this has passed",
+        sources=("PRD §8", "PRD §3.3", "PRD §58", "Q-156", "Q-176"),
+        note="Elapsed time. Decided (Q-156). Who may undo and which effects are held follow "
+        "Q-176 (proposed default in use): the urgent-approval alert is never held (§10).",
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Public reporting (PRD §63, §68)
 # --------------------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
@@ -919,6 +958,7 @@ class Rules:
         RequesterAccessRules, label="Requester links and completion survey"
     )
     intake: IntakeRules = group(IntakeRules, label="Public request form and requester codes")
+    approvals: ApprovalRules = group(ApprovalRules, label="Approvals and reconsideration")
     media: MediaRules = group(MediaRules, label="Media uploads and retention")
     retention: RetentionRules = group(RetentionRules, label="Record retention")
     auth: AuthRules = group(AuthRules, label="Sign-in and security")
@@ -1150,6 +1190,18 @@ def check_invariants(rules: Rules = RULES) -> tuple[str, ...]:
         p.append("spam retention must be positive")
     if not rules.retention.REQUEST_RECORD_RETENTION_AFTER_CLOSE.years >= 1:
         p.append("request record retention must be at least a year")
+
+    ap = rules.approvals
+    window = ap.RECONSIDERATION_REQUEST_WINDOW
+    if isinstance(window, bool) or not isinstance(window, int) or window < 1:
+        p.append("reconsideration window must be a whole number of days, at least 1")
+    elif not timedelta(0) < ap.DECISION_UNDO_WINDOW < timedelta(days=1) <= timedelta(days=window):
+        # The undo window must end long before a reconsideration can be asked for or the
+        # decline finalized, so an undo can never race either (Q-156, Q-174, Q-176).
+        p.append(
+            "decision undo window must be positive and shorter than a day, and a day no "
+            "longer than the reconsideration window"
+        )
 
     o = rules.outbox
     if not (o.OUTBOX_MAX_ATTEMPTS >= 1 and o.OUTBOX_BACKOFF_INITIAL <= o.OUTBOX_BACKOFF_MAX):

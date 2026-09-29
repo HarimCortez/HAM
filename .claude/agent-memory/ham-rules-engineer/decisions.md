@@ -72,3 +72,46 @@ Q-numbers: use docs/prd-open-questions.md Q-099–Q-132 (intake.md body numbers 
 - `ham/requester_portal/validity.py`: valid while now < valid_until; regenerated at exactly
   the access end counts as "after" (14 d). completed_at beats closed_at. Naive datetimes and
   inconsistent status/timestamps raise ValueError. NEEDS_PHONE_CHECK -> NO_ACCESS.
+
+## 2026.09.28-9 — step 3 approvals (S3.1, branch s31-rules)
+Q-numbers: docs/prd-open-questions.md Q-153–Q-176; the owner box at the top of
+docs/architecture/approvals.md overrides its body (30 d window and "no undo" are superseded).
+- New group `approvals`: RECONSIDERATION_REQUEST_WINDOW = 14 as an **int of church-local
+  calendar days** (unit "days"), NOT a timedelta, so `decided_at + window` can't silently give
+  an elapsed-time cutoff. Provisional Q-174 (the reading); value decided Q-155.
+  DECISION_UNDO_WINDOW = timedelta(30 min), decided Q-156, not provisional.
+  Invariant: 0 < undo < 1 day <= window days; window int >= 1 (bool rejected).
+  Metadata only: REQUESTER_ACCESS_AFTER_CLOSE and PHOTO/VIDEO_RETENTION cite Q-155.
+- Date math (states.py): `reconsideration_last_day` = church-local date of decided_at + 14
+  days; `reconsideration_deadline` = datetime.combine(last_day, time.max, tzinfo=zone) -> UTC
+  (23:59:59.999999). Tested DST both ways in America/New_York, fold=1 hour, year end.
+  `may_request_reconsideration`: now <= deadline (inclusive). FINALIZE allowed iff not.
+  Undo: `decision_is_undoable` = undone_at is None and now < decided_at + 30 min (at exactly
+  30:00 too late; held effects release).
+- states.py step 3: actions APPROVE, REJECT, REQUEST_RECONSIDERATION (REQUESTER; DIR/AD by
+  phone), RECONSIDER_APPROVE/REJECT, FINALIZE_REJECTION (SYSTEM, self-edge REJECTED ->
+  REJECTED, closes), CANCEL + APPROVED/RECONSIDERATION_PENDING (requester_withdrew only).
+  `Transition.closes_request` field: CANCEL, RECONSIDER_REJECT, FINALIZE. TERMINAL_STATUSES
+  stays {CANCELLED} (validity.py relies on it); use `is_closed(status, closed_at)` (raises
+  on a NEVER_CLOSED status with closed_at; unknown later statuses follow closed_at).
+  Generic guard: any existing request with closed_at -> ALREADY_FINAL (idempotent finalize).
+- Route (Q-164): required each time, must hold ROUTE_ROLE[route]; reconsideration uses the
+  RECORDED route. `may_decide_reconsideration`: Board route any BRD; pastoral = original, or
+  take_over + unavailable tick; original not an active pastor -> any pastor, no tick, still
+  took_over_from. Tick without take_over is NOT a take-over.
+- APPROVE/RECONSIDER_APPROVE require the `urgency` fact (FACTS_MISSING) so an urgent approval
+  is never missed; `certify_urgent` = pastoral route + certifiable urgency. Decision carries
+  `urgent_approval`, `took_over_from`. `becomes_urgent_approval(before, after)` = alert once.
+- Urgency sub-machine: CERTIFY from awaiting/not_certified while AWAITING_APPROVAL/APPROVED;
+  DECLINE from awaiting only while AWAITING_APPROVAL (arch table; decline-after-Board-approval
+  flagged as a new gap). PASTOR only; NONE never certifiable.
+- Undo = `check_undo(decision, actor_id, decided_by_id, decided_at, now, undone_at,
+  current_status, current_urgency, prior_urgency)`: undoable APPROVE/REJECT/RECONSIDER_*/
+  CERTIFY/DECLINE (decline included = my reading of Q-176, flagged). Only decider, not
+  impersonating, state must still be what the decision produced. prior_urgency required for
+  urgency reviews and for "Approve as urgent". Returns restore_status/urgency,
+  reopens_request (RECONSIDER_REJECT), clears_reconsideration_deadline (REJECT),
+  urgent_approval_undone (Q-176 follow-up). No audit/outbox names chosen (S3.0 owns).
+- `decision_undo_open` fact refuses REQUEST_RECONSIDERATION, FINALIZE and post-decision CANCEL
+  (derived from Q-176 "held effects"; flagged).
+- RejectionReason StrEnum lives in states.py; a skip-until-present test pins models' choices.

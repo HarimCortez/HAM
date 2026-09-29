@@ -1,12 +1,14 @@
-"""Request state machine (PRD §52; intake.md §4; Q-025, Q-106, Q-107). Pure, no DB.
+"""Request state machine (PRD §52; intake.md §4; approvals.md §2.2). Pure, no DB.
 
-The expected table below is typed from the architecture plan and the owner decisions, not
-copied from ``TRANSITIONS``.
+The expected table below is typed from the architecture plans and the owner decisions
+(Q-025, Q-106, Q-107, Q-153, Q-155, Q-159, Q-164, Q-165), not copied from ``TRANSITIONS``.
+Step-3 guard details live in ``test_request_states_approvals.py``.
 """
 
 from __future__ import annotations
 
 import itertools
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -34,14 +36,51 @@ REQ = {"REQUESTER"}
 SYS = {"SYSTEM"}
 VOL = {"VOLUNTEER"}
 
-# Facts that satisfy each action's domain guard, so the tests below isolate state/actor.
-GOOD_FACTS: dict[RequestAction, dict[str, object]] = {
-    A.SUBMIT_VERIFIED: {"verification_method": "email_code", "has_email": True},
-    A.SUBMIT_WITHOUT_EMAIL: {"email_opt_out": True, "has_email": False},
-    A.VERIFY_BY_PHONE: {},
-    A.COMPLETE_INTAKE_CHECKS: {"intake_checks_complete": True},
-    A.CANCEL: {"reason": "spam"},
-}
+NOW = datetime(2026, 10, 1, 16, 0, tzinfo=UTC)
+KIND = "We're so sorry we can't help with this."
+
+
+def good_facts(action: RequestAction, roles: set[str] | frozenset[str]) -> dict[str, object]:
+    """Facts that satisfy each action's domain guard, so the tests below isolate state/actor.
+
+    The route follows the actor's role (a pastor decides on the pastoral route, the Board rep
+    on the Board route, Q-164); the reconsideration decider is the original decider.
+    """
+    route = "pastoral" if "PASTOR" in roles else "board"
+    facts: dict[RequestAction, dict[str, object]] = {
+        A.SUBMIT_VERIFIED: {"verification_method": "email_code", "has_email": True},
+        A.SUBMIT_WITHOUT_EMAIL: {"email_opt_out": True, "has_email": False},
+        A.VERIFY_BY_PHONE: {},
+        A.COMPLETE_INTAKE_CHECKS: {"intake_checks_complete": True},
+        # valid before and after a decision (Q-107, Q-165)
+        A.CANCEL: {"reason": "requester_withdrew"},
+        A.APPROVE: {"route": route, "urgency": "none"},
+        A.REJECT: {"route": route, "reason_code": "another_reason", "message": KIND},
+        A.REQUEST_RECONSIDERATION: {
+            "now": NOW,
+            "reconsideration_deadline_at": NOW + timedelta(days=1),
+        },
+        A.RECONSIDER_APPROVE: {
+            "route": route,
+            "actor_id": "u1",
+            "original_decider_id": "u1",
+            "message": "We took another look.",
+            "urgency": "none",
+        },
+        A.RECONSIDER_REJECT: {
+            "route": route,
+            "actor_id": "u1",
+            "original_decider_id": "u1",
+            "reason_code": "couldnt_confirm",
+            "message": KIND,
+        },
+        A.FINALIZE_REJECTION: {
+            "now": NOW,
+            "reconsideration_deadline_at": NOW - timedelta(microseconds=1),
+        },
+    }
+    return facts[action]
+
 
 # (action, from) -> (to, allowed actor role sets)
 EXPECTED_EDGES: dict[tuple[RequestAction, RequestStatus | None], RequestStatus] = {
@@ -52,6 +91,15 @@ EXPECTED_EDGES: dict[tuple[RequestAction, RequestStatus | None], RequestStatus] 
     (A.CANCEL, S.NEEDS_PHONE_CHECK): S.CANCELLED,
     (A.CANCEL, S.SUBMITTED): S.CANCELLED,
     (A.CANCEL, S.AWAITING_APPROVAL): S.CANCELLED,
+    # Step 3
+    (A.APPROVE, S.AWAITING_APPROVAL): S.APPROVED,
+    (A.REJECT, S.AWAITING_APPROVAL): S.REJECTED,
+    (A.REQUEST_RECONSIDERATION, S.REJECTED): S.RECONSIDERATION_PENDING,
+    (A.RECONSIDER_APPROVE, S.RECONSIDERATION_PENDING): S.APPROVED,
+    (A.RECONSIDER_REJECT, S.RECONSIDERATION_PENDING): S.REJECTED,
+    (A.FINALIZE_REJECTION, S.REJECTED): S.REJECTED,
+    (A.CANCEL, S.APPROVED): S.CANCELLED,  # Q-165
+    (A.CANCEL, S.RECONSIDERATION_PENDING): S.CANCELLED,  # Q-165
 }
 EXPECTED_ACTORS: dict[RequestAction, list[set[str]]] = {
     A.SUBMIT_VERIFIED: [REQ],
@@ -59,6 +107,12 @@ EXPECTED_ACTORS: dict[RequestAction, list[set[str]]] = {
     A.VERIFY_BY_PHONE: [DIR, AD],
     A.COMPLETE_INTAKE_CHECKS: [SYS],
     A.CANCEL: [DIR, AD],
+    A.APPROVE: [PAS, BRD],
+    A.REJECT: [PAS, BRD],
+    A.REQUEST_RECONSIDERATION: [REQ, DIR, AD],  # Q-159: DIR/AD record a phone request
+    A.RECONSIDER_APPROVE: [PAS, BRD],
+    A.RECONSIDER_REJECT: [PAS, BRD],
+    A.FINALIZE_REJECTION: [SYS],
 }
 ALL_ACTORS = [DIR, AD, PAS, BRD, ADM, REQ, SYS, VOL]
 ALL_FROM: list[RequestStatus | None] = [None, *RequestStatus]
@@ -85,7 +139,8 @@ def test_table_has_exactly_the_expected_edges() -> None:
 def test_every_action_state_actor_combination(
     action: RequestAction, current: RequestStatus | None, roles: set[str]
 ) -> None:
-    d = check_transition(action, current, actor_roles=roles, **GOOD_FACTS[action])  # type: ignore[arg-type]
+    facts = good_facts(action, roles)
+    d = check_transition(action, current, actor_roles=roles, **facts)  # type: ignore[arg-type]
     edge = (action, current)
     if edge not in EXPECTED_EDGES:
         assert not d.allowed
@@ -107,14 +162,14 @@ def test_role_union_counts() -> None:
 @pytest.mark.parametrize("action", [A.VERIFY_BY_PHONE, A.CANCEL])
 def test_blocked_while_impersonating(action: RequestAction) -> None:
     current = S.NEEDS_PHONE_CHECK
-    ok = check_transition(action, current, actor_roles=DIR, **GOOD_FACTS[action])  # type: ignore[arg-type]
+    ok = check_transition(action, current, actor_roles=DIR, **good_facts(action, DIR))  # type: ignore[arg-type]
     assert ok.allowed
     d = check_transition(
         action,
         current,
         actor_roles=DIR,
         is_impersonating=True,
-        **GOOD_FACTS[action],  # type: ignore[arg-type]
+        **good_facts(action, DIR),  # type: ignore[arg-type]
     )
     assert not d.allowed
     assert d.refusal is Refusal.BLOCKED_WHILE_IMPERSONATING
@@ -270,23 +325,51 @@ def test_requester_notification_on_cancel(reason: str, notified: bool) -> None:
     assert states.requester_notified_of_cancellation(reason) is notified
 
 
-def test_cannot_cancel_twice_or_after_a_decision() -> None:
-    for current in (S.CANCELLED, S.APPROVED, S.REJECTED, S.RECONSIDERATION_PENDING):
-        d = check_transition(A.CANCEL, current, actor_roles=DIR, reason="spam")
-        assert d.refusal is Refusal.WRONG_STATE
+def test_cannot_cancel_twice_or_an_open_rejection() -> None:
+    """Q-165: not from an open rejection, which finalizes on its own."""
+    for current in (S.CANCELLED, S.REJECTED):
+        for reason in ("spam", "requester_withdrew"):
+            d = check_transition(A.CANCEL, current, actor_roles=DIR, reason=reason)
+            assert d.refusal is Refusal.WRONG_STATE
+
+
+@pytest.mark.parametrize("current", [S.APPROVED, S.RECONSIDERATION_PENDING])
+@pytest.mark.parametrize(
+    ("reason", "refusal"),
+    [
+        ("requester_withdrew", None),
+        ("spam", Refusal.REASON_NOT_ALLOWED),
+        ("duplicate_submission", Refusal.REASON_NOT_ALLOWED),
+        ("couldnt_reach_them", Refusal.REASON_NOT_ALLOWED),
+        (None, Refusal.REASON_REQUIRED),
+    ],
+)
+def test_after_a_decision_only_requester_withdrew(
+    current: RequestStatus, reason: str | None, refusal: Refusal | None
+) -> None:
+    """Q-165: after a decision, Director/AD may close only as "requester withdrew"."""
+    d = check_transition(A.CANCEL, current, actor_roles=AD, reason=reason)
+    assert d.refusal is refusal
+    if refusal is None:
+        assert d.target is S.CANCELLED
+        assert d.closes_request
 
 
 # --- misc -----------------------------------------------------------------------------------
-def test_only_cancel_closes_in_step_2() -> None:
+def test_exactly_these_edges_close_the_request() -> None:
+    """Cancel, the final reconsideration decline and automatic finalization close; a first
+    decline does not (it can still be reconsidered, Q-116/Q-155)."""
+    closing = {A.CANCEL, A.RECONSIDER_REJECT, A.FINALIZE_REJECTION}
     for t in states.TRANSITIONS:
-        d = check_transition(
-            t.action,
-            next(iter(t.sources)),
-            actor_roles=t.actors,
-            **GOOD_FACTS[t.action],  # type: ignore[arg-type]
-        )
-        assert d.allowed
-        assert d.closes_request is (t.action is A.CANCEL)
+        for source in t.sources:
+            d = check_transition(
+                t.action,
+                source,
+                actor_roles=t.actors,
+                **good_facts(t.action, t.actors),  # type: ignore[arg-type]
+            )
+            assert d.allowed, (t.action, source, d)
+            assert d.closes_request is (t.action in closing)
     assert states.is_terminal(S.CANCELLED)
     assert not states.is_terminal("AWAITING_APPROVAL")
 
@@ -304,7 +387,7 @@ def test_audit_and_outbox_names() -> None:
 
 
 def test_unknown_inputs_are_refused_not_raised() -> None:
-    assert check_transition("approve", S.AWAITING_APPROVAL, actor_roles=PAS).refusal is (
+    assert check_transition("approve_all", S.AWAITING_APPROVAL, actor_roles=PAS).refusal is (
         Refusal.UNKNOWN_ACTION
     )
     assert check_transition(A.CANCEL, "BOGUS", actor_roles=DIR, reason="spam").refusal is (
@@ -315,7 +398,12 @@ def test_unknown_inputs_are_refused_not_raised() -> None:
 def test_allowed_actions_for_buttons() -> None:
     assert allowed_actions(S.NEEDS_PHONE_CHECK, DIR) == (A.VERIFY_BY_PHONE, A.CANCEL)
     assert allowed_actions(S.AWAITING_APPROVAL, AD) == (A.CANCEL,)
-    assert allowed_actions(S.AWAITING_APPROVAL, PAS) == ()  # step 3 adds decisions
+    assert allowed_actions(S.AWAITING_APPROVAL, PAS) == (A.APPROVE, A.REJECT)
+    assert allowed_actions(S.AWAITING_APPROVAL, BRD) == (A.APPROVE, A.REJECT)
+    assert allowed_actions(S.AWAITING_APPROVAL, ADM) == ()
+    assert allowed_actions(S.REJECTED, REQ) == (A.REQUEST_RECONSIDERATION,)
+    assert allowed_actions(S.REJECTED, SYS) == (A.FINALIZE_REJECTION,)
+    assert allowed_actions(S.APPROVED, DIR) == (A.CANCEL,)
     assert allowed_actions(None, REQ) == (A.SUBMIT_VERIFIED, A.SUBMIT_WITHOUT_EMAIL)
     assert allowed_actions(S.CANCELLED, DIR) == ()
 
